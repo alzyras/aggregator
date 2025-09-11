@@ -27,6 +27,9 @@ class PluginManager:
                 elif module_name == "habitica":
                     from uv_app.plugins.habitica.plugin import HabiticaPlugin
                     self.plugins[module_name] = HabiticaPlugin()
+                elif module_name == "toggl":
+                    from uv_app.plugins.toggl.plugin import TogglPlugin
+                    self.plugins[module_name] = TogglPlugin()
                 logger.info(f"Loaded plugin: {module_name}")
             except ImportError as e:
                 logger.error(f"Failed to load plugin {module_name}: {e}")

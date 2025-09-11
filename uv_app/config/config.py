@@ -34,6 +34,10 @@ class Config:
         # Habitica settings (only needed if Habitica is enabled)
         self.habitica_user_id = os.environ.get('HABITICA_USER_ID')
         self.habitica_api_token = os.environ.get('HABITICA_API_TOKEN')
+        
+        # Toggl settings (only needed if Toggl is enabled)
+        self.toggl_api_token = os.environ.get('TOGGL_API_TOKEN')
+        self.toggl_workspace_id = os.environ.get('TOGGL_WORKSPACE_ID')
 
     def validate(self) -> Dict[str, Any]:
         """Validate configuration and return any errors."""
@@ -60,6 +64,12 @@ class Config:
         if "habitica" in self.enabled_plugins and not all([self.habitica_user_id, self.habitica_api_token]):
             errors["habitica"] = (
                 "Missing Habitica configuration (HABITICA_USER_ID, HABITICA_API_TOKEN)"
+            )
+        
+        # Check Toggl configuration if enabled
+        if "toggl" in self.enabled_plugins and not all([self.toggl_api_token, self.toggl_workspace_id]):
+            errors["toggl"] = (
+                "Missing Toggl configuration (TOGGL_API_TOKEN, TOGGL_WORKSPACE_ID)"
             )
         
         return errors

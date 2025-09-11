@@ -97,6 +97,17 @@ Collects completed habits, dailies, and todos from Habitica.
 4. Update `uv_app/plugin_manager.py` to load your plugin
 5. Add any required SQL schema files to `uv_app/plugins/your_plugin/sql/`
 
+### Toggl Plugin
+
+The Toggl plugin fetches time tracking data from the Toggl API. To use it:
+
+1. Obtain a Toggl API token from your Toggl account settings
+2. Find your workspace ID in Toggl (you can see it in the URL when viewing your workspace)
+3. Set the following environment variables in your `.env` file:
+   - `TOGGL_API_TOKEN=your_api_token_here`
+   - `TOGGL_WORKSPACE_ID=your_workspace_id_here`
+4. Add `toggl` to the `ENABLED_PLUGINS` list
+
 ### Example Plugin Structure
 
 ```

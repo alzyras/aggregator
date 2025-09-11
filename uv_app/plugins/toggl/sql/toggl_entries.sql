@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS toggl_entries (
+    id BIGINT PRIMARY KEY,
+    user_id BIGINT,
+    user_name VARCHAR(255),
+    project_id BIGINT,
+    project_name VARCHAR(255),
+    client_id BIGINT,
+    client_name VARCHAR(255),
+    description TEXT,
+    start_time DATETIME,
+    end_time DATETIME,
+    duration_minutes DECIMAL(10, 2),
+    tags TEXT,
+    billable BOOLEAN,
+    created_at DATETIME,
+    INDEX idx_user_id (user_id),
+    INDEX idx_project_id (project_id),
+    INDEX idx_start_time (start_time),
+    INDEX idx_end_time (end_time)
+);
