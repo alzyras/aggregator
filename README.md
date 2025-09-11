@@ -95,7 +95,7 @@ Collects completed habits, dailies, and todos from Habitica.
 2. Implement the `PluginInterface` in `uv_app/plugins/your_plugin/plugin.py`
 3. Add configuration variables to `uv_app/config/config.py`
 4. Update `uv_app/plugin_manager.py` to load your plugin
-5. Add any required SQL schema files to `store/sql/`
+5. Add any required SQL schema files to `uv_app/plugins/your_plugin/sql/`
 
 ### Example Plugin Structure
 

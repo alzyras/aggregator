@@ -1,11 +1,13 @@
+import os
 import pandas as pd
 import logging
 from typing import Tuple
+
 from uv_app.plugin_interface import PluginInterface
-from uv_app.plugins.habitica.get_habits_dailies_df import main as get_habits_dailies_df
-from uv_app.plugins.habitica.get_todos_df import main as get_todos_df
 from uv_app.plugins.habitica.df_to_mysql import write_dataframe_to_mysql_batch, execute_sql_file
 
+from .get_habits_dailies_df import main as get_habits_dailies_df
+from .get_todos_df import main as get_todos_df
 
 # Create a logger for this module
 logger = logging.getLogger(__name__)
@@ -20,36 +22,24 @@ class HabiticaPlugin(PluginInterface):
         return "habitica"
 
     def fetch_data(self) -> pd.DataFrame:
-        """Fetch data from Habitica (todos, habits, and dailies)."""
-        # Get todos
-        df_todos = get_todos_df()
-        
-        # Get habits and dailies
+        """Fetch data from the service and return as a DataFrame."""
+        logger.info("Fetching data from Habitica")
         df_habits_dailies = get_habits_dailies_df()
-        
-        # Combine dataframes
-        if df_todos is not None and df_habits_dailies is not None:
-            combined_dataframe = pd.concat([df_todos, df_habits_dailies], ignore_index=True)
-            return combined_dataframe
-        if df_todos is not None:
-            return df_todos
-        if df_habits_dailies is not None:
-            return df_habits_dailies
-        return pd.DataFrame()
+        df_todos = get_todos_df()
+        df = pd.concat([df_habits_dailies, df_todos], ignore_index=True)
+        return df
 
     def write_to_database(self, df: pd.DataFrame) -> Tuple[int, int]:
-        """Write Habitica DataFrame to MySQL database."""
+        """Write DataFrame to database and return (inserted_count, duplicate_count)."""
         if df is not None and not df.empty:
-            # For simplicity, we'll treat all items the same way
-            # In a more complex implementation, we might want to separate them
-            return write_dataframe_to_mysql_batch(df, "Habitica Items")
+            logger.info(f"Writing {len(df)} records to database")
+            inserted_count, duplicate_count = write_dataframe_to_mysql_batch(df, "Habitica")
+            return inserted_count, duplicate_count
         return 0, 0
 
     def setup_database(self) -> bool:
-        """Set up the Habitica database schema."""
-        try:
-            execute_sql_file("store/sql/habitica_items.sql")
-            return True
-        except Exception as e:
-            logger.error(f"Error setting up Habitica database: {e}")
-            return False
+        """Set up the database schema for this plugin."""
+        logger.info("Setting up habitica database schema")
+        # Execute the SQL file to create the table
+        execute_sql_file("uv_app/plugins/habitica/sql/habitica_items.sql")
+        return True
