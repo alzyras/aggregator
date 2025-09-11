@@ -1,0 +1,1 @@
+"""Example plugin for the wellness statistics application."""
