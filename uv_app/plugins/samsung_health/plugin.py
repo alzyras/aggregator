@@ -702,7 +702,7 @@ class SamsungHealthPlugin(PluginInterface):
                 workout_type_name = self._map_activity_type(activity_code)
                 normalized = allowed_map.get(workout_type_name)
                 if not normalized:
-                    # skip sessions that aren't our target types to reduce 'other'
+                    # skip sessions that aren't our target types
                     continue
                 session_rows.append({
                     "id": str(uuid.uuid4()),
@@ -764,8 +764,9 @@ class SamsungHealthPlugin(PluginInterface):
         if not manual_df.empty and not auto_df.empty:
             non_overlapping_auto = []
             for i, row in auto_df.iterrows():
+                base_type = row["workout_type"].replace("_auto", "")
                 mask = (
-                    (manual_df["workout_type"] == row["workout_type"].replace("_auto", "")) &
+                    (manual_df["workout_type"] == base_type) &
                     (manual_df["start_time"] <= row["end_time"]) &
                     (manual_df["end_time"] >= row["start_time"])  # overlap
                 )
