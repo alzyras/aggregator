@@ -421,7 +421,7 @@ class SamsungHealthPlugin(PluginInterface):
 
     # ---------------- DATA FETCH HELPERS ---------------- #
 
-    def _fetch_generic_data(self, access_token: str, data_source_or_type: str, is_source_id=True, name_map=None) -> pd.DataFrame:
+    def _fetch_generic_data(self, access_token: str, data_source_or_type: str, is_source_id=True, name_map=None, bucket_millis: int = 86400000) -> pd.DataFrame:
         """Generic fetch function for steps, HR, sleep, workouts, weight."""
         headers = {"Authorization": f"Bearer {access_token}"}
         end_dt = datetime.now(timezone.utc)
@@ -437,7 +437,7 @@ class SamsungHealthPlugin(PluginInterface):
 
             body = {
                 "aggregateBy": aggregate_by,
-                "bucketByTime": {"durationMillis": 86400000},
+                "bucketByTime": {"durationMillis": bucket_millis},
                 "startTimeMillis": start_ms,
                 "endTimeMillis": end_ms
             }
@@ -518,15 +518,16 @@ class SamsungHealthPlugin(PluginInterface):
             access_token,
             "com.google.heart_rate.bpm",
             is_source_id=False,
-            name_map=lambda v: {"heart_rate": v} if v is not None else {}
+            name_map=lambda v: {"heart_rate": v} if v is not None else {},
+            bucket_millis=3600000  # 1 hour
         )
         
         if not hr_df.empty:
-            # Round timestamps to the hour and set minutes/seconds to 00
+            # start_time will already be bucketed to 1-hour windows by aggregate API
             hr_df["rounded_hour"] = hr_df["start_time"].dt.floor("h")
-            
-            # Group by hour and calculate statistics
-            hourly_stats = hr_df.groupby("rounded_hour").agg({
+
+            # Group by hour and calculate statistics across multiple samples in same hour
+            hourly_stats = hr_df.groupby(["rounded_hour"]).agg({
                 "heart_rate": ["mean", "min", "max", "count"],
                 "start_time": "first"
             }).reset_index()
@@ -660,9 +661,61 @@ class SamsungHealthPlugin(PluginInterface):
         end_dt = datetime.now(timezone.utc)
         start_dt = end_dt - timedelta(days=548)
 
-        all_workouts = []
+        allowed_map = {
+            "Walking": "walk",
+            "Walking Nordic": "walk",
+            "Walking Treadmill": "walk",
+            "Hiking": "walk",
+            "Running": "run",
+            "Jogging": "run",
+            "Running on Sand": "run",
+            "Treadmill": "run",
+            "Cycling": "cycle",
+            "Road Biking": "cycle",
+            "Stationary Biking": "cycle",
+            "Mountain Biking": "cycle",
+            "On Bicycle": "cycle",
+        }
 
-        # Use aggregate API for activity segments by day
+        # 1) Pull manual sessions first (tend to be user-initiated workouts)
+        session_rows = []
+        for range_start, range_end in self._chunked_time_ranges(start_dt, end_dt):
+            start_rfc3339 = datetime.fromtimestamp(range_start/1000, tz=timezone.utc).isoformat()
+            end_rfc3339 = datetime.fromtimestamp(range_end/1000, tz=timezone.utc).isoformat()
+            url = f"https://www.googleapis.com/fitness/v1/users/me/sessions?startTime={start_rfc3339}&endTime={end_rfc3339}"
+            resp = requests.get(url, headers=headers)
+            if resp.status_code != 200:
+                logger.error(f"Sessions API error {resp.status_code}: {resp.text}")
+                continue
+            sessions = resp.json().get("session", [])
+            for s in sessions:
+                activity_code = s.get("activityType")
+                start_ts = int(s.get("startTimeMillis", 0))/1000
+                end_ts = int(s.get("endTimeMillis", 0))/1000
+                if not start_ts or not end_ts:
+                    continue
+                start_time = datetime.fromtimestamp(start_ts, tz=timezone.utc).replace(tzinfo=None)
+                end_time = datetime.fromtimestamp(end_ts, tz=timezone.utc).replace(tzinfo=None)
+                duration_min = (end_time - start_time).total_seconds() / 60
+                if duration_min < 1 or duration_min > 480:
+                    continue
+                workout_type_name = self._map_activity_type(activity_code)
+                normalized = allowed_map.get(workout_type_name)
+                if not normalized:
+                    # skip sessions that aren't our target types to reduce 'other'
+                    continue
+                session_rows.append({
+                    "id": str(uuid.uuid4()),
+                    "user_id": user_id,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "duration_minutes": round(duration_min, 2),
+                    "workout_type": normalized,  # manual by default
+                })
+            time.sleep(0.15)
+
+        # 2) Fall back to activity segments for auto-detected movement outside sessions
+        auto_rows = []
         for start_ms, end_ms in self._chunked_time_ranges(start_dt, end_dt):
             body = {
                 "aggregateBy": [{"dataTypeName": "com.google.activity.segment"}],
@@ -676,58 +729,60 @@ class SamsungHealthPlugin(PluginInterface):
                 logger.error(f"Google Fit API error {r.status_code}: {r.text}")
                 continue
             data = r.json()
-
             for bucket in data.get("bucket", []):
                 for dataset in bucket.get("dataset", []):
                     for point in dataset.get("point", []):
                         start_ts = int(point["startTimeNanos"]) / 1_000_000_000
                         end_ts = int(point["endTimeNanos"]) / 1_000_000_000
                         for value in point.get("value", []):
-                            if "intVal" in value:
-                                activity_code = value["intVal"]
-                            else:
+                            if "intVal" not in value:
                                 continue
-                            workout_type = self._map_activity_type(activity_code)
-
-                            # Only allow walk, run, cycle, other (normalize)
-                            normalized_map = {
-                                "Walking": "walk",
-                                "Running": "run",
-                                "Jogging": "run",
-                                "Cycling": "cycle",
-                                "Road Biking": "cycle",
-                                "Stationary Biking": "cycle",
-                                "Mountain Biking": "cycle",
-                            }
-                            normalized = normalized_map.get(workout_type, "other")
-
+                            workout_type_name = self._map_activity_type(value["intVal"])
+                            normalized = allowed_map.get(workout_type_name)
+                            if not normalized:
+                                # skip non-target activities
+                                continue
                             start_time = datetime.fromtimestamp(start_ts, tz=timezone.utc).replace(tzinfo=None)
                             end_time = datetime.fromtimestamp(end_ts, tz=timezone.utc).replace(tzinfo=None)
                             duration_min = (end_time - start_time).total_seconds() / 60
-
-                            # Filter unreasonable durations
                             if duration_min < 1 or duration_min > 480:
                                 continue
-
-                            all_workouts.append({
+                            auto_rows.append({
                                 "id": str(uuid.uuid4()),
                                 "user_id": user_id,
                                 "start_time": start_time,
                                 "end_time": end_time,
                                 "duration_minutes": round(duration_min, 2),
-                                "workout_type": normalized,
+                                "workout_type": f"{normalized}_auto",
                             })
-            time.sleep(0.2)
+            time.sleep(0.15)
 
-        df = pd.DataFrame(all_workouts)
+        # Prefer sessions (manual). Only add auto segments that do not overlap existing sessions of same type
+        manual_df = pd.DataFrame(session_rows)
+        auto_df = pd.DataFrame(auto_rows)
+
+        if not manual_df.empty and not auto_df.empty:
+            non_overlapping_auto = []
+            for i, row in auto_df.iterrows():
+                mask = (
+                    (manual_df["workout_type"] == row["workout_type"].replace("_auto", "")) &
+                    (manual_df["start_time"] <= row["end_time"]) &
+                    (manual_df["end_time"] >= row["start_time"])  # overlap
+                )
+                if not manual_df.loc[mask].empty:
+                    continue
+                non_overlapping_auto.append(row)
+            auto_df = pd.DataFrame(non_overlapping_auto)
+
+        df = pd.concat([manual_df, auto_df], ignore_index=True) if (not manual_df.empty or not auto_df.empty) else pd.DataFrame()
 
         if df.empty:
             return df
 
-        # Enrich with calories and distance via aggregate API
+        # Enrich with calories (kcal) and distance (km) via aggregate API (hourly buckets to align better)
         try:
-            calories = self._fetch_generic_data(access_token, "com.google.calories.expended", is_source_id=False, name_map=lambda v: {"cal": v})
-            distance = self._fetch_generic_data(access_token, "com.google.distance.delta", is_source_id=False, name_map=lambda v: {"dist": v})
+            calories = self._fetch_generic_data(access_token, "com.google.calories.expended", is_source_id=False, name_map=lambda v: {"cal": v}, bucket_millis=3600000)
+            distance = self._fetch_generic_data(access_token, "com.google.distance.delta", is_source_id=False, name_map=lambda v: {"dist": v}, bucket_millis=3600000)
         except Exception:
             calories = pd.DataFrame()
             distance = pd.DataFrame()
