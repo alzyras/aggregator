@@ -30,6 +30,9 @@ class PluginManager:
                 elif module_name == "toggl":
                     from uv_app.plugins.toggl.plugin import TogglPlugin
                     self.plugins[module_name] = TogglPlugin()
+                elif module_name == "samsung_health":
+                    from uv_app.plugins.samsung_health.plugin import SamsungHealthPlugin
+                    self.plugins[module_name] = SamsungHealthPlugin()
                 logger.info(f"Loaded plugin: {module_name}")
             except ImportError as e:
                 logger.error(f"Failed to load plugin {module_name}: {e}")

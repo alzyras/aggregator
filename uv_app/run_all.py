@@ -41,16 +41,22 @@ def main() -> None:
                     logger.info(f"{plugin.name} database setup complete")
                 else:
                     logger.error(f"{plugin.name} database setup failed")
-                    continue
+                    #continue
                 
                 # Fetch data
-                df = plugin.fetch_data()
-                record_count = len(df) if df is not None else 0
-                logger.info(f"{plugin.name} data fetched: {record_count} records")
+                data = plugin.fetch_data()
                 
-                if df is not None and not df.empty:
+                # Handle Samsung Health plugin differently since it returns a dictionary
+                if plugin.name == "samsung_health":
+                    total_records = sum(len(df) for df in data.values() if df is not None) if isinstance(data, dict) else 0
+                    logger.info(f"{plugin.name} data fetched: {total_records} records across {len(data) if isinstance(data, dict) else 0} data types")
+                else:
+                    record_count = len(data) if data is not None else 0
+                    logger.info(f"{plugin.name} data fetched: {record_count} records")
+                
+                if data is not None and (isinstance(data, dict) and any(df is not None and not df.empty for df in data.values())) or (not isinstance(data, dict) and not data.empty):
                     # Write to database
-                    inserted_count, duplicate_count = plugin.write_to_database(df)
+                    inserted_count, duplicate_count = plugin.write_to_database(data)
                     logger.info(f"{plugin.name} data written to database:")
                     logger.info(f"   - Inserted: {inserted_count} records")
                     logger.info(f"   - Duplicates: {duplicate_count} records")

@@ -38,6 +38,11 @@ class Config:
         # Toggl settings (only needed if Toggl is enabled)
         self.toggl_api_token = os.environ.get('TOGGL_API_TOKEN')
         self.toggl_workspace_id = os.environ.get('TOGGL_WORKSPACE_ID')
+        
+        # Samsung Health / Google Fit settings (only needed if Samsung Health is enabled)
+        self.google_fit_client_id = os.environ.get('GOOGLE_FIT_CLIENT_ID')
+        self.google_fit_client_secret = os.environ.get('GOOGLE_FIT_CLIENT_SECRET')
+        self.google_fit_refresh_token = os.environ.get('GOOGLE_FIT_REFRESH_TOKEN')
 
     def validate(self) -> Dict[str, Any]:
         """Validate configuration and return any errors."""
@@ -70,6 +75,16 @@ class Config:
         if "toggl" in self.enabled_plugins and not all([self.toggl_api_token, self.toggl_workspace_id]):
             errors["toggl"] = (
                 "Missing Toggl configuration (TOGGL_API_TOKEN, TOGGL_WORKSPACE_ID)"
+            )
+        
+        # Check Samsung Health / Google Fit configuration if enabled
+        if "samsung_health" in self.enabled_plugins and not all([
+            self.google_fit_client_id, 
+            self.google_fit_client_secret, 
+            #self.google_fit_refresh_token
+        ]):
+            errors["samsung_health"] = (
+                "Missing Samsung Health/Google Fit configuration (GOOGLE_FIT_CLIENT_ID, GOOGLE_FIT_CLIENT_SECRET, GOOGLE_FIT_REFRESH_TOKEN)"
             )
         
         return errors

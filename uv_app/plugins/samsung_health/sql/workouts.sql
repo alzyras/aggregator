@@ -1,0 +1,27 @@
+-- Workout data table
+CREATE TABLE IF NOT EXISTS samsung_health_workouts (
+    id VARCHAR(255) PRIMARY KEY,
+    user_id VARCHAR(255),
+    start_time DATETIME,
+    end_time DATETIME,
+    duration_minutes DECIMAL(10, 2),
+    workout_type VARCHAR(100),
+    calories_burned DECIMAL(10, 2),
+    distance DECIMAL(10, 2),
+    average_heart_rate DECIMAL(5, 2),
+    max_heart_rate DECIMAL(5, 2),
+    min_heart_rate DECIMAL(5, 2),
+    average_speed DECIMAL(10, 2),
+    max_speed DECIMAL(10, 2),
+    elevation_gain DECIMAL(10, 2),
+    elevation_loss DECIMAL(10, 2),
+    steps INT,
+    strokes INT,
+    laps INT,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_user_timestamp (user_id, start_time),
+    INDEX idx_timestamp (start_time),
+    INDEX idx_workout_type (workout_type)
+);

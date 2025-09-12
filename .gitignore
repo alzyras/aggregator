@@ -41,3 +41,4 @@ coverage.xml
 # Personal files
 credentials.json
 .env
+google_fit_tokens.json
