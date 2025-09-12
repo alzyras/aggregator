@@ -23,5 +23,6 @@ CREATE TABLE IF NOT EXISTS samsung_health_workouts (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_user_timestamp (user_id, start_time),
     INDEX idx_timestamp (start_time),
-    INDEX idx_workout_type (workout_type)
+    INDEX idx_workout_type (workout_type),
+    UNIQUE KEY uniq_user_start_end_type (user_id, start_time, end_time, workout_type)
 );

@@ -11,5 +11,6 @@ CREATE TABLE IF NOT EXISTS samsung_health_steps (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_user_timestamp (user_id, timestamp),
-    INDEX idx_timestamp (timestamp)
+    INDEX idx_timestamp (timestamp),
+    UNIQUE KEY uniq_user_date (user_id, timestamp)
 );

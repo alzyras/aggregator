@@ -16,5 +16,6 @@ CREATE TABLE IF NOT EXISTS samsung_health_sleep (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_user_timestamp (user_id, start_time),
-    INDEX idx_timestamp (start_time)
+    INDEX idx_timestamp (start_time),
+    UNIQUE KEY uniq_user_sleep_window (user_id, start_time, end_time)
 );

@@ -1,5 +1,5 @@
--- Heart rate data table
-CREATE TABLE IF NOT EXISTS samsung_health_heart_rate (
+-- Heart data table
+CREATE TABLE IF NOT EXISTS samsung_health_heart (
     id VARCHAR(255) PRIMARY KEY,
     user_id VARCHAR(255),
     timestamp DATETIME,
@@ -10,5 +10,6 @@ CREATE TABLE IF NOT EXISTS samsung_health_heart_rate (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_user_timestamp (user_id, timestamp),
-    INDEX idx_timestamp (timestamp)
+    INDEX idx_timestamp (timestamp),
+    UNIQUE KEY uniq_user_hour (user_id, timestamp)
 );
