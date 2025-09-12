@@ -57,7 +57,7 @@ def write_samsung_dataframe_to_mysql_batch(df, table_name):
                 "speed": DECIMAL(10, 2),
                 "heart_rate": DECIMAL(5, 2),
             }
-        elif table_name == "samsung_health_heart_rate":
+        elif table_name == "samsung_health_heart":
             dtype_mapping = {
                 "id": VARCHAR(255),
                 "user_id": VARCHAR(255),
@@ -65,6 +65,7 @@ def write_samsung_dataframe_to_mysql_batch(df, table_name):
                 "heart_rate": DECIMAL(5, 2),
                 "heart_rate_zone": VARCHAR(50),
                 "measurement_type": VARCHAR(50),
+                "context": VARCHAR(50),
             }
         elif table_name == "samsung_health_sleep":
             dtype_mapping = {
@@ -121,7 +122,16 @@ def write_samsung_dataframe_to_mysql_batch(df, table_name):
         temp_table_name = f"temp_{table_name}"
 
         original_count = len(df)
-        if "id" in df.columns:
+        # Stronger logical dedupe per table
+        if table_name == "samsung_health_steps" and {"user_id", "timestamp", "steps"}.issubset(df.columns):
+            df = df.sort_values("timestamp").drop_duplicates(subset=["user_id", "timestamp"], keep="last")
+        elif table_name == "samsung_health_heart" and {"user_id", "timestamp"}.issubset(df.columns):
+            df = df.sort_values("timestamp").drop_duplicates(subset=["user_id", "timestamp"], keep="last")
+        elif table_name == "samsung_health_workouts" and {"user_id", "start_time", "end_time", "workout_type"}.issubset(df.columns):
+            df = df.sort_values("start_time").drop_duplicates(subset=["user_id", "start_time", "end_time", "workout_type"], keep="last")
+        elif table_name == "samsung_health_sleep" and {"user_id", "start_time", "end_time"}.issubset(df.columns):
+            df = df.sort_values("start_time").drop_duplicates(subset=["user_id", "start_time", "end_time"], keep="last")
+        elif "id" in df.columns:
             df = df.drop_duplicates(subset=["id"], keep="first")
         duplicate_count = original_count - len(df)
 

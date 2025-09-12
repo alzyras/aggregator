@@ -22,9 +22,10 @@ REDIRECT_URI = "http://localhost:8080/oauth2callback"
 
 SCOPES = [
     "https://www.googleapis.com/auth/fitness.activity.read",
-    "https://www.googleapis.com/auth/fitness.heart_rate.read",
+    "https://www.googleapis.com/auth/fitness.heart_rate.read", 
     "https://www.googleapis.com/auth/fitness.body.read",
     "https://www.googleapis.com/auth/fitness.sleep.read",
+    "https://www.googleapis.com/auth/fitness.location.read",
 ]
 
 CHUNK_DAYS = 90  # Split large requests into 90-day chunks
@@ -42,10 +43,11 @@ class SamsungHealthPlugin(PluginInterface):
     def setup_database(self) -> None:
         sql_files = [
             "uv_app/plugins/samsung_health/sql/steps.sql",
-            "uv_app/plugins/samsung_health/sql/heart_rate.sql",
+            # Consolidate heart-related data into single table
             "uv_app/plugins/samsung_health/sql/sleep.sql",
             "uv_app/plugins/samsung_health/sql/workouts.sql",
-            "uv_app/plugins/samsung_health/sql/general.sql"
+            "uv_app/plugins/samsung_health/sql/general.sql",
+            "uv_app/plugins/samsung_health/sql/heart.sql"
         ]
         try:
             for sql_file in sql_files:
@@ -54,21 +56,30 @@ class SamsungHealthPlugin(PluginInterface):
         except Exception as e:
             logger.error(f"Error setting up Samsung Health database: {e}", exc_info=True)
 
-    def write_to_database(self, df: pd.DataFrame, table: str) -> tuple[int, int]:
-        if df.empty:
-            return (0, 0)
+    def write_to_database(self, data) -> tuple[int, int]:
+        """Accepts either a single DataFrame and table, or a dict of {table: df}."""
+        total_inserted, total_duplicates = 0, 0
         try:
-            inserted, duplicates = write_samsung_dataframe_to_mysql_batch(df, table)
-            logger.info(f"Wrote {inserted} new rows ({duplicates} duplicates) to {table}")
-            print(inserted, duplicates)
-            return inserted, duplicates
+            if isinstance(data, dict):
+                for table, df in data.items():
+                    if df is None or df.empty:
+                        continue
+                    ins, dup = write_samsung_dataframe_to_mysql_batch(df, table)
+                    logger.info(f"Wrote {ins} new rows ({dup} duplicates) to {table}")
+                    print(ins, dup)
+                    total_inserted += ins
+                    total_duplicates += dup
+                return total_inserted, total_duplicates
+            else:
+                logger.error("write_to_database called with non-dict payload for samsung_health")
+                return 0, 0
         except Exception as e:
-            logger.error(f"Error writing data to {table}: {e}", exc_info=True)
-            return (0, 0)
+            logger.error(f"Error writing samsung_health data: {e}", exc_info=True)
+            return total_inserted, total_duplicates
 
     # ---------------- MAIN FETCH LOGIC ---------------- #
 
-    def fetch_data(self) -> pd.DataFrame:
+    def fetch_data(self) -> dict:
         client_id = os.environ.get("GOOGLE_FIT_CLIENT_ID")
         client_secret = os.environ.get("GOOGLE_FIT_CLIENT_SECRET")
         if not client_id or not client_secret:
@@ -94,65 +105,20 @@ class SamsungHealthPlugin(PluginInterface):
                 logger.error(f"Error getting user ID: {e}")
                 user_id = "unknown_user"
 
-            total_inserted, total_duplicates = 0, 0
-
-            # Steps
+            # Build dataframes
             steps_df = self._fetch_steps_data(access_token, user_id)
-            if not steps_df.empty:
-                logger.info(f"Writing {len(steps_df)} steps records to database")
-                ins, dup = self.write_to_database(steps_df, "samsung_health_steps")
-                total_inserted += ins
-                total_duplicates += dup
-            else:
-                logger.info("No steps data to write")
-
-            # Heart rate
             hr_df = self._fetch_heart_rate_data(access_token, user_id)
-            if not hr_df.empty:
-                logger.info(f"Writing {len(hr_df)} heart rate records to database")
-                ins, dup = self.write_to_database(hr_df, "samsung_health_heart_rate")
-                total_inserted += ins
-                total_duplicates += dup
-            else:
-                logger.info("No heart rate data to write")
-
-            # Sleep
             sleep_df = self._fetch_sleep_data(access_token, user_id)
-            if not sleep_df.empty:
-                logger.info(f"Writing {len(sleep_df)} sleep records to database")
-                ins, dup = self.write_to_database(sleep_df, "samsung_health_sleep")
-                total_inserted += ins
-                total_duplicates += dup
-            else:
-                logger.info("No sleep data to write")
-
-            # Workouts
             wo_df = self._fetch_workout_data(access_token, user_id)
-            if not wo_df.empty:
-                logger.info(f"Writing {len(wo_df)} workout records to database")
-                ins, dup = self.write_to_database(wo_df, "samsung_health_workouts")
-                total_inserted += ins
-                total_duplicates += dup
-            else:
-                logger.info("No workout data to write")
-
-            # General health
             gen_df = self._fetch_general_health_data(access_token, user_id)
-            if not gen_df.empty:
-                logger.info(f"Writing {len(gen_df)} general health records to database")
-                ins, dup = self.write_to_database(gen_df, "samsung_health_general")
-                total_inserted += ins
-                total_duplicates += dup
-            else:
-                logger.info("No general health data to write")
 
-            return pd.DataFrame(
-                [{
-                    "total_inserted": total_inserted,
-                    "total_duplicates": total_duplicates,
-                    "timestamp": datetime.now(),
-                }]
-            )
+            return {
+                "samsung_health_steps": steps_df,
+                "samsung_health_heart": hr_df,
+                "samsung_health_sleep": sleep_df,
+                "samsung_health_workouts": wo_df,
+                "samsung_health_general": gen_df,
+            }
 
         except Exception as e:
             logger.error(f"Error in fetch_data: {e}", exc_info=True)
@@ -200,6 +166,235 @@ class SamsungHealthPlugin(PluginInterface):
         with open(TOKEN_FILE, "w") as f:
             json.dump(tokens, f, indent=2)
         return tokens
+
+    def _map_activity_type(self, activity_code: int) -> str:
+        """Map Google Fit activity codes to readable names."""
+        activity_names = {
+            0: "Unknown",
+            1: "Still",
+            2: "Tilting",
+            3: "Walking",
+            4: "Running",
+            5: "Biking",
+            6: "Vehicle",
+            7: "On Foot",
+            8: "On Bicycle",
+            9: "Walking",
+            10: "Running",
+            11: "Cycling",
+            12: "Swimming",
+            13: "Mountain Biking",
+            14: "Other",
+            15: "Aerobics",
+            16: "Badminton",
+            17: "Baseball",
+            18: "Basketball",
+            19: "Biathlon",
+            20: "Handbiking",
+            21: "Mountain Biking",
+            22: "Road Biking",
+            23: "Spinning",
+            24: "Stationary Biking",
+            25: "Utility Biking",
+            26: "Boxing",
+            27: "Calisthenics",
+            28: "Circuit Training",
+            29: "Cricket",
+            30: "Dancing",
+            31: "Elliptical",
+            32: "Fencing",
+            33: "Football",
+            34: "Gardening",
+            35: "Hiking",
+            36: "Hockey",
+            37: "Horseback Riding",
+            38: "Housework",
+            39: "Jumping Rope",
+            40: "Kayaking",
+            41: "Kettlebell Training",
+            42: "Kickboxing",
+            43: "Kitesurfing",
+            44: "Martial Arts",
+            45: "Meditation",
+            46: "Mixed Martial Arts",
+            47: "P90X Exercises",
+            48: "Paragliding",
+            49: "Pilates",
+            50: "Polo",
+            51: "Racquetball",
+            52: "Rock Climbing",
+            53: "Rowing",
+            54: "Rowing Machine",
+            55: "Rugby",
+            56: "Jogging",
+            57: "Running on Sand",
+            58: "Running Treadmill",
+            59: "Sailing",
+            60: "Scuba Diving",
+            61: "Skateboarding",
+            62: "Skating",
+            63: "Cross Skating",
+            64: "Indoor Skating",
+            65: "Inline Skating",
+            66: "Skiing",
+            67: "Back Country Skiing",
+            68: "Cross Country Skiing",
+            69: "Downhill Skiing",
+            70: "Kite Skiing",
+            71: "Roller Skiing",
+            72: "Sledding",
+            73: "Sleeping",
+            74: "Light Sleep",
+            75: "Deep Sleep",
+            76: "REM Sleep",
+            77: "Snowboarding",
+            78: "Snowmobile",
+            79: "Snowshoeing",
+            80: "Squash",
+            81: "Stair Climbing",
+            82: "Stair Climbing Machine",
+            83: "Stand Up Paddleboarding",
+            84: "Strength Training",
+            85: "Surfing",
+            86: "Swimming Open Water",
+            87: "Swimming Pool",
+            88: "Table Tennis",
+            89: "Team Sports",
+            90: "Tennis",
+            91: "Treadmill",
+            92: "Volleyball",
+            93: "Volleyball Beach",
+            94: "Volleyball Indoor",
+            95: "Wakeboarding",
+            96: "Walking Nordic",
+            97: "Walking Treadmill",
+            98: "Waterpolo",
+            99: "Weightlifting",
+            100: "Wheelchair",
+            101: "Windsurfing",
+            102: "Yoga",
+            103: "Zumba",
+            104: "Diving",
+            105: "Ergometer",
+            106: "Ice Skate",
+            107: "Indoor Rowing",
+            108: "Jump Rope",
+            109: "Lat Pulldown",
+            110: "Leg Press",
+            111: "Rowing Machine",
+            112: "Shoulder Press",
+            113: "Triceps Extension",
+            114: "Weight Machine",
+            115: "Barbell Curl",
+            116: "Bench Press",
+            117: "Bulgarian Squat",
+            118: "Cable Crossover",
+            119: "Cable Crunch",
+            120: "Deadlift",
+            121: "Decline Bench Press",
+            122: "Dumbbell Curl",
+            123: "Dumbbell Fly",
+            124: "Dumbbell Press",
+            125: "Hammer Curl",
+            126: "Hip Thrust",
+            127: "Incline Bench Press",
+            128: "Lateral Raise",
+            129: "Lunge",
+            130: "Plank",
+            131: "Preacher Curl",
+            132: "Pull Up",
+            133: "Push Up",
+            134: "Romanian Deadlift",
+            135: "Russian Twist",
+            136: "Seated Row",
+            137: "Single Leg Deadlift",
+            138: "Sit Up",
+            139: "Skullcrusher",
+            140: "Squat",
+            141: "Standing Military Press",
+            142: "Step Up",
+            143: "Straight Leg Deadlift",
+            144: "Sumo Deadlift",
+            145: "Upright Row",
+            146: "V Bar Pulldown",
+            147: "Calf Raise",
+            148: "Chest Dip",
+            149: "Chin Up",
+            150: "Close Grip Bench Press",
+            151: "Close Grip Pulldown",
+            152: "Concentration Curl",
+            153: "Crossover",
+            154: "Crunch",
+            155: "Decline Sit Up",
+            156: "Dumbbell Kickback",
+            157: "Dumbbell Row",
+            158: "Fly",
+            159: "Front Raise",
+            160: "High Knee",
+            161: "Hip Abductor",
+            162: "Hip Adductor",
+            163: "Leg Extension",
+            164: "Leg Raise",
+            165: "Lying Triceps Extension",
+            166: "Machine Fly",
+            167: "One Arm Dumbbell Press",
+            168: "One Arm Lat Pulldown",
+            169: "One Arm Row",
+            170: "Overhead Press",
+            171: "Preacher Hammer Curl",
+            172: "Rear Delt Fly",
+            173: "Reverse Crunch",
+            174: "Reverse Curl",
+            175: "Reverse Fly",
+            176: "Seated Calf Raise",
+            177: "Seated Dumbbell Curl",
+            178: "Seated Dumbbell Press",
+            179: "Seated Leg Curl",
+            180: "Seated Leg Press",
+            181: "Side Bend",
+            182: "Single Arm Cable Crossover",
+            183: "Single Arm Cable Fly",
+            184: "Single Arm Dumbbell Curl",
+            185: "Single Arm Dumbbell Fly",
+            186: "Single Arm Dumbbell Press",
+            187: "Single Arm Preacher Curl",
+            188: "Single Arm Rear Delt Fly",
+            189: "Single Arm Seated Dumbbell Curl",
+            190: "Single Arm Seated Dumbbell Press",
+            191: "Single Arm Standing Dumbbell Curl",
+            192: "Single Arm Standing Dumbbell Press",
+            193: "Single Leg Glute Bridge",
+            194: "Single Leg Hip Thrust",
+            195: "Single Leg Romanian Deadlift",
+            196: "Single Leg Squat",
+            197: "Standing Barbell Curl",
+            198: "Standing Calf Raise",
+            199: "Standing Dumbbell Curl",
+            200: "Standing Dumbbell Press",
+            201: "Standing Leg Curl",
+            202: "Standing Military Press",
+            203: "Standing Overhead Press",
+            204: "Standing Triceps Extension",
+            205: "Step Up",
+            206: "Straight Arm Pulldown",
+            207: "Superman",
+            208: "T Bar Row",
+            209: "Torso Rotation",
+            210: "Triceps Dip",
+            211: "Triceps Extension",
+            212: "Upright Row",
+            213: "V Bar Pulldown",
+            214: "Weight Machine",
+            215: "Wide Grip Bench Press",
+            216: "Wide Grip Pulldown",
+            217: "Wide Grip Pull Up",
+            218: "Wide Grip Seated Row",
+            219: "Wide Grip Upright Row",
+            220: "Wide Stance Squat",
+            221: "Zercher Squat",
+            222: "Zottman Curl",
+        }
+        return activity_names.get(activity_code, f"Activity_{activity_code}")
 
     def _get_tokens(self, client_id: str, client_secret: str) -> dict:
         if os.path.exists(TOKEN_FILE):
@@ -268,10 +463,6 @@ class SamsungHealthPlugin(PluginInterface):
                                 record["value"] = value["intVal"]
                             if "fpVal" in value:
                                 record["value"] = value["fpVal"]
-                            # Convert timestamps to standard format (naive datetime in UTC)
-                            # Use 'timestamp' to match database schema (use start time as the main timestamp)
-                            record["timestamp"] = datetime.fromtimestamp(start_ts, tz=timezone.utc).replace(tzinfo=None)
-                            # Also keep start_time and end_time for compatibility with the plugin's logic
                             record["start_time"] = datetime.fromtimestamp(start_ts, tz=timezone.utc).replace(tzinfo=None)
                             record["end_time"] = datetime.fromtimestamp(end_ts, tz=timezone.utc).replace(tzinfo=None)
                             if name_map:
@@ -296,71 +487,108 @@ class SamsungHealthPlugin(PluginInterface):
         
         # Ensure we have the correct column structure for the steps table
         if not df.empty:
-            # Rename start_time to timestamp to match database schema
-            if "start_time" in df.columns and "timestamp" not in df.columns:
-                df.rename(columns={"start_time": "timestamp"}, inplace=True)
+            # Aggregate steps by day (group by date and sum steps)
+            df["date"] = df["start_time"].dt.date
+            daily_steps = df.groupby("date").agg({
+                "steps": "sum",
+                "start_time": "min",  # Use earliest timestamp of the day
+            }).reset_index()
             
-            # Add missing columns that are expected by the database
-            if "user_id" not in df.columns:
-                df["user_id"] = user_id
-            if "distance" not in df.columns:
-                df["distance"] = 0.0
-            if "calories" not in df.columns:
-                df["calories"] = 0.0
-            if "speed" not in df.columns:
-                df["speed"] = 0.0
-            if "heart_rate" not in df.columns:
-                df["heart_rate"] = None
-                
-            # Select only the columns that exist in the database table
-            db_columns = ["id", "user_id", "timestamp", "steps", "distance", "calories", "speed", "heart_rate"]
-            # Only select columns that actually exist in the DataFrame
-            existing_columns = [col for col in db_columns if col in df.columns]
-            df = df[existing_columns]
+            # Create proper DataFrame with one row per day
+            result_df = pd.DataFrame()
+            result_df["id"] = [str(uuid.uuid4()) for _ in range(len(daily_steps))]
+            result_df["user_id"] = user_id
+            # For steps, use only the date part (set time to 00:00:00)
+            result_df["timestamp"] = pd.to_datetime(daily_steps["date"])  # date-only, time 00:00:00 by default
+            result_df["steps"] = daily_steps["steps"]
+            result_df["distance"] = 0.0  # Would need separate data source
+            result_df["calories"] = 0.0    # Would need separate data source
+            result_df["speed"] = 0.0      # Would need separate data source
+            result_df["heart_rate"] = None # Would need separate data source
+            
+            # Ensure dedupe by user+date
+            result_df = result_df.sort_values("timestamp").drop_duplicates(subset=["user_id", "timestamp"], keep="last")
+            return result_df
+            
         return df
 
     def _fetch_heart_rate_data(self, access_token: str, user_id: str = "unknown_user") -> pd.DataFrame:
-        # Fetch data with name mapping
-        df = self._fetch_generic_data(
+        # Fetch heart rate data
+        hr_df = self._fetch_generic_data(
             access_token,
             "com.google.heart_rate.bpm",
             is_source_id=False,
             name_map=lambda v: {"heart_rate": v} if v is not None else {}
         )
         
-        # Ensure we have the correct column structure for the heart rate table
-        if not df.empty:
-            # Rename start_time to timestamp to match database schema
-            if "start_time" in df.columns and "timestamp" not in df.columns:
-                df.rename(columns={"start_time": "timestamp"}, inplace=True)
+        if not hr_df.empty:
+            # Round timestamps to the hour and set minutes/seconds to 00
+            hr_df["rounded_hour"] = hr_df["start_time"].dt.floor("h")
             
-            # Add missing columns that are expected by the database
-            if "user_id" not in df.columns:
-                df["user_id"] = user_id
-            if "heart_rate_zone" not in df.columns:
-                df["heart_rate_zone"] = None
-            if "measurement_type" not in df.columns:
-                df["measurement_type"] = "bpm"
-                
-            # Select only the columns that exist in the database table
-            db_columns = ["id", "user_id", "timestamp", "heart_rate", "heart_rate_zone", "measurement_type"]
-            # Only select columns that actually exist in the DataFrame
-            existing_columns = [col for col in db_columns if col in df.columns]
-            df = df[existing_columns]
-        return df
+            # Group by hour and calculate statistics
+            hourly_stats = hr_df.groupby("rounded_hour").agg({
+                "heart_rate": ["mean", "min", "max", "count"],
+                "start_time": "first"
+            }).reset_index()
+            
+            # Flatten column names
+            hourly_stats.columns = ["rounded_hour", "avg_hr", "min_hr", "max_hr", "count", "sample_time"]
+            
+            # Create proper DataFrame with clean timestamps (HH:00:00)
+            result_df = pd.DataFrame()
+            result_df["id"] = [str(uuid.uuid4()) for _ in range(len(hourly_stats))]
+            result_df["user_id"] = user_id
+            result_df["timestamp"] = hourly_stats["rounded_hour"]
+            result_df["heart_rate"] = hourly_stats["avg_hr"].round(2)
+            result_df["heart_rate_zone"] = None  # Would calculate based on user's max HR
+            result_df["measurement_type"] = "bpm"
+            result_df["context"] = None
+            
+            return result_df
+            
+        return pd.DataFrame()
 
     def _fetch_sleep_data(self, access_token: str, user_id: str = "unknown_user") -> pd.DataFrame:
         try:
-            # Fetch data with name mapping
-            df = self._fetch_generic_data(
-                access_token,
+            # Try different sleep data sources
+            sleep_data_sources = [
                 "com.google.sleep.segment",
-                is_source_id=False,
-                name_map=lambda v: {"sleep_type": v} if v is not None else {}
-            )
+                "com.google.sleep.session",
+                "derived:com.google.sleep.segment:com.google.android.gms:sleep_from_device"
+            ]
+            
+            all_sleep_data = []
+            
+            for data_source in sleep_data_sources:
+                try:
+                    # Fetch data with name mapping
+                    df = self._fetch_generic_data(
+                        access_token,
+                        data_source,
+                        is_source_id=False,
+                        name_map=lambda v: {"sleep_type": v} if v is not None else {}
+                    )
+                    
+                    if not df.empty:
+                        all_sleep_data.append(df)
+                        logger.info(f"Successfully fetched sleep data from {data_source}")
+                        break  # If we get data, use it and stop trying other sources
+                except Exception as e:
+                    logger.warning(f"Could not fetch sleep data from {data_source}: {e}")
+                    continue
+            
+            # Combine all sleep data
+            if all_sleep_data:
+                df = pd.concat(all_sleep_data, ignore_index=True)
+            else:
+                df = pd.DataFrame()
             
             # Ensure we have the correct column structure for the sleep table
             if not df.empty:
+                # Calculate sleep duration in minutes
+                if "start_time" in df.columns and "end_time" in df.columns:
+                    df["duration_minutes"] = (df["end_time"] - df["start_time"]).dt.total_seconds() / 60
+                
                 # Add missing columns that are expected by the database
                 if "user_id" not in df.columns:
                     df["user_id"] = user_id
@@ -369,13 +597,41 @@ class SamsungHealthPlugin(PluginInterface):
                 if "sleep_score" not in df.columns:
                     df["sleep_score"] = None
                 if "deep_sleep_minutes" not in df.columns:
-                    df["deep_sleep_minutes"] = 0.0
+                    # Try to infer deep sleep from sleep_type
+                    if "sleep_type" in df.columns:
+                        df["deep_sleep_minutes"] = df.apply(
+                            lambda row: row["duration_minutes"] if row["sleep_type"] == 3 else 0.0, 
+                            axis=1
+                        )
+                    else:
+                        df["deep_sleep_minutes"] = 0.0
                 if "light_sleep_minutes" not in df.columns:
-                    df["light_sleep_minutes"] = 0.0
+                    # Try to infer light sleep from sleep_type
+                    if "sleep_type" in df.columns:
+                        df["light_sleep_minutes"] = df.apply(
+                            lambda row: row["duration_minutes"] if row["sleep_type"] == 2 else 0.0, 
+                            axis=1
+                        )
+                    else:
+                        df["light_sleep_minutes"] = 0.0
                 if "rem_sleep_minutes" not in df.columns:
-                    df["rem_sleep_minutes"] = 0.0
+                    # Try to infer REM sleep from sleep_type
+                    if "sleep_type" in df.columns:
+                        df["rem_sleep_minutes"] = df.apply(
+                            lambda row: row["duration_minutes"] if row["sleep_type"] == 4 else 0.0, 
+                            axis=1
+                        )
+                    else:
+                        df["rem_sleep_minutes"] = 0.0
                 if "awake_minutes" not in df.columns:
-                    df["awake_minutes"] = 0.0
+                    # Try to infer awake time from sleep_type
+                    if "sleep_type" in df.columns:
+                        df["awake_minutes"] = df.apply(
+                            lambda row: row["duration_minutes"] if row["sleep_type"] == 1 else 0.0, 
+                            axis=1
+                        )
+                    else:
+                        df["awake_minutes"] = 0.0
                 if "sleep_efficiency" not in df.columns:
                     df["sleep_efficiency"] = None
                 if "bed_time" not in df.columns:
@@ -400,93 +656,183 @@ class SamsungHealthPlugin(PluginInterface):
             return pd.DataFrame()
 
     def _fetch_workout_data(self, access_token: str, user_id: str = "unknown_user") -> pd.DataFrame:
-        # Fetch data with name mapping
-        df = self._fetch_generic_data(
-            access_token,
-            "com.google.activity.segment",
-            is_source_id=False,
-            name_map=lambda v: {"activity_type": v} if v is not None else {}
-        )
-        
-        # Ensure we have the correct column structure for the workouts table
-        if not df.empty:
-            # Add missing columns that are expected by the database
-            if "user_id" not in df.columns:
-                df["user_id"] = user_id
-            if "duration_minutes" not in df.columns:
-                df["duration_minutes"] = 0.0
-            if "workout_type" not in df.columns:
-                df["workout_type"] = None
-            if "calories_burned" not in df.columns:
-                df["calories_burned"] = 0.0
-            if "distance" not in df.columns:
-                df["distance"] = 0.0
-            if "average_heart_rate" not in df.columns:
-                df["average_heart_rate"] = None
-            if "max_heart_rate" not in df.columns:
-                df["max_heart_rate"] = None
-            if "min_heart_rate" not in df.columns:
-                df["min_heart_rate"] = None
-            if "average_speed" not in df.columns:
-                df["average_speed"] = 0.0
-            if "max_speed" not in df.columns:
-                df["max_speed"] = 0.0
-            if "elevation_gain" not in df.columns:
-                df["elevation_gain"] = 0.0
-            if "elevation_loss" not in df.columns:
-                df["elevation_loss"] = 0.0
-            if "steps" not in df.columns:
-                df["steps"] = 0
-            if "strokes" not in df.columns:
-                df["strokes"] = 0
-            if "laps" not in df.columns:
-                df["laps"] = 0
-            if "notes" not in df.columns:
-                df["notes"] = None
-                
-            # Select only the columns that exist in the database table
-            db_columns = [
-                "id", "user_id", "start_time", "end_time", "duration_minutes", "workout_type",
-                "calories_burned", "distance", "average_heart_rate", "max_heart_rate", 
-                "min_heart_rate", "average_speed", "max_speed", "elevation_gain", 
-                "elevation_loss", "steps", "strokes", "laps", "notes"
-            ]
-            # Only select columns that actually exist in the DataFrame
-            existing_columns = [col for col in db_columns if col in df.columns]
-            df = df[existing_columns]
-                
+        headers = {"Authorization": f"Bearer {access_token}"}
+        end_dt = datetime.now(timezone.utc)
+        start_dt = end_dt - timedelta(days=548)
+
+        all_workouts = []
+
+        # Use aggregate API for activity segments by day
+        for start_ms, end_ms in self._chunked_time_ranges(start_dt, end_dt):
+            body = {
+                "aggregateBy": [{"dataTypeName": "com.google.activity.segment"}],
+                "bucketByTime": {"durationMillis": 86400000},
+                "startTimeMillis": start_ms,
+                "endTimeMillis": end_ms
+            }
+            url = "https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate"
+            r = requests.post(url, headers=headers, json=body)
+            if r.status_code != 200:
+                logger.error(f"Google Fit API error {r.status_code}: {r.text}")
+                continue
+            data = r.json()
+
+            for bucket in data.get("bucket", []):
+                for dataset in bucket.get("dataset", []):
+                    for point in dataset.get("point", []):
+                        start_ts = int(point["startTimeNanos"]) / 1_000_000_000
+                        end_ts = int(point["endTimeNanos"]) / 1_000_000_000
+                        for value in point.get("value", []):
+                            if "intVal" in value:
+                                activity_code = value["intVal"]
+                            else:
+                                continue
+                            workout_type = self._map_activity_type(activity_code)
+
+                            # Only allow walk, run, cycle, other (normalize)
+                            normalized_map = {
+                                "Walking": "walk",
+                                "Running": "run",
+                                "Jogging": "run",
+                                "Cycling": "cycle",
+                                "Road Biking": "cycle",
+                                "Stationary Biking": "cycle",
+                                "Mountain Biking": "cycle",
+                            }
+                            normalized = normalized_map.get(workout_type, "other")
+
+                            start_time = datetime.fromtimestamp(start_ts, tz=timezone.utc).replace(tzinfo=None)
+                            end_time = datetime.fromtimestamp(end_ts, tz=timezone.utc).replace(tzinfo=None)
+                            duration_min = (end_time - start_time).total_seconds() / 60
+
+                            # Filter unreasonable durations
+                            if duration_min < 1 or duration_min > 480:
+                                continue
+
+                            all_workouts.append({
+                                "id": str(uuid.uuid4()),
+                                "user_id": user_id,
+                                "start_time": start_time,
+                                "end_time": end_time,
+                                "duration_minutes": round(duration_min, 2),
+                                "workout_type": normalized,
+                            })
+            time.sleep(0.2)
+
+        df = pd.DataFrame(all_workouts)
+
+        if df.empty:
+            return df
+
+        # Enrich with calories and distance via aggregate API
+        try:
+            calories = self._fetch_generic_data(access_token, "com.google.calories.expended", is_source_id=False, name_map=lambda v: {"cal": v})
+            distance = self._fetch_generic_data(access_token, "com.google.distance.delta", is_source_id=False, name_map=lambda v: {"dist": v})
+        except Exception:
+            calories = pd.DataFrame()
+            distance = pd.DataFrame()
+
+        df["calories_burned"] = 0.0
+        df["distance"] = 0.0
+
+        if not calories.empty and {"start_time", "end_time", "cal"}.issubset(calories.columns):
+            for i, row in df.iterrows():
+                mask = (calories["start_time"] >= row["start_time"]) & (calories["end_time"] <= row["end_time"]) 
+                cal_sum = calories.loc[mask, "cal"].sum()
+                if cal_sum > 0:
+                    df.at[i, "calories_burned"] = round(float(cal_sum), 2)
+
+        if not distance.empty and {"start_time", "end_time", "dist"}.issubset(distance.columns):
+            for i, row in df.iterrows():
+                mask = (distance["start_time"] >= row["start_time"]) & (distance["end_time"] <= row["end_time"]) 
+                dist_sum = distance.loc[mask, "dist"].sum()  # meters
+                if dist_sum > 0:
+                    df.at[i, "distance"] = round(float(dist_sum) / 1000.0, 3)  # km
+
+        # Compute average speed where possible
+        # average_speed in km/h
+        df["average_speed"] = df.apply(lambda r: (r["distance"] / (r["duration_minutes"] / 60)) if r["distance"] > 0 and r["duration_minutes"] > 0 else 0.0, axis=1)
+        df["max_speed"] = 0.0
+        df["average_heart_rate"] = None
+        df["max_heart_rate"] = None
+        df["min_heart_rate"] = None
+        df["elevation_gain"] = 0.0
+        df["elevation_loss"] = 0.0
+        df["steps"] = 0
+        df["strokes"] = 0
+        df["laps"] = 0
+        df["notes"] = None
+
+        # Heuristic: auto-detected activities
+        # If duration is very short and type is walk/run/cycle with no calories/distance, mark as auto
+        def detect_auto(row):
+            if row["workout_type"] in {"walk", "run", "cycle"}:
+                if (row["calories_burned"] == 0 or pd.isna(row["calories_burned"])) and row["distance"] == 0:
+                    return f"{row['workout_type']}_auto"
+            return row["workout_type"]
+
+        df["workout_type"] = df.apply(detect_auto, axis=1)
+
+        # Final logical dedupe
+        df = df.sort_values("start_time").drop_duplicates(subset=["user_id", "start_time", "end_time", "workout_type"], keep="last")
+
         return df
 
     def _fetch_general_health_data(self, access_token: str, user_id: str = "unknown_user") -> pd.DataFrame:
-        # Fetch data with name mapping
-        df = self._fetch_generic_data(
-            access_token,
-            "com.google.weight",
-            is_source_id=False,
-            name_map=lambda v: {"weight_kg": v} if v is not None else {}
-        )
+        # Fetch height, weight, and body fat percentage data for general health
+        health_data_types = [
+            ("com.google.weight", "weight", "kg"),
+            ("com.google.height", "height", "cm"),
+            ("com.google.body.fat.percentage", "body_fat_percentage", "%"),
+        ]
         
-        # Ensure we have the correct column structure for the general health table
-        if not df.empty:
-            # Rename start_time to timestamp to match database schema
-            if "start_time" in df.columns and "timestamp" not in df.columns:
-                df.rename(columns={"start_time": "timestamp"}, inplace=True)
-            # Add missing columns
-            if "user_id" not in df.columns:
-                df["user_id"] = user_id
-            # Add data_type column
-            df["data_type"] = "weight"
-            # Rename weight_kg to value to match database schema
-            if "weight_kg" in df.columns:
-                df.rename(columns={"weight_kg": "value"}, inplace=True)
-                df["unit"] = "kg"
-            if "metadata" not in df.columns:
-                df["metadata"] = None
+        all_health_data = []
+        
+        for data_type, friendly_name, unit in health_data_types:
+            try:
+                # Fetch data with name mapping
+                df = self._fetch_generic_data(
+                    access_token,
+                    data_type,
+                    is_source_id=False,
+                    name_map=lambda v: {friendly_name: v} if v is not None else {}
+                )
                 
-            # Select only the columns that exist in the database table
-            db_columns = ["id", "user_id", "data_type", "timestamp", "value", "unit", "metadata"]
-            # Only select columns that actually exist in the DataFrame
-            existing_columns = [col for col in db_columns if col in df.columns]
-            df = df[existing_columns]
-                
-        return df
+                if not df.empty:
+                    # Prepare data for database
+                    df["user_id"] = user_id
+                    df["data_type"] = friendly_name
+                    df["unit"] = unit
+                    df["metadata"] = None
+                    
+                    # Rename start_time to timestamp to match database schema
+                    if "start_time" in df.columns and "timestamp" not in df.columns:
+                        df.rename(columns={"start_time": "timestamp"}, inplace=True)
+                    
+                    # Rename the value column to match database schema
+                    if friendly_name in df.columns:
+                        df.rename(columns={friendly_name: "value"}, inplace=True)
+                    
+                    # Select only the columns that exist in the database table
+                    db_columns = ["id", "user_id", "data_type", "timestamp", "value", "unit", "metadata"]
+                    # Only select columns that actually exist in the DataFrame
+                    existing_columns = [col for col in db_columns if col in df.columns]
+                    df = df[existing_columns]
+                    
+                    all_health_data.append(df)
+            except Exception as e:
+                logger.warning(f"Could not fetch {friendly_name} data: {e}")
+                continue
+        
+        # Combine all health data
+        if all_health_data:
+            combined_df = pd.concat(all_health_data, ignore_index=True)
+            # Remove duplicates based on user_id, data_type, and date (keep most recent)
+            if not combined_df.empty and "timestamp" in combined_df.columns:
+                combined_df["date"] = combined_df["timestamp"].dt.date
+                combined_df = combined_df.sort_values("timestamp").drop_duplicates(
+                    subset=["user_id", "data_type", "date"], keep="last"
+                ).drop("date", axis=1)
+            return combined_df
+        else:
+            return pd.DataFrame()
