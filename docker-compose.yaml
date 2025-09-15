@@ -1,21 +1,18 @@
-version: '3.12'
+version: '3.8'
 
 services:
-  uv_app:
+  aggregator:
     build: .
-    container_name: wellness_aggregator
+    container_name: aggregator
+    env_file:
+      - .env
     environment:
-      - YOUR_ENV=wellness_aggregator
-      - MAX_TIME_REMAINING=36000  # Example for an environment variable
+      # Default values - will be overridden by .env file
+      - YOUR_ENV=aggregator
+      - MAX_TIME_REMAINING=36000
       - HABITICA_TO_MYSQL=True
       - INTERVAL_SECONDS=3600
-      - HABITICA_USER_ID=REDACTED
-      - HABITICA_API_TOKEN=REDACTED
-      - MYSQL_HOST=REDACTED
-      - MYSQL_DB=REDACTED
-      - MYSQL_USER=REDACTED
-      - MYSQL_PASSWORD=REDACTED
     volumes:
-      - .:/app  # Mount the current directory to /app inside the container (optional)
-    command: ["sh", "-c", "cd /app && python /app/uv_app/run_all.py"]
-    restart: always  # Optional: ensures the container always restarts if it stops
+      - .:/app
+    command: ["sh", "-c", "cd /app && python /app/aggregator/run_all.py"]
+    restart: always

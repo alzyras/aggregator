@@ -42,3 +42,6 @@ coverage.xml
 credentials.json
 .env
 google_fit_tokens.json
+
+# Plugin config files
+.plugin_configs/

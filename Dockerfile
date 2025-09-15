@@ -19,7 +19,7 @@ WORKDIR /app
 
 # Ensure README.md exists (fixes the metadata error)
 COPY README.md /app/
-RUN test -f README.md || echo "# UV App" > README.md
+RUN test -f README.md || echo "# Wellness Aggregator" > README.md
 
 # Copy only the necessary files first (for better caching)
 COPY pyproject.toml /app/
@@ -31,11 +31,14 @@ RUN pip install --no-cache-dir --use-pep517 .
 # Copy the rest of the application
 COPY . /app/
 
+# Install python-dotenv for .env file support
+RUN pip install python-dotenv
+
 # Set the PYTHONPATH environment variable
-ENV PYTHONPATH=/app/src:$PYTHONPATH
+ENV PYTHONPATH=/app:$PYTHONPATH
 
 # Set the working directory to ensure `runner.py` runs in the right path
 WORKDIR /app
 
 # Run the application
-CMD ["python", "uv_app/run_all.py"]
+CMD ["python", "aggregator/run_all.py"]
