@@ -27,7 +27,7 @@ To enable the Asana plugin, add `asana` to the `ENABLED_PLUGINS` list in your `.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| task_id | VARCHAR(255) | Unique task identifier (Primary Key) |
+| task_id | VARCHAR(255) | Unique task identifier |
 | task_name | TEXT | Name of the task |
 | time_to_completion | REAL | Time taken to complete the task |
 | project | TEXT | Project the task belongs to |
@@ -87,28 +87,22 @@ To enable the Toggl plugin, add `toggl` to the `ENABLED_PLUGINS` list in your `.
 
 ### Data Schema
 
-```sql
-CREATE TABLE IF NOT EXISTS toggl_items (
-    id BIGINT PRIMARY KEY,
-    user_id BIGINT,
-    user_name VARCHAR(255),
-    project_id BIGINT,
-    project_name VARCHAR(255),
-    client_id BIGINT,
-    client_name VARCHAR(255),
-    description TEXT,
-    start_time DATETIME,
-    end_time DATETIME,
-    duration_minutes DECIMAL(10, 2),
-    tags TEXT,
-    billable BOOLEAN,
-    created_at DATETIME,
-    INDEX idx_user_id (user_id),
-    INDEX idx_project_id (project_id),
-    INDEX idx_start_time (start_time),
-    INDEX idx_end_time (end_time)
-);
-```
+| Column | Type | Description |
+|--------|------|-------------|
+| id | BIGINT | Unique identifier |
+| user_id | BIGINT | ID of the user |
+| user_name | VARCHAR(255) | Name of the user |
+| project_id | BIGINT | ID of the project |
+| project_name | VARCHAR(255) | Name of the project |
+| client_id | BIGINT | ID of the client |
+| client_name | VARCHAR(255) | Name of the client |
+| description | TEXT | Description of the time entry |
+| start_time | DATETIME | When the time entry started |
+| end_time | DATETIME | When the time entry ended |
+| duration_minutes | DECIMAL(10, 2) | Duration in minutes |
+| tags | TEXT | Tags associated with the time entry |
+| billable | BOOLEAN | Whether the time entry is billable |
+| created_at | DATETIME | When the record was created |
 
 ## Google Fit Plugin
 
@@ -148,50 +142,28 @@ The plugin uses the Google Fit REST API to access health and fitness data direct
 
 | Column | Type | Description |
 |--------|------|-------------|
-| id | VARCHAR(255) | Unique identifier (Primary Key) |
+| id | VARCHAR(255) | Unique identifier |
 | user_id | VARCHAR(255) | ID of the user |
 | timestamp | DATETIME | Date of the steps (time component is 00:00:00) |
 | steps | INT | Number of steps |
-| created_at | DATETIME | When the record was created (default: CURRENT_TIMESTAMP) |
-| updated_at | DATETIME | When the record was last updated (default: CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) |
-
-### Indexes
-- idx_user_timestamp (user_id, timestamp)
-- idx_timestamp (timestamp)
-- uniq_user_date (user_id, timestamp) - Unique
 
 ### Heart Rate Data Schema
 
 | Column | Type | Description |
 |--------|------|-------------|
-| id | VARCHAR(255) | Unique identifier (Primary Key) |
+| id | VARCHAR(255) | Unique identifier |
 | user_id | VARCHAR(255) | ID of the user |
 | timestamp | DATETIME | When the data was recorded |
 | heart_rate | DECIMAL(5, 2) | Heart rate in BPM |
-| created_at | DATETIME | When the record was created (default: CURRENT_TIMESTAMP) |
-| updated_at | DATETIME | When the record was last updated (default: CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) |
-
-### Indexes
-- idx_user_timestamp (user_id, timestamp)
-- idx_timestamp (timestamp)
-- uniq_user_hour (user_id, timestamp) - Unique
 
 ### General Health Data Schema
 
 | Column | Type | Description |
 |--------|------|-------------|
-| id | VARCHAR(255) | Unique identifier (Primary Key) |
+| id | VARCHAR(255) | Unique identifier |
 | user_id | VARCHAR(255) | ID of the user |
 | date | DATE | Date of the measurement |
 | data_type | VARCHAR(50) | Type of data (weight, height, body_fat_percentage) |
 | value | DECIMAL(10, 2) | Measurement value |
 | unit | VARCHAR(20) | Measurement unit (kg, cm, %) |
 | source | VARCHAR(100) | Data source |
-| created_at | DATETIME | When the record was created (default: CURRENT_TIMESTAMP) |
-| updated_at | DATETIME | When the record was last updated (default: CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) |
-
-### Indexes
-- idx_user_date (user_id, date)
-- idx_date (date)
-- idx_data_type (data_type)
-- uniq_user_date_type (user_id, date, data_type) - Unique
