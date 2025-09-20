@@ -35,17 +35,6 @@ cp .env.example .env
 ./start_docker.sh
 ```
 
-### Option 3: Direct Docker Compose
-
-```bash
-# Copy and configure environment variables
-cp .env.example .env
-# Edit .env with your credentials
-
-# Start with Docker Compose
-docker-compose up
-```
-
 ## Features
 
 - **Modular Design**: Enable/disable data sources as needed
