@@ -31,6 +31,17 @@ uv run python aggregator/run_all.py
 cp .env.example .env
 # Edit .env with your credentials
 
+# Start with Docker Compose using the provided script
+./start_docker.sh
+```
+
+### Option 3: Direct Docker Compose
+
+```bash
+# Copy and configure environment variables
+cp .env.example .env
+# Edit .env with your credentials
+
 # Start with Docker Compose
 docker-compose up
 ```
