@@ -6,13 +6,9 @@ services:
     container_name: aggregator
     env_file:
       - .env
-    environment:
-      # Default values - will be overridden by .env file
-      - YOUR_ENV=aggregator
-      - MAX_TIME_REMAINING=36000
-      - HABITICA_TO_MYSQL=True
-      - INTERVAL_SECONDS=3600
     volumes:
       - .:/app
-    command: ["sh", "-c", "cd /app && python /app/aggregator/run_all.py"]
+    environment:
+      - PYTHONPATH=/app
+    command: ["sh", "-c", "cd /app && python aggregator/run_all.py"]
     restart: always

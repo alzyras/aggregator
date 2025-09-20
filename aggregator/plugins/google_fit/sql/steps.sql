@@ -1,13 +1,9 @@
--- Steps data table
+-- Simplified steps data table with only essential columns
 CREATE TABLE IF NOT EXISTS google_fit_steps (
     id VARCHAR(255) PRIMARY KEY,
     user_id VARCHAR(255),
     timestamp DATETIME,
     steps INT,
-    distance DECIMAL(10, 2),
-    calories DECIMAL(10, 2),
-    speed DECIMAL(10, 2),
-    heart_rate DECIMAL(5, 2),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_user_timestamp (user_id, timestamp),

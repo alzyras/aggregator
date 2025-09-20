@@ -36,6 +36,7 @@ DATA_SOURCES = {
     "heart_rate": "derived:com.google.heart_rate.bpm:com.google.android.gms:merge_heart_rate_bpm",
     "weight": "derived:com.google.weight:com.google.android.gms:merge_weight",
     "height": "derived:com.google.height:com.google.android.gms:merge_height",
+    "body_fat": "derived:com.google.body.fat.percentage:com.google.android.gms:merged",
 }
 
 # Chunk size for API requests
@@ -53,7 +54,8 @@ class GoogleFitPlugin(PluginInterface):
         """Set up the database tables."""
         sql_files = [
             "aggregator/plugins/google_fit/sql/steps.sql",
-            "aggregator/plugins/google_fit/sql/heart.sql"
+            "aggregator/plugins/google_fit/sql/heart.sql",
+            "aggregator/plugins/google_fit/sql/general.sql"
         ]
         try:
             for sql_file in sql_files:
@@ -72,8 +74,8 @@ class GoogleFitPlugin(PluginInterface):
                 for table, df in data.items():
                     if df is None or df.empty:
                         continue
-                    # Only process steps and heart data
-                    if table in ["google_fit_steps", "google_fit_heart"]:
+                    # Only process steps, heart, and general data
+                    if table in ["google_fit_steps", "google_fit_heart", "google_fit_general"]:
                         ins, dup = write_samsung_dataframe_to_mysql_batch(df, table)
                         logger.info(f"Wrote {ins} new rows ({dup} duplicates) to {table}")
                         total_inserted += ins
@@ -114,6 +116,7 @@ class GoogleFitPlugin(PluginInterface):
             # Fetch data
             steps_df = self._fetch_steps_data(access_token, user_id)
             hr_df = self._fetch_heart_rate_data(access_token, user_id)
+            general_df = self._fetch_general_data(access_token, user_id)
 
             # Mark full load as completed after successful fetch
             plugin_config = PluginConfig(self.name)
@@ -123,6 +126,7 @@ class GoogleFitPlugin(PluginInterface):
             return {
                 "google_fit_steps": steps_df,
                 "google_fit_heart": hr_df,
+                "google_fit_general": general_df,
             }
 
         except Exception as e:
@@ -258,14 +262,17 @@ class GoogleFitPlugin(PluginInterface):
         df = self._fetch_data_for_source(access_token, DATA_SOURCES["steps"], 86400000, user_id)
         
         if not df.empty:
-            # Transform to steps format
+            # Transform to steps format with only essential columns
             df = df.rename(columns={"value": "steps"})
-            df["distance"] = 0.0
-            df["calories"] = 0.0
-            df["speed"] = 0.0
-            df["heart_rate"] = None
-            # Remove duplicates
-            df = df.sort_values("timestamp").drop_duplicates(subset=["user_id", "timestamp"], keep="last")
+            # Convert timestamp to date only (remove time component)
+            df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.date
+            # Group by user_id and date, sum the steps
+            df = df.groupby(["user_id", "timestamp"]).agg({
+                "steps": "sum",
+                "id": "first"  # Keep one ID for the group
+            }).reset_index()
+            # Convert timestamp back to datetime for database storage
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
             logger.info(f"Fetched {len(df)} steps records")
         else:
             logger.info("No steps data found")
@@ -278,15 +285,73 @@ class GoogleFitPlugin(PluginInterface):
         df = self._fetch_data_for_source(access_token, DATA_SOURCES["heart_rate"], 3600000, user_id)
         
         if not df.empty:
-            # Transform to heart rate format
+            # Transform to heart rate format with only essential columns
             df = df.rename(columns={"value": "heart_rate"})
-            df["heart_rate_zone"] = None
-            df["measurement_type"] = "bpm"
-            df["context"] = None
-            # Remove duplicates
-            df = df.sort_values("timestamp").drop_duplicates(subset=["user_id", "timestamp"], keep="last")
+            # Remove duplicates by keeping the average heart rate per hour
+            df["timestamp_hour"] = pd.to_datetime(df["timestamp"]).dt.floor("h")
+            df = df.groupby(["user_id", "timestamp_hour"]).agg({
+                "heart_rate": "mean",
+                "id": "first"  # Keep one ID for the group
+            }).reset_index()
+            # Rename timestamp_hour back to timestamp
+            df = df.rename(columns={"timestamp_hour": "timestamp"})
+            # Convert heart_rate to rounded value
+            df["heart_rate"] = df["heart_rate"].round(2)
             logger.info(f"Fetched {len(df)} heart rate records")
         else:
             logger.info("No heart rate data found")
             
         return df
+
+    def _fetch_general_data(self, access_token: str, user_id: str) -> pd.DataFrame:
+        """Fetch general health data (weight, height, body fat, etc.)."""
+        logger.info("Fetching general health data...")
+        
+        # Data types to fetch
+        general_data_types = {
+            "weight": ("weight", "kg"),
+            "height": ("height", "cm"), 
+            "body_fat": ("body_fat_percentage", "%")
+        }
+        
+        all_records = []
+        
+        for data_type_key, (data_type_name, unit) in general_data_types.items():
+            logger.info(f"Fetching {data_type_key} data...")
+            df = self._fetch_data_for_source(access_token, DATA_SOURCES[data_type_key], 86400000, user_id)
+            
+            if not df.empty:
+                # Transform to general format
+                df = df.rename(columns={"value": "value"})
+                # Convert timestamp to date only
+                df["date"] = pd.to_datetime(df["timestamp"]).dt.date
+                # Add data type and unit information
+                df["data_type"] = data_type_name
+                df["unit"] = unit
+                df["source"] = data_type_key
+                # Group by user_id and date, take average value
+                df = df.groupby(["user_id", "date"]).agg({
+                    "value": "mean",
+                    "id": "first",  # Keep one ID for the group
+                    "data_type": "first",
+                    "unit": "first",
+                    "source": "first"
+                }).reset_index()
+                # Convert date back to datetime for database storage
+                df["date"] = pd.to_datetime(df["date"])
+                # Convert value to rounded value
+                df["value"] = df["value"].round(2)
+                
+                all_records.append(df)
+                logger.info(f"Fetched {len(df)} {data_type_key} records")
+            else:
+                logger.info(f"No {data_type_key} data found")
+        
+        # Combine all general data
+        if all_records:
+            combined_df = pd.concat(all_records, ignore_index=True)
+            logger.info(f"Total general health records: {len(combined_df)}")
+            return combined_df
+        else:
+            logger.info("No general health data found")
+            return pd.DataFrame()

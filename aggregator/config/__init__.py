@@ -1,4 +1,4 @@
-"""Configuration module for the wellness statistics application."""
+"""Configuration module for the aggregator application."""
 
 from .config import Config, config
 

@@ -4,7 +4,7 @@ from datetime import datetime
 import pandas as pd
 import requests
 
-X_CLIENT_HEADER = "wellness_statistics"
+X_CLIENT_HEADER = "aggregator"
 
 
 def fetch_tags(user_id, api_token):
