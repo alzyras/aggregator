@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# Script to start the wellness aggregator using docker-compose
+# Script to start the aggregator using docker-compose
 # This script reads environment variables from .env file and uses them with docker-compose
 
 set -e
 
-echo "Starting wellness aggregator..."
+echo "Starting aggregator..."
 
 # Check if .env file exists
 if [ ! -f ".env" ]; then
@@ -18,5 +18,5 @@ fi
 echo "Starting docker containers..."
 docker-compose --env-file .env up -d
 
-echo "Wellness aggregator started successfully!"
+echo "Aggregator started successfully!"
 echo "Check logs with: docker-compose logs -f"

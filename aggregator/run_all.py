@@ -26,7 +26,7 @@ def main() -> None:
         logger.warning("No modules enabled. Please set ENABLED_PLUGINS=asana,habitica in environment variables.")
         return
     
-    logger.info(f"Starting wellness statistics with modules: {', '.join(enabled_modules)}")
+    logger.info(f"Starting aggregator with modules: {', '.join(enabled_modules)}")
 
     while True:
         logger.info("Running data collection for enabled modules...")

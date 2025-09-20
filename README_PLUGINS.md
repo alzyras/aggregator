@@ -1,6 +1,6 @@
-# Wellness Statistics Plugins
+# Aggregator Plugins
 
-This document provides detailed information about each plugin in the Wellness Statistics application, including their data schemas and configuration requirements.
+This document provides detailed information about each plugin in the Aggregator application, including their data schemas and configuration requirements.
 
 ## Table of Contents
 - [Asana Plugin](#asana-plugin)
@@ -15,14 +15,13 @@ Collects completed tasks and subtasks from Asana projects.
 ### Configuration
 To enable the Asana plugin, add `asana` to the `ENABLED_PLUGINS` list in your `.env` file and set the following variables:
 
-- `ASANA_PERSONAL_ACCESS_TOKEN`: Asana personal access token (preferred method)
-- `ASANA_WORKSPACE_GID`: Asana workspace GID
+- `ASANA_ACCESS_TOKEN`: Asana personal access token (preferred method)
 
 ### Setup Instructions
 1. Go to Asana > My Profile Settings > Apps > Manage Developer Apps
 2. Click "+ Create new personal access token"
-3. Give it a name (e.g., "Wellness Statistics")
-4. Copy the token and add it to your `.env` file as `ASANA_PERSONAL_ACCESS_TOKEN`
+3. Give it a name (e.g., "Aggregator")
+4. Copy the token and add it to your `.env` file as `ASANA_ACCESS_TOKEN`
 
 ### Data Schema
 
@@ -81,12 +80,10 @@ Fetches time tracking data from the Toggl API.
 To enable the Toggl plugin, add `toggl` to the `ENABLED_PLUGINS` list in your `.env` file and set the following variables:
 
 - `TOGGL_API_TOKEN`: Toggl API token
-- `TOGGL_WORKSPACE_ID`: Toggl workspace ID
 
 ### Setup Instructions
 1. Obtain a Toggl API token from your Toggl account settings
-2. Find your workspace ID in Toggl (you can see it in the URL when viewing your workspace)
-3. Set the environment variables in your `.env` file
+2. Set the environment variable in your `.env` file
 
 ### Data Schema
 
@@ -122,7 +119,6 @@ To enable the Google Fit plugin, add `google_fit` to the `ENABLED_PLUGINS` list 
 
 - `GOOGLE_FIT_CLIENT_ID`: Google Fit client ID
 - `GOOGLE_FIT_CLIENT_SECRET`: Google Fit client secret
-- `GOOGLE_FIT_REFRESH_TOKEN`: Google Fit refresh token (optional - will be generated automatically)
 
 ### How It Works
 The plugin uses the Google Fit REST API to access health and fitness data directly from your Google account.
@@ -138,14 +134,15 @@ The plugin uses the Google Fit REST API to access health and fitness data direct
 2. Set the environment variables in your `.env` file
 
 3. **OAuth Flow**:
-   - If no refresh token is provided, the plugin will automatically start the OAuth flow
+   - The plugin will automatically start the OAuth flow when run for the first time
    - The plugin will open your browser and ask you to authorize access to your Google Fit data
    - After authorization, the plugin will automatically obtain both access and refresh tokens
-   - The refresh token will be displayed in the console - you should save it in your `.env` file for future use
+   - Tokens will be stored in `aggregator/plugins/google_fit/data/google_fit_tokens.json`
 
 ### Data Types Collected
-- **Steps**: Step count, distance, calories burned, speed
-- **Heart Rate**: BPM readings
+- **Steps**: Daily step counts
+- **Heart Rate**: Hourly heart rate readings
+- **General Health**: Weight, height, and body fat percentage
 
 ### Steps Data Schema
 
@@ -153,12 +150,8 @@ The plugin uses the Google Fit REST API to access health and fitness data direct
 |--------|------|-------------|
 | id | VARCHAR(255) | Unique identifier (Primary Key) |
 | user_id | VARCHAR(255) | ID of the user |
-| timestamp | DATETIME | When the data was recorded |
+| timestamp | DATETIME | Date of the steps (time component is 00:00:00) |
 | steps | INT | Number of steps |
-| distance | DECIMAL(10, 2) | Distance traveled |
-| calories | DECIMAL(10, 2) | Calories burned |
-| speed | DECIMAL(10, 2) | Speed |
-| heart_rate | DECIMAL(5, 2) | Heart rate |
 | created_at | DATETIME | When the record was created (default: CURRENT_TIMESTAMP) |
 | updated_at | DATETIME | When the record was last updated (default: CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) |
 
@@ -175,9 +168,6 @@ The plugin uses the Google Fit REST API to access health and fitness data direct
 | user_id | VARCHAR(255) | ID of the user |
 | timestamp | DATETIME | When the data was recorded |
 | heart_rate | DECIMAL(5, 2) | Heart rate in BPM |
-| heart_rate_zone | VARCHAR(50) | Heart rate zone |
-| measurement_type | VARCHAR(50) | Type of measurement |
-| context | VARCHAR(50) | Context of measurement |
 | created_at | DATETIME | When the record was created (default: CURRENT_TIMESTAMP) |
 | updated_at | DATETIME | When the record was last updated (default: CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) |
 
@@ -186,27 +176,22 @@ The plugin uses the Google Fit REST API to access health and fitness data direct
 - idx_timestamp (timestamp)
 - uniq_user_hour (user_id, timestamp) - Unique
 
+### General Health Data Schema
+
 | Column | Type | Description |
 |--------|------|-------------|
 | id | VARCHAR(255) | Unique identifier (Primary Key) |
 | user_id | VARCHAR(255) | ID of the user |
-| start_time | DATETIME | When workout started |
-| end_time | DATETIME | When workout ended |
-| duration_minutes | DECIMAL(10, 2) | Duration in minutes |
-| workout_type | VARCHAR(100) | Type of workout |
-| calories_burned | DECIMAL(10, 2) | Calories burned |
-| distance | DECIMAL(10, 2) | Distance traveled |
-| average_heart_rate | DECIMAL(5, 2) | Average heart rate |
-| max_heart_rate | DECIMAL(5, 2) | Maximum heart rate |
-| min_heart_rate | DECIMAL(5, 2) | Minimum heart rate |
-| average_speed | DECIMAL(10, 2) | Average speed |
-| max_speed | DECIMAL(10, 2) | Maximum speed |
-| elevation_gain | DECIMAL(10, 2) | Elevation gain |
-| elevation_loss | DECIMAL(10, 2) | Elevation loss |
-| steps | INT | Number of steps |
-| strokes | INT | Number of strokes |
-| laps | INT | Number of laps |
-| notes | TEXT | Notes about the workout |
+| date | DATE | Date of the measurement |
+| data_type | VARCHAR(50) | Type of data (weight, height, body_fat_percentage) |
+| value | DECIMAL(10, 2) | Measurement value |
+| unit | VARCHAR(20) | Measurement unit (kg, cm, %) |
+| source | VARCHAR(100) | Data source |
 | created_at | DATETIME | When the record was created (default: CURRENT_TIMESTAMP) |
 | updated_at | DATETIME | When the record was last updated (default: CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) |
 
+### Indexes
+- idx_user_date (user_id, date)
+- idx_date (date)
+- idx_data_type (data_type)
+- uniq_user_date_type (user_id, date, data_type) - Unique

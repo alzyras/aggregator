@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 class Config:
-    """Configuration class for the wellness statistics application."""
+    """Configuration class for the aggregator application."""
 
     def __init__(self):
         """Initialize configuration from environment variables."""

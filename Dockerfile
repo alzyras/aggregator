@@ -9,7 +9,7 @@ ENV PYTHONFAULTHANDLER=1 \
     PIP_DEFAULT_TIMEOUT=100
 
 # Set your custom environment variable
-ENV YOUR_ENV=wellness_aggregator
+ENV YOUR_ENV=aggregator
 
 # Install dependencies
 RUN apt-get update && apt-get install -y curl git && rm -rf /var/lib/apt/lists/*
@@ -17,16 +17,15 @@ RUN apt-get update && apt-get install -y curl git && rm -rf /var/lib/apt/lists/*
 # Set the working directory for the application
 WORKDIR /app
 
-# Ensure README.md exists (fixes the metadata error)
+# Copy the README file first (needed for metadata)
 COPY README.md /app/
-RUN test -f README.md || echo "# Wellness Aggregator" > README.md
 
 # Copy only the necessary files first (for better caching)
 COPY pyproject.toml /app/
 COPY requirements.txt /app/
 
-# Install dependencies using pip (forcing PEP 517 recognition)
-RUN pip install --no-cache-dir --use-pep517 .
+# Install dependencies using pip
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application
 COPY . /app/
@@ -37,7 +36,7 @@ RUN pip install python-dotenv
 # Set the PYTHONPATH environment variable
 ENV PYTHONPATH=/app:$PYTHONPATH
 
-# Set the working directory to ensure `runner.py` runs in the right path
+# Set the working directory to ensure the app runs in the right path
 WORKDIR /app
 
 # Run the application
