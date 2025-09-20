@@ -5,7 +5,7 @@ from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
-PLUGIN_CONFIG_DIR = ".plugin_configs"
+PLUGIN_CONFIG_DIR = "aggregator/config"
 
 
 class PluginConfig:
@@ -57,9 +57,9 @@ class PluginConfig:
         """Get the number of days to fetch data for.
         
         Returns:
-            int: Number of days to fetch (548 for full load, 90 for incremental)
+            int: Number of days to fetch (1825 for full load, 90 for incremental)
         """
         if self.is_full_load_completed():
             return 90  # Last 90 days for incremental loads
         else:
-            return 548  # Full 1.5 years for initial load
+            return 1825  # Full 5 years for initial load

@@ -43,5 +43,11 @@ credentials.json
 .env
 google_fit_tokens.json
 
+# Google Fit plugin tokens
+aggregator/plugins/google_fit/data/google_fit_tokens.json
+
 # Plugin config files
+aggregator/config/*.json
+
+# Old plugin config directory
 .plugin_configs/
