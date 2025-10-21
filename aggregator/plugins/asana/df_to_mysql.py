@@ -51,6 +51,8 @@ def write_asana_dataframe_to_mysql_batch(df):
             "task_name": TEXT,
             "time_to_completion": REAL,
             "project": TEXT,
+            "workspace_id": TEXT,
+            "workspace_name": TEXT,
             "project_created_at": DATETIME,
             "project_notes": TEXT,
             "project_owner": TEXT,
@@ -81,12 +83,12 @@ def write_asana_dataframe_to_mysql_batch(df):
 
         insert_query = f"""
             INSERT IGNORE INTO asana_items (
-                task_id, task_name, time_to_completion, project, project_created_at, project_notes,
+                task_id, task_name, time_to_completion, project, workspace_id, workspace_name, project_created_at, project_notes,
                 project_owner, completed_by_name, completed_by_email, completed, task_description,
                 date, created_by_name, created_by_email, type
             )
             SELECT 
-                task_id, task_name, time_to_completion, project, project_created_at, project_notes,
+                task_id, task_name, time_to_completion, project, workspace_id, workspace_name, project_created_at, project_notes,
                 project_owner, completed_by_name, completed_by_email, completed, task_description,
                 date, created_by_name, created_by_email, type
             FROM {temp_table_name}

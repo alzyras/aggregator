@@ -16,6 +16,19 @@ def get_personal_access_token():
     return os.environ.get("ASANA_PERSONAL_ACCESS_TOKEN")
 
 
+def get_workspace_info(access_token, workspace_gid):
+    """Gets workspace information by its GID."""
+    url = f"https://app.asana.com/api/1.0/workspaces/{workspace_gid}"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    try:
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        return response.json()["data"]
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error getting workspace info: {e}")
+        return {"gid": workspace_gid, "name": "Unknown"}  # Return basic info if API call fails
+
+
 def get_projects(access_token, workspace_gid):
     """Gets all projects in a workspace."""
     url = f"https://app.asana.com/api/1.0/workspaces/{workspace_gid}/projects"
@@ -99,6 +112,11 @@ def get_completed_subtasks(access_token, task_gid):
 
 def process_tasks_to_dataframe(access_token, workspace_gid, days_to_fetch=548):
     """Processes tasks and subtasks into a DataFrame."""
+    # Get workspace information (ID and name)
+    workspace_info = get_workspace_info(access_token, workspace_gid)
+    workspace_name = workspace_info.get("name", "Unknown Workspace")
+    workspace_id = workspace_info.get("gid", workspace_gid)
+    
     projects = get_projects(access_token, workspace_gid)
     all_tasks = []
     for project in projects:
@@ -127,6 +145,8 @@ def process_tasks_to_dataframe(access_token, workspace_gid, days_to_fetch=548):
                     "task_name": task["name"],
                     "time_to_completion": time_to_completion,
                     "project": project_name,
+                    "workspace_id": workspace_id,
+                    "workspace_name": workspace_name,
                     "project_created_at": project.get("created_at"),
                     "project_notes": project.get("notes"),
                     "project_owner": project.get("owner", {}).get("name"),
@@ -172,6 +192,8 @@ def process_tasks_to_dataframe(access_token, workspace_gid, days_to_fetch=548):
                             "task_name": subtask["name"],
                             "time_to_completion": time_to_completion_sub,
                             "project": project_name,
+                            "workspace_id": workspace_id,
+                            "workspace_name": workspace_name,
                             "project_created_at": project.get("created_at"),
                             "project_notes": project.get("notes"),
                             "project_owner": project.get("owner", {}).get("name"),
