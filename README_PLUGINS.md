@@ -31,6 +31,8 @@ To enable the Asana plugin, add `asana` to the `ENABLED_PLUGINS` list in your `.
 | task_name | TEXT | Name of the task |
 | time_to_completion | REAL | Time taken to complete the task |
 | project | TEXT | Project the task belongs to |
+| workspace_id | TEXT | ID of the workspace the task belongs to |
+| workspace_name | TEXT | Name of the workspace the task belongs to |
 | project_created_at | DATETIME | When the project was created |
 | project_notes | TEXT | Notes about the project |
 | project_owner | TEXT | Owner of the project |
