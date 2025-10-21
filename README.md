@@ -13,7 +13,7 @@ A modular application for collecting and storing data from various sources.
 ### Option 1: Using UV (Recommended)
 
 ```bash
-# Install dependencies
+# Install dependencies (Would also install if you just run it)
 uv sync
 
 # Copy and configure environment variables
