@@ -41,12 +41,6 @@ uv run python manage.py run
 - `python manage.py llm_progress --period last_month` — generate a progress summary via the LLM
 - `python manage.py llm_focus "topic" [last_month|last_90_days|last_12_months]` — topic-focused cross-platform summary (e.g., "learning Portuguese")
 
-Docs:
-- [Plugin details](README_PLUGINS.md)
-- [LLM focus analysis](llm_focus.md)
-- [LLM summary](llm_summary.md)
-- [LLM progress](llm_progress.md)
-
 ## Configuration
 
 - `AGGREGATOR_SETTINGS_MODULE` (default `aggregator.settings.base`)
