@@ -8,6 +8,13 @@ keywords: wellness, productivity, health tracking, asana, habitica, toggl, googl
 
 A modular application for collecting and storing data from various sources.
 
+| Docs | Description |
+| --- | --- |
+| [Plugin details](README_PLUGINS.md) | Schemas, setup, and per-plugin notes |
+| [LLM focus analysis](llm_focus.md) | Topic-focused cross-platform summaries |
+| [LLM summary](llm_summary.md) | Ad-hoc, narrated summaries across all sources |
+| [LLM progress](llm_progress.md) | Period-based progress reports |
+
 ## Quick start
 
 ```bash
