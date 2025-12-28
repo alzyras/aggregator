@@ -37,6 +37,8 @@ uv run python manage.py run
 Docs:
 - [Plugin details](README_PLUGINS.md)
 - [LLM focus analysis](llm_focus.md)
+- [LLM summary](llm_summary.md)
+- [LLM progress](llm_progress.md)
 
 ## Configuration
 
