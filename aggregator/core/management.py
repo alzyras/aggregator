@@ -35,6 +35,8 @@ def execute_from_command_line(command: str, argv: List[str] | None = None) -> No
         _llm_summary(registry, argv)
     elif command == "llm_progress":
         _llm_progress(registry, argv)
+    elif command == "llm_focus":
+        _llm_focus(registry, argv)
     else:
         raise CommandError(f"Unknown command '{command}'. Expected run|sync|debug|llm_summary|llm_progress.")
 
@@ -64,4 +66,22 @@ def _llm_progress(registry: AppRegistry, argv: List[str] | None) -> None:
     if not service:
         raise CommandError("llm_summary service not enabled. Add it to ENABLED_PLUGINS or INSTALLED_APPS.")
     answer = service.generate_progress_summary(period=period)
+    sys.stdout.write(answer + "\n")
+
+
+def _llm_focus(registry: AppRegistry, argv: List[str] | None) -> None:
+    """Answer a focus question across all sources."""
+    if not argv:
+        raise CommandError("llm_focus requires a query string.")
+    period = "last_90_days"
+    if argv and argv[-1].startswith("last_"):
+        period = argv[-1]
+        query_parts = argv[:-1]
+    else:
+        query_parts = argv
+    query = " ".join(query_parts)
+    service = registry.get_service("llm_summary")
+    if not service:
+        raise CommandError("llm_summary service not enabled. Add it to ENABLED_PLUGINS or INSTALLED_APPS.")
+    answer = service.analyze_focus(query=query, period=period)
     sys.stdout.write(answer + "\n")

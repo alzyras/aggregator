@@ -1,7 +1,7 @@
 import logging
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import text
 
@@ -383,5 +383,95 @@ class LlmSummaryRepository:
         )
         with connection() as conn:
             res = conn.execute(sql, {"start_date": start_date, "end_date": end_date, "limit_rows": limit_rows})
+            cols = res.keys()
+            return [dict(zip(cols, row)) for row in res.fetchall()]
+
+    # Focused discovery (keyword-based)
+    def _like_clauses(self, fields: List[str], patterns: List[str]) -> Tuple[str, Dict[str, Any]]:
+        clauses = []
+        params: Dict[str, Any] = {}
+        for i, pat in enumerate(patterns):
+            pname = f"pat{i}"
+            params[pname] = f"%{pat}%"
+            field_checks = [f"LOWER(COALESCE({f},'')) LIKE :{pname}" for f in fields]
+            clauses.append("(" + " OR ".join(field_checks) + ")")
+        if not clauses:
+            clauses.append("1=0")
+        return " OR ".join(clauses), params
+
+    def asana_focus_daily(self, patterns: List[str], start_date=None, end_date=None) -> List[Dict]:
+        if not self.table_exists("asana_items"):
+            return []
+        clause, params = self._like_clauses(["task_name", "task_description", "project"], patterns)
+        sql = text(
+            f"""
+            SELECT DATE(date) AS day, COUNT(*) AS value
+            FROM asana_items
+            WHERE date >= :start_date AND date < :end_date AND ({clause})
+            GROUP BY day
+            ORDER BY day DESC
+            """
+        )
+        params.update({"start_date": start_date, "end_date": end_date})
+        with connection() as conn:
+            res = conn.execute(sql, params)
+            cols = res.keys()
+            return [dict(zip(cols, row)) for row in res.fetchall()]
+
+    def toggl_focus_daily(self, patterns: List[str], start_date=None, end_date=None) -> List[Dict]:
+        if not self.table_exists("toggl_items"):
+            return []
+        clause, params = self._like_clauses(["project_name", "client_name", "description"], patterns)
+        sql = text(
+            f"""
+            SELECT DATE(start_time) AS day, SUM(duration_minutes) AS value
+            FROM toggl_items
+            WHERE start_time >= :start_date AND start_time < :end_date AND ({clause})
+            GROUP BY day
+            ORDER BY day DESC
+            """
+        )
+        params.update({"start_date": start_date, "end_date": end_date})
+        with connection() as conn:
+            res = conn.execute(sql, params)
+            cols = res.keys()
+            return [dict(zip(cols, row)) for row in res.fetchall()]
+
+    def habitica_focus_daily(self, patterns: List[str], start_date=None, end_date=None) -> List[Dict]:
+        if not self.table_exists("habitica_items"):
+            return []
+        clause, params = self._like_clauses(["item_name", "notes", "tags"], patterns)
+        sql = text(
+            f"""
+            SELECT DATE(date_completed) AS day, COUNT(*) AS value
+            FROM habitica_items
+            WHERE date_completed >= :start_date AND date_completed < :end_date AND ({clause})
+            GROUP BY day
+            ORDER BY day DESC
+            """
+        )
+        params.update({"start_date": start_date, "end_date": end_date})
+        with connection() as conn:
+            res = conn.execute(sql, params)
+            cols = res.keys()
+            return [dict(zip(cols, row)) for row in res.fetchall()]
+
+    def fit_focus_daily(self, patterns: List[str], start_date=None, end_date=None) -> List[Dict]:
+        if not self.table_exists("google_fit_general"):
+            return []
+        general_col = self._date_column("google_fit_general") or "timestamp"
+        clause, params = self._like_clauses(["data_type", "source"], patterns)
+        sql = text(
+            f"""
+            SELECT DATE({general_col}) AS day, COUNT(*) AS value
+            FROM google_fit_general
+            WHERE {general_col} >= :start_date AND {general_col} < :end_date AND ({clause})
+            GROUP BY day
+            ORDER BY day DESC
+            """
+        )
+        params.update({"start_date": start_date, "end_date": end_date})
+        with connection() as conn:
+            res = conn.execute(sql, params)
             cols = res.keys()
             return [dict(zip(cols, row)) for row in res.fetchall()]

@@ -32,6 +32,7 @@ uv run python manage.py run
 - `python manage.py debug` — show installed apps and enabled state
 - `python manage.py llm_summary "your question"` — build context and ask the LLM for an answer
 - `python manage.py llm_progress --period last_month` — generate a progress summary via the LLM
+- `python manage.py llm_focus "topic" [last_month|last_90_days|last_12_months]` — topic-focused cross-platform summary (e.g., "learning Portuguese")
 
 ## Configuration
 

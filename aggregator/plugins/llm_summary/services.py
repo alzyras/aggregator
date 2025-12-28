@@ -21,6 +21,7 @@ from aggregator.plugins.llm_summary.models import (
     TrendPoint,
     Metric,
     Window,
+    QueryIntent,
 )
 from aggregator.plugins.llm_summary.repositories import LlmSummaryRepository
 from aggregator.settings import settings
@@ -206,6 +207,45 @@ class LlmSummaryService(PluginService):
         except Exception as exc:
             logger.error("LLM call failed: %s", exc, exc_info=True)
             return self._fallback_summary(payload)
+
+    # Focused analysis entrypoint
+    def analyze_focus(self, query: str, period: str = "last_90_days") -> str:
+        start_date, end_date = self._date_range(period)
+        intent = self._interpret_query(query)
+        patterns = self._focus_patterns(intent)
+        windows = self._window_ranges(end_date)
+
+        focus_sources = {}
+        for source in ["asana", "toggl", "habitica", "google_fit"]:
+            series_30 = self._focus_series(source, patterns, windows["LAST_30_DAYS"])
+            series_90 = self._focus_series(source, patterns, windows["LAST_90_DAYS"])
+            metrics = self._focus_metrics(series_30, series_90)
+            if metrics["total_last_30"] == 0 and metrics["total_last_90"] == 0:
+                focus_sources[source] = {"matches_found": False}
+                continue
+            momentum = self._momentum(series_30, series_90)
+            consistency = self._consistency(series_30, 30)
+            streaks = self._streak_from_series(series_30)
+            presence = self._presence(series_30, 30)
+            phase = self._phase_from_metrics(momentum, consistency)
+            engagement = self._engagement_from_metrics(consistency)
+            focus_sources[source] = {
+                "matches_found": True,
+                "metrics": metrics,
+                "momentum": momentum,
+                "phase": phase,
+                "engagement": engagement,
+                "presence": presence,
+                "streaks": streaks,
+                "consistency": consistency,
+            }
+
+        context = self._build_focus_context(query, intent, focus_sources)
+        try:
+            return self._ask_llm_focus(context)
+        except Exception as exc:
+            logger.error("LLM focus call failed: %s", exc, exc_info=True)
+            return self._fallback_focus(context)
 
     def _build_plugin_summary(
         self,
@@ -534,6 +574,48 @@ class LlmSummaryService(PluginService):
         logger.info("LLM call complete (%.2fs)", elapsed)
         return ChatResponse(content=content, raw=data).content
 
+    def _ask_llm_focus(self, context_text: str) -> str:
+        messages = [
+            ChatMessage(
+                role="system",
+                content=(
+                    "You are summarizing how the user is doing on ONE specific topic.\n"
+                    "You are a narrator, not an analyst. Do not infer trends not explicitly stated.\n"
+                    "If evidence is weak, say so clearly. No guilt framing."
+                ),
+            ),
+            ChatMessage(
+                role="user",
+                content=(
+                    f"Context:\n{context_text}\n\n"
+                    "Format (each ≤5 sentences):\n"
+                    "1) Overall Assessment\n"
+                    "2) Evidence Across Platforms (only matched sources)\n"
+                    "3) Momentum & Consistency\n"
+                    "4) Strengths\n"
+                    "5) Gaps or Risks (only if relevant)\n"
+                    "6) Next-Step Options (2–3, as choices)\n"
+                    "7) Confidence & Data Limits\n"
+                    "Do not analyze raw metrics; only narrate explicit signals."
+                ),
+            ),
+        ]
+        payload = {
+            "model": self.model,
+            "messages": [m.__dict__ for m in messages],
+            "temperature": self.temperature,
+            "max_tokens": min(self.max_tokens, 512),
+            "stream": False,
+        }
+        start = time.time()
+        resp = requests.post(self.base_url, json=payload, timeout=self.timeout)
+        elapsed = time.time() - start
+        resp.raise_for_status()
+        data = resp.json()
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        logger.info("LLM focus call complete (%.2fs)", elapsed)
+        return content
+
     def _fallback_summary(self, payload: ContextPayload) -> str:
         lines = ["LLM unavailable; local fallback summary."]
         for summary in payload.summaries:
@@ -722,6 +804,117 @@ class LlmSummaryService(PluginService):
                 else:
                     no_change.append(f"{source}: stable vs prior 30d")
         return {"meaningful_increases": increases[:5], "meaningful_decreases": decreases[:5], "no_change": no_change[:5]}
+
+    # Focus utilities
+    def _interpret_query(self, query: str) -> QueryIntent:
+        q = query.lower()
+        tokens = [t.strip() for t in q.replace("/", " ").replace("-", " ").split() if t.strip()]
+        synonyms = []
+        related = []
+        if "health" in q or "fitness" in q:
+            related += ["steps", "heart", "sleep", "activity"]
+        if "programming" in q or "code" in q:
+            synonyms += ["coding", "dev"]
+        if "portuguese" in q:
+            synonyms += ["pt", "language", "br"]
+            related += ["study", "practice", "speak"]
+        return QueryIntent(primary_concepts=tokens, related_keywords=related, synonyms=synonyms, excluded_terms=[], confidence="medium")
+
+    def _focus_patterns(self, intent: QueryIntent) -> List[str]:
+        seen = set()
+        for arr in [intent.primary_concepts, intent.related_keywords, intent.synonyms]:
+            for t in arr:
+                if t:
+                    seen.add(t.lower())
+        return list(seen)
+
+    def _focus_series(self, source: str, patterns: List[str], window: Tuple[date, date]) -> List[Dict[str, Any]]:
+        start, end = window
+        if not patterns:
+            return []
+        if source == "asana":
+            return self.repo.asana_focus_daily(patterns, start, end)
+        if source == "toggl":
+            return self.repo.toggl_focus_daily(patterns, start, end)
+        if source == "habitica":
+            return self.repo.habitica_focus_daily(patterns, start, end)
+        if source == "google_fit":
+            return self.repo.fit_focus_daily(patterns, start, end)
+        return []
+
+    def _focus_metrics(self, series_30: List[Dict[str, Any]], series_90: List[Dict[str, Any]]) -> Dict[str, Any]:
+        total_30 = sum(float(r["value"]) for r in series_30)
+        total_90 = sum(float(r["value"]) for r in series_90)
+        avg_30 = total_30 / 30
+        med_30 = statistics.median([float(r["value"]) for r in series_30]) if series_30 else 0
+        def delta(last, prior):
+            if prior <= 0:
+                return None
+            return round((last - prior) / prior, 2)
+        return {
+            "total_last_30": total_30,
+            "total_last_90": total_90,
+            "per_day_avg_last_30": avg_30,
+            "per_day_median_last_30": med_30,
+            "delta_30_vs_prior": delta(total_30, total_90 - total_30) if total_90 > total_30 else None,
+        }
+
+    def _phase_from_metrics(self, momentum: str, consistency: Dict[str, Any]) -> str:
+        active_ratio = consistency.get("active_ratio", 0) or 0
+        if momentum == "rising" and active_ratio >= 0.5:
+            return "active"
+        if momentum in ("stable", "rising") and active_ratio >= 0.3:
+            return "maintained"
+        if active_ratio > 0:
+            return "paused"
+        return "inactive"
+
+    def _engagement_from_metrics(self, consistency: Dict[str, Any]) -> str:
+        active_ratio = consistency.get("active_ratio", 0) or 0
+        burst = consistency.get("burstiness")
+        if active_ratio >= 0.6 and burst == "spread":
+            return "steady"
+        if active_ratio >= 0.3:
+            return "focused"
+        if active_ratio > 0:
+            return "fragmented"
+        return "sparse"
+
+    def _build_focus_context(self, query: str, intent: QueryIntent, sources: Dict[str, Any]) -> str:
+        matched_sources = [k for k, v in sources.items() if v.get("matches_found")]
+        cross_support = len(matched_sources) > 1
+        highlights = []
+        gaps = []
+        for name, data in sources.items():
+            if data.get("matches_found"):
+                phase = data.get("phase", "inactive")
+                momentum = data.get("momentum", "paused")
+                highlights.append(f"{name}: {phase}, momentum {momentum}")
+            else:
+                gaps.append(f"{name}: no relevant activity found")
+        context = {
+            "topic": query,
+            "interpretation": {
+                "primary_concepts": intent.primary_concepts,
+                "related_keywords": intent.related_keywords,
+                "synonyms": intent.synonyms,
+                "confidence": intent.confidence,
+            },
+            "coverage_summary": sources,
+            "key_findings": {
+                "cross_tool_support": cross_support,
+            },
+            "highlights": highlights[:5],
+            "gaps": gaps[:5],
+            "confidence": "medium" if cross_support else "low",
+        }
+        text = json.dumps(context, ensure_ascii=False)
+        if len(text) > self.max_context_chars:
+            text = text[: self.max_context_chars]
+        return text
+
+    def _fallback_focus(self, context: str) -> str:
+        return "LLM unavailable; focus summary context prepared but not narrated."
 
     def _window_ranges(self, end_date: date) -> Dict[str, Tuple[date, date]]:
         return {

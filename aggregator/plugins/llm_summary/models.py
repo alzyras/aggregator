@@ -25,6 +25,15 @@ class Metric:
 
 
 @dataclass
+class QueryIntent:
+    primary_concepts: List[str]
+    related_keywords: List[str]
+    synonyms: List[str]
+    excluded_terms: List[str]
+    confidence: str = "medium"
+
+
+@dataclass
 class TrendPoint:
     period: str
     value: float
