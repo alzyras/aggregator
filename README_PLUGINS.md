@@ -169,3 +169,19 @@ The plugin uses the Google Fit REST API to access health and fitness data direct
 | value | DECIMAL(10, 2) | Measurement value |
 | unit | VARCHAR(20) | Measurement unit (kg, cm, %) |
 | source | VARCHAR(100) | Data source |
+## LLM Focus Analysis
+
+The `llm_summary` plugin supports topic-focused analysis across all sources. Ask queries like “learning Portuguese”, “programming”, “client deadlines”, or “health”.
+
+How it works:
+- Interprets your query into concepts/keywords (without touching your activity data).
+- Searches Asana (projects/tasks/descriptions), Toggl (projects/clients/descriptions), Habitica (items/notes/tags), and Google Fit (data_type/source) for matches.
+- Computes presence, volume, consistency, streaks, and momentum for matched activity over explicit windows.
+- Builds a compact context and lets the local LLM narrate only the derived signals.
+
+CLI:
+- `python manage.py llm_focus "your topic"` (defaults to last_90_days)
+- Optional `--period last_month|last_90_days|last_12_months`
+
+Privacy: only the query text is sent to the LLM for intent interpretation; activity data stays local and only summarized context is shared with the local LLM endpoint.
+
