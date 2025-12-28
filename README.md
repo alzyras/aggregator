@@ -34,7 +34,9 @@ uv run python manage.py run
 - `python manage.py llm_progress --period last_month` — generate a progress summary via the LLM
 - `python manage.py llm_focus "topic" [last_month|last_90_days|last_12_months]` — topic-focused cross-platform summary (e.g., "learning Portuguese")
 
-See `llm_focus.md` for details and example output of the topic-focused flow.
+Docs:
+- [Plugin details](README_PLUGINS.md)
+- [LLM focus analysis](llm_focus.md)
 
 ## Configuration
 
@@ -44,7 +46,7 @@ See `llm_focus.md` for details and example output of the topic-focused flow.
 - Plugin creds: `ASANA_*`, `HABITICA_*`, `TOGGL_*`, `GOOGLE_FIT_*`
 - LLM summary: `LLM_SUMMARY_*` (see `.env.example`)
 
-See `README_PLUGINS.md` for plugin-specific details.
+See [README_PLUGINS.md](README_PLUGINS.md) for plugin-specific details.
 
 ## Docker
 
