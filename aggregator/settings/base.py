@@ -52,6 +52,27 @@ class Settings:
             "client_secret": os.environ.get("GOOGLE_FIT_CLIENT_SECRET"),
             "refresh_token": os.environ.get("GOOGLE_FIT_REFRESH_TOKEN"),
         }
+        self.llm_summary = {
+            "base_url": os.environ.get(
+                "LLM_SUMMARY_BASE_URL",
+                "http://192.168.1.46:1234/v1/chat/completions",
+            ),
+            "model": os.environ.get("LLM_SUMMARY_MODEL", "mistralai/ministral-3-3b"),
+            "temperature": float(os.environ.get("LLM_SUMMARY_TEMPERATURE", "0.4")),
+            "max_tokens": int(os.environ.get("LLM_SUMMARY_MAX_TOKENS", "700")),
+            "timeout": int(os.environ.get("LLM_SUMMARY_TIMEOUT", "30")),
+            "months": int(os.environ.get("LLM_SUMMARY_MONTHS", "12")),
+            "top_n": int(os.environ.get("LLM_SUMMARY_TOP_N", "8")),
+            "max_context_chars": int(
+                os.environ.get("LLM_SUMMARY_MAX_CONTEXT_CHARS", "12000")
+            ),
+            "emerge_threshold_pct": int(
+                os.environ.get("LLM_SUMMARY_EMERGE_THRESHOLD_PCT", "60")
+            ),
+            "decline_threshold_pct": int(
+                os.environ.get("LLM_SUMMARY_DECLINE_THRESHOLD_PCT", "40")
+            ),
+        }
 
         # Apps must be declared explicitly; no dynamic discovery.
         self.INSTALLED_APPS = [
@@ -59,6 +80,7 @@ class Settings:
             "aggregator.plugins.habitica.apps.HabiticaConfig",
             "aggregator.plugins.toggl.apps.TogglConfig",
             "aggregator.plugins.google_fit.apps.GoogleFitConfig",
+            "aggregator.plugins.llm_summary.apps.LlmSummaryConfig",
         ]
 
     def is_app_enabled(self, app_label: str) -> bool:

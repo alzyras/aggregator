@@ -1,0 +1,1 @@
+"""LLM-driven summary plugin."""

@@ -30,6 +30,8 @@ uv run python manage.py run
 - `python manage.py run` — setup→fetch→write for each enabled plugin in a loop (respects `INTERVAL_SECONDS`)
 - `python manage.py sync` — run setup only (create/prepare tables)
 - `python manage.py debug` — show installed apps and enabled state
+- `python manage.py llm_summary "your question"` — build context and ask the LLM for an answer
+- `python manage.py llm_progress --period last_month` — generate a progress summary via the LLM
 
 ## Configuration
 
@@ -37,6 +39,7 @@ uv run python manage.py run
 - `ENABLED_PLUGINS` (comma-separated, leave empty to enable all in `INSTALLED_APPS`)
 - Database: `MYSQL_HOST`, `MYSQL_DB`, `MYSQL_USER`, `MYSQL_PASSWORD`
 - Plugin creds: `ASANA_*`, `HABITICA_*`, `TOGGL_*`, `GOOGLE_FIT_*`
+- LLM summary: `LLM_SUMMARY_*` (see `.env.example`)
 
 See `README_PLUGINS.md` for plugin-specific details.
 
