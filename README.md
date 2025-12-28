@@ -39,3 +39,14 @@ uv run python manage.py run
 - Plugin creds: `ASANA_*`, `HABITICA_*`, `TOGGL_*`, `GOOGLE_FIT_*`
 
 See `README_PLUGINS.md` for plugin-specific details.
+
+## Docker
+
+```bash
+cp .env.example .env
+# edit .env with DB + plugin credentials
+
+docker compose up --build
+# or use the helper
+./start_docker.sh
+```
