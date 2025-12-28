@@ -161,3 +161,227 @@ class LlmSummaryRepository:
             result = conn.execute(text(query), params)
             cols = result.keys()
             return [dict(zip(cols, row)) for row in result.fetchall()]
+
+    # New aggregate helpers
+    def run_query(self, sql_file: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+        path = BASE_QUERIES / sql_file
+        if not path.exists():
+            return []
+        query = path.read_text()
+        with connection() as conn:
+            result = conn.execute(text(query), params)
+            cols = result.keys()
+            return [dict(zip(cols, row)) for row in result.fetchall()]
+
+    def global_monthly(self, start_date, end_date, limit_rows=12) -> List[Dict]:
+        return self.run_query("global_monthly_rollup.sql", {"start_date": start_date, "end_date": end_date, "limit_rows": limit_rows})
+
+    def global_weekly(self, start_date, end_date, limit_rows=12) -> List[Dict]:
+        return self.run_query("global_weekly_rollup.sql", {"start_date": start_date, "end_date": end_date, "limit_rows": limit_rows})
+
+    def global_daily(self, start_date, end_date, limit_rows=30) -> List[Dict]:
+        return self.run_query("global_daily_rollup.sql", {"start_date": start_date, "end_date": end_date, "limit_rows": limit_rows})
+
+    def top_categories_30d(self, end_date, limit_rows=8) -> List[Dict]:
+        return self.run_query("global_top_categories_30d.sql", {"end_date": end_date, "limit_rows": limit_rows})
+
+    def asana_monthly_projects(self, start_date, end_date, limit_rows=50) -> List[Dict]:
+        return self.run_query("asana_monthly_project_rollup.sql", {"start_date": start_date, "end_date": end_date, "limit_rows": limit_rows})
+
+    def toggl_monthly_projects(self, start_date, end_date, limit_rows=50) -> List[Dict]:
+        return self.run_query("toggl_monthly_project_rollup.sql", {"start_date": start_date, "end_date": end_date, "limit_rows": limit_rows})
+
+    def toggl_session_stats(self, start_date, end_date) -> List[Dict]:
+        return self.run_query("toggl_session_stats.sql", {"start_date": start_date, "end_date": end_date})
+
+    def habitica_daily(self, start_date, end_date) -> List[Dict]:
+        return self.run_query("habitica_daily_completions.sql", {"start_date": start_date, "end_date": end_date})
+
+    def habitica_monthly_categories(self, start_date, end_date, limit_rows=50) -> List[Dict]:
+        return self.run_query("habitica_monthly_category_rollup.sql", {"start_date": start_date, "end_date": end_date, "limit_rows": limit_rows})
+
+    def google_fit_daily_steps(self, start_date, end_date) -> List[Dict]:
+        return self.run_query("google_fit_daily_steps.sql", {"start_date": start_date, "end_date": end_date})
+
+    def google_fit_weekly_health(self, start_date, end_date, limit_rows=12) -> List[Dict]:
+        return self.run_query("google_fit_weekly_health_rollup.sql", {"start_date": start_date, "end_date": end_date, "limit_rows": limit_rows})
+
+    def coverage_by_source(self, start_date, end_date) -> List[Dict]:
+        return self.run_query("coverage_by_source.sql", {"start_date": start_date, "end_date": end_date})
+
+    # Windowed totals per source (start inclusive, end exclusive)
+    def asana_totals(self, start_date, end_date) -> Dict[str, Any]:
+        if not self.table_exists("asana_items"):
+            return {}
+        sql = text(
+            """
+            SELECT COUNT(*) AS completed, COUNT(DISTINCT project) AS projects, COUNT(DISTINCT DATE(date)) AS coverage_days
+            FROM asana_items
+            WHERE date >= :start_date AND date < :end_date
+            """
+        )
+        with connection() as conn:
+            row = conn.execute(sql, {"start_date": start_date, "end_date": end_date}).fetchone()
+            return dict(row._mapping) if row else {}
+
+    def toggl_totals(self, start_date, end_date) -> Dict[str, Any]:
+        if not self.table_exists("toggl_items"):
+            return {}
+        sql = text(
+            """
+            SELECT
+                SUM(duration_minutes) AS minutes,
+                AVG(duration_minutes) AS avg_session_minutes,
+                SUM(CASE WHEN duration_minutes >= 60 THEN duration_minutes ELSE 0 END) AS deep_minutes,
+                COUNT(*) AS sessions,
+                COUNT(DISTINCT DATE(start_time)) AS coverage_days
+            FROM toggl_items
+            WHERE start_time >= :start_date AND start_time < :end_date
+            """
+        )
+        with connection() as conn:
+            row = conn.execute(sql, {"start_date": start_date, "end_date": end_date}).fetchone()
+            return dict(row._mapping) if row else {}
+
+    def habitica_totals(self, start_date, end_date) -> Dict[str, Any]:
+        if not self.table_exists("habitica_items"):
+            return {}
+        sql = text(
+            """
+            SELECT COUNT(*) AS completions, COUNT(DISTINCT DATE(date_completed)) AS coverage_days
+            FROM habitica_items
+            WHERE date_completed >= :start_date AND date_completed < :end_date
+            """
+        )
+        with connection() as conn:
+            row = conn.execute(sql, {"start_date": start_date, "end_date": end_date}).fetchone()
+            return dict(row._mapping) if row else {}
+
+    def google_fit_totals(self, start_date, end_date) -> Dict[str, Any]:
+        if not self.table_exists("google_fit_steps"):
+            return {}
+        sql = text(
+            """
+            SELECT
+                SUM(steps) AS steps,
+                COUNT(DISTINCT DATE(timestamp)) AS coverage_days
+            FROM google_fit_steps
+            WHERE timestamp >= :start_date AND timestamp < :end_date
+            """
+        )
+        with connection() as conn:
+            row = conn.execute(sql, {"start_date": start_date, "end_date": end_date}).fetchone()
+            return dict(row._mapping) if row else {}
+
+    def toggl_daily_series(self, start_date, end_date) -> List[Dict]:
+        if not self.table_exists("toggl_items"):
+            return []
+        sql = text(
+            """
+            SELECT DATE(start_time) AS day, SUM(duration_minutes) AS minutes
+            FROM toggl_items
+            WHERE start_time >= :start_date AND start_time < :end_date
+            GROUP BY day
+            ORDER BY day DESC
+            """
+        )
+        with connection() as conn:
+            res = conn.execute(sql, {"start_date": start_date, "end_date": end_date})
+            cols = res.keys()
+            return [dict(zip(cols, row)) for row in res.fetchall()]
+
+    def asana_daily_series(self, start_date, end_date) -> List[Dict]:
+        if not self.table_exists("asana_items"):
+            return []
+        sql = text(
+            """
+            SELECT DATE(date) AS day, COUNT(*) AS completed
+            FROM asana_items
+            WHERE date >= :start_date AND date < :end_date
+            GROUP BY day
+            ORDER BY day DESC
+            """
+        )
+        with connection() as conn:
+            res = conn.execute(sql, {"start_date": start_date, "end_date": end_date})
+            cols = res.keys()
+            return [dict(zip(cols, row)) for row in res.fetchall()]
+
+    def habitica_daily_series(self, start_date, end_date) -> List[Dict]:
+        return self.habitica_daily(start_date, end_date)
+
+    def fit_daily_series(self, start_date, end_date) -> List[Dict]:
+        return self.google_fit_daily_steps(start_date, end_date)
+
+    def asana_categories_window(self, start_date, end_date, limit_rows=8) -> List[Dict]:
+        if not self.table_exists("asana_items"):
+            return []
+        sql = text(
+            """
+            SELECT project AS category, COUNT(*) AS total_value
+            FROM asana_items
+            WHERE date >= :start_date AND date < :end_date
+            GROUP BY category
+            ORDER BY total_value DESC
+            LIMIT :limit_rows
+            """
+        )
+        with connection() as conn:
+            res = conn.execute(sql, {"start_date": start_date, "end_date": end_date, "limit_rows": limit_rows})
+            cols = res.keys()
+            return [dict(zip(cols, row)) for row in res.fetchall()]
+
+    def toggl_categories_window(self, start_date, end_date, limit_rows=8) -> List[Dict]:
+        if not self.table_exists("toggl_items"):
+            return []
+        sql = text(
+            """
+            SELECT COALESCE(project_name, client_name, 'Uncategorized') AS category, SUM(duration_minutes) AS total_value
+            FROM toggl_items
+            WHERE start_time >= :start_date AND start_time < :end_date
+            GROUP BY category
+            ORDER BY total_value DESC
+            LIMIT :limit_rows
+            """
+        )
+        with connection() as conn:
+            res = conn.execute(sql, {"start_date": start_date, "end_date": end_date, "limit_rows": limit_rows})
+            cols = res.keys()
+            return [dict(zip(cols, row)) for row in res.fetchall()]
+
+    def habitica_categories_window(self, start_date, end_date, limit_rows=8) -> List[Dict]:
+        if not self.table_exists("habitica_items"):
+            return []
+        sql = text(
+            """
+            SELECT COALESCE(item_type, 'unknown') AS category, COUNT(*) AS total_value
+            FROM habitica_items
+            WHERE date_completed >= :start_date AND date_completed < :end_date
+            GROUP BY category
+            ORDER BY total_value DESC
+            LIMIT :limit_rows
+            """
+        )
+        with connection() as conn:
+            res = conn.execute(sql, {"start_date": start_date, "end_date": end_date, "limit_rows": limit_rows})
+            cols = res.keys()
+            return [dict(zip(cols, row)) for row in res.fetchall()]
+
+    def fit_categories_window(self, start_date, end_date, limit_rows=8) -> List[Dict]:
+        if not self.table_exists("google_fit_general"):
+            return []
+        general_col = self._date_column("google_fit_general") or "timestamp"
+        sql = text(
+            f"""
+            SELECT data_type AS category, COUNT(*) AS total_value
+            FROM google_fit_general
+            WHERE {general_col} >= :start_date AND {general_col} < :end_date
+            GROUP BY category
+            ORDER BY total_value DESC
+            LIMIT :limit_rows
+            """
+        )
+        with connection() as conn:
+            res = conn.execute(sql, {"start_date": start_date, "end_date": end_date, "limit_rows": limit_rows})
+            cols = res.keys()
+            return [dict(zip(cols, row)) for row in res.fetchall()]

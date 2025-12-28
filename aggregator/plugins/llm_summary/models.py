@@ -1,6 +1,27 @@
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Dict, List, Optional
+from enum import Enum
+
+
+class Window(str, Enum):
+    LAST_7_DAYS = "LAST_7_DAYS"
+    LAST_30_DAYS = "LAST_30_DAYS"
+    LAST_90_DAYS = "LAST_90_DAYS"
+    PRIOR_30_DAYS = "PRIOR_30_DAYS"
+    PRIOR_90_DAYS = "PRIOR_90_DAYS"
+    LAST_12_MONTHS = "LAST_12_MONTHS"
+
+
+@dataclass
+class Metric:
+    name: str
+    source: str
+    window: Window
+    value: float
+    unit: str
+    coverage_days: int
+    confidence: str = "medium"
 
 
 @dataclass

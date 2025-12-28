@@ -1,11 +1,12 @@
 import json
 import logging
 import math
+import statistics
 import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 import requests
 
@@ -18,9 +19,12 @@ from aggregator.plugins.llm_summary.models import (
     ContextPayload,
     PluginSummary,
     TrendPoint,
+    Metric,
+    Window,
 )
 from aggregator.plugins.llm_summary.repositories import LlmSummaryRepository
 from aggregator.settings import settings
+from aggregator.plugins.llm_summary.formatting import percent, minutes_str, count_str
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +65,7 @@ class LlmSummaryService(PluginService):
         self.timeout = llm["timeout"]
         self.months = llm["months"]
         self.top_n = llm["top_n"]
-        self.max_context_chars = llm["max_context_chars"]
+        self.max_context_chars = min(llm["max_context_chars"], 6000)
         self.emerge_threshold_pct = llm["emerge_threshold_pct"]
         self.decline_threshold_pct = llm["decline_threshold_pct"]
 
@@ -79,95 +83,95 @@ class LlmSummaryService(PluginService):
     ) -> Tuple[str, ContextPayload]:
         window_months = months or self.months
         top_n = top_n or self.top_n
-        presence = self.repo.get_plugin_presence()
-        summaries: List[PluginSummary] = []
-        emerging: List[CategoryTrend] = []
-        declining: List[CategoryTrend] = []
-        data_gaps: List[str] = []
+        windows = self._window_ranges(end_date)
+        metrics: List[Metric] = []
+        caveats: List[str] = []
+        source_snapshots: Dict[str, Dict[str, Any]] = {}
 
-        def params():
-            return {
-                "start_date": start_date,
-                "end_date": end_date,
-                "limit_rows": window_months + 2,
+        # Collect per-source metrics for canonical windows
+        # Asana
+        asana_30 = self.repo.asana_totals(windows["LAST_30_DAYS"][0], windows["LAST_30_DAYS"][1])
+        asana_prior_30 = self.repo.asana_totals(windows["PRIOR_30_DAYS"][0], windows["PRIOR_30_DAYS"][1])
+        if asana_30:
+            metrics.append(Metric("tasks_completed", "asana", Window.LAST_30_DAYS, float(asana_30.get("completed", 0) or 0), "count", int(asana_30.get("coverage_days", 0)), "high"))
+        if asana_prior_30:
+            metrics.append(Metric("tasks_completed", "asana", Window.PRIOR_30_DAYS, float(asana_prior_30.get("completed", 0) or 0), "count", int(asana_prior_30.get("coverage_days", 0)), "medium"))
+
+        # Toggl
+        toggl_30 = self.repo.toggl_totals(windows["LAST_30_DAYS"][0], windows["LAST_30_DAYS"][1])
+        toggl_prior_30 = self.repo.toggl_totals(windows["PRIOR_30_DAYS"][0], windows["PRIOR_30_DAYS"][1])
+        if toggl_30:
+            metrics.append(Metric("minutes_tracked", "toggl", Window.LAST_30_DAYS, float(toggl_30.get("minutes") or 0), "minutes", int(toggl_30.get("coverage_days", 0)), "high"))
+        if toggl_prior_30:
+            metrics.append(Metric("minutes_tracked", "toggl", Window.PRIOR_30_DAYS, float(toggl_prior_30.get("minutes") or 0), "minutes", int(toggl_prior_30.get("coverage_days", 0)), "medium"))
+        toggl_90 = self.repo.toggl_totals(windows["LAST_90_DAYS"][0], windows["LAST_90_DAYS"][1])
+        toggl_prior_90 = self.repo.toggl_totals(windows["PRIOR_90_DAYS"][0], windows["PRIOR_90_DAYS"][1])
+        if toggl_90:
+            metrics.append(Metric("minutes_tracked", "toggl", Window.LAST_90_DAYS, float(toggl_90.get("minutes") or 0), "minutes", int(toggl_90.get("coverage_days", 0)), "high"))
+        if toggl_prior_90:
+            metrics.append(Metric("minutes_tracked", "toggl", Window.PRIOR_90_DAYS, float(toggl_prior_90.get("minutes") or 0), "minutes", int(toggl_prior_90.get("coverage_days", 0)), "medium"))
+
+        # Habitica
+        habitica_30 = self.repo.habitica_totals(windows["LAST_30_DAYS"][0], windows["LAST_30_DAYS"][1])
+        habitica_prior_30 = self.repo.habitica_totals(windows["PRIOR_30_DAYS"][0], windows["PRIOR_30_DAYS"][1])
+        if habitica_30:
+            metrics.append(Metric("completions", "habitica", Window.LAST_30_DAYS, float(habitica_30.get("completions") or 0), "count", int(habitica_30.get("coverage_days", 0)), "high"))
+        if habitica_prior_30:
+            metrics.append(Metric("completions", "habitica", Window.PRIOR_30_DAYS, float(habitica_prior_30.get("completions") or 0), "count", int(habitica_prior_30.get("coverage_days", 0)), "medium"))
+        habitica_90 = self.repo.habitica_totals(windows["LAST_90_DAYS"][0], windows["LAST_90_DAYS"][1])
+        habitica_prior_90 = self.repo.habitica_totals(windows["PRIOR_90_DAYS"][0], windows["PRIOR_90_DAYS"][1])
+        if habitica_90:
+            metrics.append(Metric("completions", "habitica", Window.LAST_90_DAYS, float(habitica_90.get("completions") or 0), "count", int(habitica_90.get("coverage_days", 0)), "high"))
+        if habitica_prior_90:
+            metrics.append(Metric("completions", "habitica", Window.PRIOR_90_DAYS, float(habitica_prior_90.get("completions") or 0), "count", int(habitica_prior_90.get("coverage_days", 0)), "medium"))
+
+        # Google Fit
+        fit_30 = self.repo.google_fit_totals(windows["LAST_30_DAYS"][0], windows["LAST_30_DAYS"][1])
+        fit_prior_30 = self.repo.google_fit_totals(windows["PRIOR_30_DAYS"][0], windows["PRIOR_30_DAYS"][1])
+        if fit_30:
+            metrics.append(Metric("steps", "google_fit", Window.LAST_30_DAYS, float(fit_30.get("steps") or 0), "steps", int(fit_30.get("coverage_days", 0)), "high"))
+        if fit_prior_30:
+            metrics.append(Metric("steps", "google_fit", Window.PRIOR_30_DAYS, float(fit_prior_30.get("steps") or 0), "steps", int(fit_prior_30.get("coverage_days", 0)), "medium"))
+        fit_90 = self.repo.google_fit_totals(windows["LAST_90_DAYS"][0], windows["LAST_90_DAYS"][1])
+        fit_prior_90 = self.repo.google_fit_totals(windows["PRIOR_90_DAYS"][0], windows["PRIOR_90_DAYS"][1])
+        if fit_90:
+            metrics.append(Metric("steps", "google_fit", Window.LAST_90_DAYS, float(fit_90.get("steps") or 0), "steps", int(fit_90.get("coverage_days", 0)), "high"))
+        if fit_prior_90:
+            metrics.append(Metric("steps", "google_fit", Window.PRIOR_90_DAYS, float(fit_prior_90.get("steps") or 0), "steps", int(fit_prior_90.get("coverage_days", 0)), "medium"))
+
+        metrics, caveat_metrics = self._validate_metrics(metrics)
+        caveats.extend(caveat_metrics)
+
+        # Derive per-source presence/consistency/streaks
+        for source in ["asana", "toggl", "habitica", "google_fit"]:
+            series_30 = self._daily_series(source, windows["LAST_30_DAYS"])
+            series_90 = self._daily_series(source, windows["LAST_90_DAYS"])
+            snapshot = {
+                "presence": self._presence(series_30, window_days=30),
+                "consistency": self._consistency(series_30, window_days=30),
+                "streaks": self._streak_from_series(series_30),
+                "best": self._best_from_series(series_30, windows["LAST_30_DAYS"]),
+                "momentum": self._momentum(series_30, series_90),
             }
+            source_snapshots[source] = snapshot
 
-        if presence.get("asana"):
-            summaries.append(
-                self._build_plugin_summary(
-                    plugin="asana",
-                    monthly_file="asana_monthly_summary.sql",
-                    category_file="asana_categories.sql",
-                    params=params(),
-                    top_n=top_n,
-                )
-            )
-        else:
-            data_gaps.append("asana table missing; skipping.")
-
-        if presence.get("toggl"):
-            summaries.append(
-                self._build_plugin_summary(
-                    plugin="toggl",
-                    monthly_file="toggl_monthly_summary.sql",
-                    category_file="toggl_categories.sql",
-                    params=params(),
-                    top_n=top_n,
-                )
-            )
-        else:
-            data_gaps.append("toggl table missing; skipping.")
-
-        if presence.get("habitica"):
-            summaries.append(
-                self._build_plugin_summary(
-                    plugin="habitica",
-                    monthly_file="habitica_monthly_summary.sql",
-                    category_file="habitica_categories.sql",
-                    params=params(),
-                    top_n=top_n,
-                )
-            )
-        else:
-            data_gaps.append("habitica table missing; skipping.")
-
-        if all(presence.get(k) for k in ["google_fit_steps", "google_fit_heart", "google_fit_general"]):
-            summaries.append(
-                self._build_plugin_summary(
-                    plugin="google_fit",
-                    monthly_file="google_fit_monthly_summary.sql",
-                    category_file="google_fit_categories.sql",
-                    params=params(),
-                    top_n=top_n,
-                )
-            )
-        else:
-            data_gaps.append("google_fit tables missing; skipping.")
-
-        for summary in summaries:
-            trends = self._detect_trends(summary)
-            emerging.extend([t for t in trends if t.direction == "emerging"])
-            declining.extend([t for t in trends if t.direction == "declining"])
-
-        themes = self._derive_themes(summaries, top_n)
-        correlations = self._correlate_health_productivity(summaries)
+        # Build minimal summaries for compatibility
+        summaries: List[PluginSummary] = []
+        for source in ["asana", "toggl", "habitica", "google_fit"]:
+            summaries.append(PluginSummary(plugin=source))
 
         payload = ContextPayload(
             start_date=start_date,
             end_date=end_date,
             window_months=window_months,
             summaries=summaries,
-            emerging=emerging[:top_n],
-            declining=declining[:top_n],
+            emerging=[],
+            declining=[],
             anomalies=[],
-            data_gaps=data_gaps,
+            data_gaps=caveats,
         )
-        context_text = self._compact_context(
-            payload,
-            top_n=top_n,
-            themes=themes,
-            correlations=correlations,
-        )
+
+        context_text = self._context_from_metrics(metrics, caveats, source_snapshots)
         return context_text, payload
 
     def generate_progress_summary(self, period: str = "last_month") -> str:
@@ -435,6 +439,9 @@ class LlmSummaryService(PluginService):
         top_n: int,
         themes: List[Dict[str, Any]],
         correlations: List[Dict[str, Any]],
+        streaks: Dict[str, Any],
+        coverage: List[Dict[str, Any]],
+        best: Dict[str, Any],
     ) -> str:
         def clamp(text: str) -> str:
             if len(text) <= self.max_context_chars:
@@ -461,6 +468,9 @@ class LlmSummaryService(PluginService):
             "emerging": [trend.__dict__ for trend in payload.emerging],
             "declining": [trend.__dict__ for trend in payload.declining],
             "correlations": correlations,
+            "streaks": streaks,
+            "coverage": coverage,
+            "highlights": best,
             "anomalies": payload.anomalies,
             "data_gaps": payload.data_gaps,
             "source_notes": "All numbers are read-only rollups from plugin tables; source keys match plugin names. Only top relevant themes are surfaced; noise omitted.",
@@ -479,14 +489,28 @@ class LlmSummaryService(PluginService):
             ChatMessage(
                 role="system",
                 content=(
-                    "You are an analytical assistant summarizing quantified behavior data. "
-                    "Rules: do NOT hallucinate. Base every claim on provided numbers. "
-                    "Cite sources explicitly (Asana, Toggl, Habitica, Google Fit). "
-                    "Be concise, direct, and practical. If data is missing or weak, say so. "
-                    "No generic motivational advice."
+                    "You are a reporting layer, not an analyst. Do NOT infer trends beyond the provided context.\n"
+                    "Only narrate the context; do not think aloud. If information is missing, say so plainly.\n"
+                    "Do not repeat metrics across sections. Tone: senior analyst, calm, supportive.\n"
                 ),
             ),
-            ChatMessage(role="user", content=f"Context:\n{context_text}\n\nQuestion: {prompt}"),
+            ChatMessage(
+                role="user",
+                content=(
+                    f"Context:\n{context_text}\n\n"
+                    "Output format (fixed):\n"
+                    "Output structure (each ≤5 sentences):\n"
+                    "1) Executive Summary (3–5 bullets, insight-driven)\n"
+                    "2) Activity by Source (short paragraph per source)\n"
+                    "3) Momentum & Phase Interpretation\n"
+                    "4) What’s Going Well\n"
+                    "5) What Changed Recently\n"
+                    "6) Strategic Options (2–3, as choices, not prescriptions)\n"
+                    "7) Data Confidence & Gaps\n"
+                    "Never analyze raw metrics; only narrate explicit signals. Every number must include unit and window.\n"
+                    f"Question: {prompt}"
+                ),
+            ),
         ]
         req = ChatRequest(
             messages=messages,
@@ -535,3 +559,275 @@ class LlmSummaryService(PluginService):
         else:
             start = end - timedelta(days=365)
         return start, end
+
+    def _daily_series(self, source: str, window: Tuple[date, date]) -> List[Dict[str, Any]]:
+        start, end = window
+        if source == "asana":
+            return self.repo.asana_daily_series(start, end)
+        if source == "toggl":
+            return self.repo.toggl_daily_series(start, end)
+        if source == "habitica":
+            return self.repo.habitica_daily_series(start, end)
+        if source == "google_fit":
+            return self.repo.fit_daily_series(start, end)
+        return []
+
+    def _presence(self, series: List[Dict[str, Any]], window_days: int) -> Dict[str, Any]:
+        days_active = len(series)
+        longest_gap = self._longest_gap(series, window_days)
+        return {"days_active": days_active, "window_days": window_days, "longest_gap_days": longest_gap}
+
+    def _longest_gap(self, series: List[Dict[str, Any]], window_days: int) -> int:
+        if not series:
+            return window_days
+        days_sorted = sorted([self._as_date(r["day"]) for r in series])
+        longest = 0
+        prev = days_sorted[0]
+        for current in days_sorted[1:]:
+            gap = (current - prev).days - 1
+            if gap > longest:
+                longest = gap
+            prev = current
+        return max(longest, 0)
+
+    def _as_date(self, val) -> date:
+        if isinstance(val, date):
+            return val
+        return datetime.fromisoformat(str(val)).date()
+
+    def _consistency(self, series: List[Dict[str, Any]], window_days: int) -> Dict[str, Any]:
+        values = [float(v.get("completed") or v.get("minutes") or v.get("steps") or 0) for v in series]
+        if not values:
+            return {"active_ratio": 0, "median": 0, "cv": None, "burstiness": None}
+        active_ratio = len(values) / window_days
+        median = statistics.median(values)
+        mean = sum(values) / len(values)
+        cv = (statistics.pstdev(values) / mean) if mean else None
+        burstiness = "spread" if cv and cv < 0.5 else "clustered"
+        return {"active_ratio": round(active_ratio, 2), "median": median, "cv": cv, "burstiness": burstiness}
+
+    def _streak_from_series(self, series: List[Dict[str, Any]], threshold: float = 1.0) -> Dict[str, int]:
+        streak = longest = 0
+        last_day = None
+        for row in sorted(series, key=lambda r: self._as_date(r["day"])):
+            current = self._as_date(row["day"])
+            meets = float(row.get("completed") or row.get("minutes") or row.get("steps") or 0) >= threshold
+            if not meets:
+                streak = 0
+                last_day = current
+                continue
+            if last_day and (current - last_day).days == 1:
+                streak += 1
+            else:
+                streak = 1
+            longest = max(longest, streak)
+            last_day = current
+        return {"current": streak, "longest": longest}
+
+    def _best_from_series(self, series: List[Dict[str, Any]], window: Tuple[date, date]) -> Dict[str, Any]:
+        if not series:
+            return {}
+        best_day = max(series, key=lambda r: float(r.get("completed") or r.get("minutes") or r.get("steps") or 0))
+        return {"day": str(best_day["day"]), "value": float(best_day.get("completed") or best_day.get("minutes") or best_day.get("steps") or 0)}
+
+    def _momentum(self, series_30: List[Dict[str, Any]], series_90: List[Dict[str, Any]]) -> str:
+        total_30 = sum(float(v.get("completed") or v.get("minutes") or v.get("steps") or 0) for v in series_30)
+        total_90 = sum(float(v.get("completed") or v.get("minutes") or v.get("steps") or 0) for v in series_90)
+        if total_90 == 0:
+            return "paused"
+        ratio = total_30 / total_90
+        if ratio >= 0.6:
+            return "rising"
+        if ratio >= 0.3:
+            return "stable"
+        return "cooling"
+
+    def _derive_phase_and_signals(self, source: str, metrics: Dict[str, Any], snap: Dict[str, Any]) -> Dict[str, Any]:
+        presence = snap.get("presence", {})
+        consistency = snap.get("consistency", {})
+        momentum = snap.get("momentum", "paused")
+
+        # Phase classification
+        active_ratio = consistency.get("active_ratio", 0) or 0
+        if momentum == "rising" and active_ratio >= 0.5:
+            phase = "execution"
+        elif momentum == "stable" and active_ratio >= 0.3:
+            phase = "maintenance"
+        elif momentum == "cooling":
+            phase = "recovery"
+        else:
+            phase = "paused"
+
+        # Engagement quality
+        burst = consistency.get("burstiness")
+        if active_ratio >= 0.6 and burst == "spread":
+            engagement = "steady"
+        elif active_ratio >= 0.3 and burst != "clustered":
+            engagement = "focused"
+        elif active_ratio > 0:
+            engagement = "fragmented"
+        else:
+            engagement = "sparse"
+
+        key_facts = []
+        if presence:
+            key_facts.append(f"Active {presence.get('days_active',0)}/{presence.get('window_days',0)} days; longest gap {presence.get('longest_gap_days',0)} days")
+        if consistency:
+            cv = consistency.get("cv")
+            key_facts.append(f"Median daily value {consistency.get('median',0)}; variability {cv if cv is not None else 'n/a'}")
+        if snap.get("streaks"):
+            key_facts.append(f"Current streak {snap['streaks'].get('current',0)} days; longest {snap['streaks'].get('longest',0)}")
+
+        return {
+            "phase": phase,
+            "momentum": momentum,
+            "engagement": engagement,
+            "presence": presence,
+            "consistency": consistency,
+            "streaks": snap.get("streaks", {}),
+            "best": snap.get("best", {}),
+            "key_facts": key_facts[:3],
+        }
+
+    def _highlights(self, derived: Dict[str, Any]) -> Dict[str, List[str]]:
+        wins, streaks, stability = [], [], []
+        for src, val in derived.items():
+            if val.get("engagement") in ("steady", "focused") and val.get("phase") in ("execution", "maintenance"):
+                wins.append(f"{src}: {val['engagement']} pattern with {val['phase']} phase")
+            st = val.get("streaks", {})
+            if st.get("longest", 0) >= 5:
+                streaks.append(f"{src}: longest streak {st['longest']} days")
+            if val.get("engagement") == "steady":
+                stability.append(f"{src}: stable engagement")
+        return {"wins": wins[:3], "streaks": streaks[:3], "stability": stability[:3]}
+
+    def _changes(self, metrics: List[Metric]) -> Dict[str, List[str]]:
+        increases, decreases, no_change = [], [], []
+        # Simple delta using last30 vs prior30
+        def fetch(source, name, window):
+            for m in metrics:
+                if m.source == source and m.name == name and m.window == window:
+                    return m
+            return None
+
+        for source in {"asana", "toggl", "habitica", "google_fit"}:
+            last = fetch(source, "minutes_tracked" if source == "toggl" else ("steps" if source == "google_fit" else "tasks_completed" if source == "asana" else "completions"), Window.LAST_30_DAYS)
+            prior = fetch(source, last.name if last else "", Window.PRIOR_30_DAYS) if last else None
+            if last and prior and prior.value:
+                change = (last.value - prior.value) / prior.value
+                if change >= 0.2:
+                    increases.append(f"{source}: increased vs prior 30d")
+                elif change <= -0.2:
+                    decreases.append(f"{source}: decreased vs prior 30d")
+                else:
+                    no_change.append(f"{source}: stable vs prior 30d")
+        return {"meaningful_increases": increases[:5], "meaningful_decreases": decreases[:5], "no_change": no_change[:5]}
+
+    def _window_ranges(self, end_date: date) -> Dict[str, Tuple[date, date]]:
+        return {
+            "LAST_7_DAYS": (end_date - timedelta(days=7), end_date),
+            "LAST_30_DAYS": (end_date - timedelta(days=30), end_date),
+            "PRIOR_30_DAYS": (end_date - timedelta(days=60), end_date - timedelta(days=30)),
+            "LAST_90_DAYS": (end_date - timedelta(days=90), end_date),
+            "PRIOR_90_DAYS": (end_date - timedelta(days=180), end_date - timedelta(days=90)),
+        }
+
+    def _validate_metrics(self, metrics: List[Metric]) -> Tuple[List[Metric], List[str]]:
+        caveats: List[str] = []
+        filtered: List[Metric] = []
+
+        def find(source: str, window: Window, name: str) -> Optional[Metric]:
+            for m in metrics:
+                if m.source == source and m.window == window and m.name == name:
+                    return m
+            return None
+
+        for m in metrics:
+            if m.value is None:
+                continue
+            if m.value < 0:
+                caveats.append(f"Dropped negative metric {m.name} {m.source} {m.window}")
+                continue
+            filtered.append(m)
+
+        final: List[Metric] = []
+        for m in filtered:
+            last30 = find(m.source, Window.LAST_30_DAYS, m.name)
+            last90 = find(m.source, Window.LAST_90_DAYS, m.name)
+            if last30 and last90 and last30.value > last90.value and m.window == Window.LAST_30_DAYS:
+                caveats.append(f"Dropped {m.source} {m.name} last 30 metrics due to exceeding last 90 window.")
+                continue
+            final.append(m)
+        return final, caveats
+
+    def _context_from_metrics(self, metrics: List[Metric], caveats: List[str], snapshots: Dict[str, Any]) -> str:
+        sources: Dict[str, Any] = {}
+        for m in metrics:
+            src = sources.setdefault(m.source, {"metrics": {}, "snapshots": snapshots.get(m.source, {})})
+            src["metrics"][m.window.value.lower()] = {
+                "name": m.name,
+                "value": m.value,
+                "unit": m.unit,
+                "coverage_days": m.coverage_days,
+                "confidence": m.confidence,
+            }
+
+        # Derive phases and engagement quality per source
+        derived = {}
+        for source, data in sources.items():
+            snap = data.get("snapshots", {})
+            derived[source] = self._derive_phase_and_signals(source, data.get("metrics", {}), snap)
+
+        context = {
+            "period": "last_30_days",
+            "sources": derived,
+            "highlights": self._highlights(derived),
+            "changes": self._changes(metrics),
+            "uncertainties": caveats,
+        }
+        context_text = json.dumps(context, ensure_ascii=False)
+        if len(context_text) > self.max_context_chars:
+            # Drop lower-priority sections
+            context.pop("changes", None)
+            context.pop("uncertainties", None)
+            context_text = json.dumps(context, ensure_ascii=False)[: self.max_context_chars]
+        return context_text
+
+    def _streaks(self, start_date: date, end_date: date) -> Dict[str, Any]:
+        habitica_days = self.repo.habitica_daily(start_date, end_date)
+        fit_days = self.repo.google_fit_daily_steps(start_date, end_date)
+
+        def longest_streak(days: List[Dict[str, Any]], threshold: float = 1.0) -> Tuple[int, int]:
+            # days sorted desc; compute streak
+            streak = longest = 0
+            last_day = None
+            for row in sorted(days, key=lambda r: r["day"]):
+                current_val = row["day"]
+                if isinstance(current_val, str):
+                    current = datetime.fromisoformat(str(current_val)).date()
+                else:
+                    current = current_val
+                meets = float(row.get("completions") or row.get("steps") or 0) >= threshold
+                if not meets:
+                    streak = 0
+                    last_day = current
+                    continue
+                if last_day and (current - last_day).days == 1:
+                    streak += 1
+                else:
+                    streak = 1
+                longest = max(longest, streak)
+                last_day = current
+            return streak, longest
+
+        habitica_current, habitica_longest = longest_streak(habitica_days, threshold=1)
+        fit_current, fit_longest = longest_streak(fit_days, threshold=2000)
+
+        return {
+            "habitica": {"current": habitica_current, "longest": habitica_longest},
+            "google_fit": {"current": fit_current, "longest": fit_longest},
+        }
+
+    def _best_periods(self) -> Dict[str, Any]:
+        # Placeholder that could be extended; return empty for now
+        return {}
