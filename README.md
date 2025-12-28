@@ -8,49 +8,34 @@ keywords: wellness, productivity, health tracking, asana, habitica, toggl, googl
 
 A modular application for collecting and storing data from various sources.
 
-## Quick Start
-
-### Option 1: Using UV (Recommended)
+## Quick start
 
 ```bash
-# Install dependencies (Would also install if you just run it)
+# 1) Install deps (uv recommended)
 uv sync
 
-# Copy and configure environment variables
+# 2) Configure environment
 cp .env.example .env
-# Edit .env with your credentials
+# edit .env with DB + plugin credentials
 
-# Run the application
+# 3) Prepare tables
+uv run python manage.py sync
+
+# 4) Run the aggregator loop
 uv run python manage.py run
 ```
 
-### Option 2: Using Docker
+## Commands (manage.py)
 
-```bash
-# Copy and configure environment variables
-cp .env.example .env
-# Edit .env with your credentials
-
-# Start with Docker Compose using the provided script
-./start_docker.sh
-
-# Or run locally with manage.py
-uv run python manage.py run
-```
-
-## Features
-
-- **Modular Design**: Enable/disable data sources as needed
-- **Asana Integration**: Collect completed tasks and subtasks from Asana
-- **Habitica Integration**: Collect completed habits, dailies, and todos from Habitica
-- **Toggl Integration**: Track time spent on projects and tasks
-- **Google Fit Integration**: Collect health and fitness data through Google Fit API
-- **MySQL Storage**: Store collected data in a structured database
+- `python manage.py run` — setup→fetch→write for each enabled plugin in a loop (respects `INTERVAL_SECONDS`)
+- `python manage.py sync` — run setup only (create/prepare tables)
+- `python manage.py debug` — show installed apps and enabled state
 
 ## Configuration
 
-Create a `.env` file based on `.env.example` and configure your credentials.
+- `AGGREGATOR_SETTINGS_MODULE` (default `aggregator.settings.base`)
+- `ENABLED_PLUGINS` (comma-separated, leave empty to enable all in `INSTALLED_APPS`)
+- Database: `MYSQL_HOST`, `MYSQL_DB`, `MYSQL_USER`, `MYSQL_PASSWORD`
+- Plugin creds: `ASANA_*`, `HABITICA_*`, `TOGGL_*`, `GOOGLE_FIT_*`
 
-## Plugin Documentation
-
-For detailed information about each plugin, including configuration requirements and database schemas, see [Plugin Documentation](README_PLUGINS.md).
+See `README_PLUGINS.md` for plugin-specific details.
