@@ -1,0 +1,1 @@
+"""Habitica plugin package."""

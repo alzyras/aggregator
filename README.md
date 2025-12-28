@@ -21,7 +21,7 @@ cp .env.example .env
 # Edit .env with your credentials
 
 # Run the application
-uv run python aggregator/run_all.py
+uv run python manage.py run
 ```
 
 ### Option 2: Using Docker
@@ -33,6 +33,9 @@ cp .env.example .env
 
 # Start with Docker Compose using the provided script
 ./start_docker.sh
+
+# Or run locally with manage.py
+uv run python manage.py run
 ```
 
 ## Features

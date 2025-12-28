@@ -1,1 +1,1 @@
-"""Samsung Health plugin package."""
+"""Google Fit plugin package."""

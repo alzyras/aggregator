@@ -37,7 +37,9 @@ def get_projects(access_token, workspace_gid):
     try:
         response = requests.get(url, headers=headers, params=params, timeout=30)
         response.raise_for_status()
-        return response.json()["data"]
+        projects = response.json()["data"]
+        logger.info("Asana: found %s projects in workspace %s", len(projects), workspace_gid)
+        return projects
     except requests.exceptions.RequestException as e:
         logger.error(f"Error getting projects: {e}")
         return []
@@ -73,6 +75,7 @@ def get_completed_tasks(access_token, project_gid, days_to_fetch=548):
                 next_page = response.json()["next_page"]["offset"]
             else:
                 break
+        logger.info("Asana: project %s completed tasks fetched (%s)", project_gid, len(tasks))
         return tasks
     except requests.exceptions.RequestException as e:
         logger.error(f"Error getting completed tasks: {e}")
@@ -104,6 +107,7 @@ def get_completed_subtasks(access_token, task_gid):
                 next_page = response.json()["next_page"]["offset"]
             else:
                 break
+        logger.info("Asana: task %s completed subtasks fetched (%s)", task_gid, len(tasks))
         return tasks
     except requests.exceptions.RequestException as e:
         logger.error(f"Error getting completed subtasks: {e}")
@@ -118,6 +122,7 @@ def process_tasks_to_dataframe(access_token, workspace_gid, days_to_fetch=548):
     workspace_id = workspace_info.get("gid", workspace_gid)
     
     projects = get_projects(access_token, workspace_gid)
+    logger.info("Asana: starting fetch across %s projects", len(projects))
     all_tasks = []
     for project in projects:
         project_gid = project["gid"]
