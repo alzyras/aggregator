@@ -1,0 +1,57 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aggregator</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Onest:wght@300;400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}" />
+  </head>
+  <body>
+    <div class="page">
+      <div class="bg-orb"></div>
+      <div class="bg-orb secondary"></div>
+      <div class="top-bar">
+        <div class="top-bar-inner">
+          <span class="top-pill">Join now</span>
+          <span>Subscribe to get full access to Aggregator. Cancel anytime.</span>
+        </div>
+      </div>
+      <header class="nav-shell">
+        <div class="nav-inner">
+          <a class="brand" href="{% url 'dashboard' %}">
+            <span class="brand-mark">
+              <span class="brand-dot"></span>
+            </span>
+            <span class="brand-name">Aggregator</span>
+          </a>
+          <nav class="nav-center">
+            <a class="nav-link" href="{% url 'dashboard' %}">Plugins</a>
+            <a class="nav-link" href="{% url 'event_list' %}">Events</a>
+            <a class="nav-link" href="{% url 'sync_view' %}">Sync</a>
+          </nav>
+          <div class="nav-actions">
+            <a class="btn ghost" href="/admin/">Admin</a>
+            <a class="btn primary" href="{% url 'sync_view' %}">Sync now</a>
+          </div>
+        </div>
+      </header>
+
+      <main class="page-shell">
+        {% if messages %}
+          <div class="messages">
+            {% for message in messages %}
+              <div class="message {{ message.tags }}">{{ message }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </body>
+</html>

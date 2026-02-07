@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="hero">
+    <div>
+      <h1>Events</h1>
+      <p>Browse normalized events across all connected sources.</p>
+    </div>
+  </section>
+
+  <section class="glow">
+    <div class="panel">
+      <form method="get" class="filter-form">
+        <div>
+          <label class="field-label">Source</label>
+          <select name="source" class="field-input">
+            <option value="">All</option>
+            {% for value, label in source_choices %}
+              <option value="{{ value }}" {% if filters.source == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="field-label">Type</label>
+          <input type="text" name="type" value="{{ filters.type }}" class="field-input" placeholder="task, activity" />
+        </div>
+        <div>
+          <label class="field-label">Start</label>
+          <input type="date" name="start" value="{{ filters.start }}" class="field-input" />
+        </div>
+        <div>
+          <label class="field-label">End</label>
+          <input type="date" name="end" value="{{ filters.end }}" class="field-input" />
+        </div>
+        <div class="filter-action">
+          <button type="submit" class="btn primary">Filter</button>
+        </div>
+      </form>
+
+      <div class="table-shell">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th>Type</th>
+              <th>Title</th>
+              <th>Start</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for event in page_obj %}
+              <tr>
+                <td>{{ event.get_source_display }}</td>
+                <td>{{ event.source_entity_type }}</td>
+                <td><a class="table-link" href="{% url 'event_detail' event.id %}">{{ event.title|default:event.source_entity_id }}</a></td>
+                <td>{{ event.start_time }}</td>
+                <td>{{ event.status|default:"—" }}</td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="5">No events found.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pagination">
+        {% if page_obj.has_previous %}
+          <a class="btn ghost small" href="?page={{ page_obj.previous_page_number }}">Previous</a>
+        {% endif %}
+        <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+        {% if page_obj.has_next %}
+          <a class="btn ghost small" href="?page={{ page_obj.next_page_number }}">Next</a>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+{% endblock %}

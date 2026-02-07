@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="hero">
+    <div class="hero-pill">Plugins</div>
+    <h1>Simple, transparent plugin control</h1>
+    <p>Connect and verify your integrations in one place. Connected plugins are locked to prevent mistakes.</p>
+    <div class="hero-toggle">
+      <button class="toggle-btn active" type="button" data-tab="plugins">Plugins</button>
+      <button class="toggle-btn" type="button" data-tab="events">Events</button>
+    </div>
+  </section>
+
+  <section class="glow tab-panel is-active" data-tab-panel="plugins">
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Plugins</h2>
+        <span class="panel-subtitle">Manage credentials and verification.</span>
+      </div>
+      <div class="cards-grid">
+        {% for card in provider_cards %}
+          {% include "components/plugin_card.html" with spec=card.spec status=card.status display_status=card.display_status enabled=card.enabled form=card.form last_verified_at=card.last_verified_at last_error=card.last_error account=card.account %}
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <section class="glow tab-panel" data-tab-panel="events">
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Latest Events</h2>
+        <span class="panel-subtitle">Most recent normalized items.</span>
+      </div>
+      <div class="table-shell">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th>Type</th>
+              <th>Title</th>
+              <th>Start</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for event in recent_events %}
+              <tr>
+                <td>{{ event.get_source_display }}</td>
+                <td>{{ event.source_entity_type }}</td>
+                <td><a class="table-link" href="{% url 'event_detail' event.id %}">{{ event.title|default:event.source_entity_id }}</a></td>
+                <td>{{ event.start_time|default:"—" }}</td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="4">No events yet.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    (function () {
+      const buttons = document.querySelectorAll(".toggle-btn[data-tab]");
+      const panels = document.querySelectorAll(".tab-panel[data-tab-panel]");
+
+      buttons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const target = btn.getAttribute("data-tab");
+          buttons.forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          panels.forEach((panel) => {
+            if (panel.getAttribute("data-tab-panel") === target) {
+              panel.classList.add("is-active");
+            } else {
+              panel.classList.remove("is-active");
+            }
+          });
+        });
+      });
+
+      const cardToggles = document.querySelectorAll("[data-card-toggle]");
+      cardToggles.forEach((toggle) => {
+        toggle.addEventListener("click", () => {
+          const id = toggle.getAttribute("data-card-toggle");
+          const card = document.querySelector(`[data-card='${id}']`);
+          if (!card) return;
+          card.classList.toggle("expanded");
+        });
+      });
+    })();
+  </script>
+{% endblock %}
