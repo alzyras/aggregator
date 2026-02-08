@@ -580,6 +580,66 @@ a {
   font-size: 0.85rem;
 }
 
+.json-toggle-btn {
+  padding: 0.2rem 0.8rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+}
+
+.expanded-row {
+  display: none;
+}
+
+.expanded-row[hidden] {
+  display: none;
+}
+
+.expanded-row.is-open {
+  display: table-row;
+}
+
+.json-expanded {
+  background: rgba(246, 248, 255, 0.9);
+  border: 1px solid rgba(223, 230, 248, 0.9);
+  border-radius: 18px;
+  padding: 1rem 1.2rem;
+  margin: 0.6rem 0;
+  display: grid;
+  gap: 1rem;
+}
+
+.json-block {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.json-block.is-hidden {
+  display: none;
+}
+
+.json-block-header {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.json-pre {
+  background: #f9faff;
+  border: 1px solid rgba(223, 230, 248, 0.9);
+  border-radius: 14px;
+  padding: 0.85rem 1rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: #10143b;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
 .messages {
   display: grid;
   gap: 0.5rem;

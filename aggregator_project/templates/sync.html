@@ -49,8 +49,48 @@
                 <td>{{ run.queued_at }}</td>
                 <td>{{ run.started_at|default:"—" }}</td>
                 <td>{{ run.finished_at|default:"—" }}</td>
-                <td><pre class="inline-json">{{ run.input_params }}</pre></td>
-                <td><pre class="inline-json">{{ run.output_summary }}</pre></td>
+                <td>
+                  <button
+                    class="btn ghost small json-toggle-btn"
+                    type="button"
+                    data-json-toggle
+                    data-job-id="{{ run.id }}"
+                    data-json-field="params"
+                    aria-expanded="false"
+                  >
+                    View JSON
+                  </button>
+                </td>
+                <td>
+                  <button
+                    class="btn ghost small json-toggle-btn"
+                    type="button"
+                    data-json-toggle
+                    data-job-id="{{ run.id }}"
+                    data-json-field="summary"
+                    aria-expanded="false"
+                  >
+                    View JSON
+                  </button>
+                </td>
+              </tr>
+              <tr class="expanded-row" data-expanded-row="{{ run.id }}" hidden>
+                <td colspan="7">
+                  <div class="json-expanded">
+                    <div class="json-block" data-json-block="params">
+                      <div class="json-block-header">Params</div>
+                      <pre class="json-pre" tabindex="0">
+{% if run.input_params %}{{ run.input_params }}{% else %}No data{% endif %}
+                      </pre>
+                    </div>
+                    <div class="json-block" data-json-block="summary">
+                      <div class="json-block-header">Summary</div>
+                      <pre class="json-pre" tabindex="0">
+{% if run.output_summary %}{{ run.output_summary }}{% else %}No data{% endif %}
+                      </pre>
+                    </div>
+                  </div>
+                </td>
               </tr>
             {% empty %}
               <tr>
@@ -62,4 +102,63 @@
       </div>
     </div>
   </section>
+
+  <script>
+    (function () {
+      const toggleButtons = document.querySelectorAll("[data-json-toggle]");
+      const expandedRows = document.querySelectorAll("[data-expanded-row]");
+
+      function resetButtons(jobId) {
+        toggleButtons.forEach((btn) => {
+          if (btn.dataset.jobId === jobId) {
+            btn.setAttribute("aria-expanded", "false");
+            btn.textContent = "View JSON";
+          }
+        });
+      }
+
+      function closeAll() {
+        expandedRows.forEach((row) => {
+          row.classList.remove("is-open");
+          row.hidden = true;
+        });
+        toggleButtons.forEach((btn) => {
+          btn.setAttribute("aria-expanded", "false");
+          btn.textContent = "View JSON";
+        });
+      }
+
+      function showBlock(row, field) {
+        row.querySelectorAll("[data-json-block]").forEach((block) => {
+          block.classList.toggle(
+            "is-hidden",
+            block.dataset.jsonBlock !== field
+          );
+        });
+      }
+
+      toggleButtons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const jobId = btn.dataset.jobId;
+          const field = btn.dataset.jsonField;
+          const row = document.querySelector(`[data-expanded-row='${jobId}']`);
+          if (!row) return;
+
+          const isOpen = row.classList.contains("is-open");
+          const isExpanded = btn.getAttribute("aria-expanded") === "true";
+
+          closeAll();
+
+          if (!isOpen || !isExpanded) {
+            row.classList.add("is-open");
+            row.hidden = false;
+            showBlock(row, field);
+            resetButtons(jobId);
+            btn.setAttribute("aria-expanded", "true");
+            btn.textContent = "Hide JSON";
+          }
+        });
+      });
+    })();
+  </script>
 {% endblock %}
