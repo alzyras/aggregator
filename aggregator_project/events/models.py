@@ -20,6 +20,7 @@ class Event(TimestampedModel):
     source = models.CharField(max_length=50, choices=SOURCE_CHOICES)
     source_entity_type = models.CharField(max_length=100)
     source_entity_id = models.CharField(max_length=255)
+    event_type = models.CharField(max_length=100)
     title = models.CharField(max_length=255, null=True, blank=True)
     description = models.TextField(null=True, blank=True)
     start_time = models.DateTimeField(null=True, blank=True)
@@ -27,7 +28,13 @@ class Event(TimestampedModel):
     metric_type = models.CharField(max_length=100, null=True, blank=True)
     metric_value = models.DecimalField(max_digits=12, decimal_places=3, null=True, blank=True)
     metric_unit = models.CharField(max_length=50, null=True, blank=True)
-    status = models.CharField(max_length=50, null=True, blank=True)
+    external_status = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text="Status in the source system at the time of the event",
+    )
+    source_event_version = models.CharField(max_length=255, null=True, blank=True)
     raw = models.JSONField()
     dedupe_hash = models.CharField(max_length=64)
 
@@ -49,4 +56,4 @@ class Event(TimestampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.get_source_display()} - {self.title or self.source_entity_id}"
+        return f"{self.get_source_display()} - {self.event_type} - {self.title or self.source_entity_id}"

@@ -13,13 +13,14 @@ class EventAdmin(admin.ModelAdmin):
         "source",
         "source_entity_type",
         "source_entity_id",
+        "event_type",
         "title",
         "start_time",
-        "status",
+        "external_status",
         "updated_at",
     )
     list_select_related = ("workspace",)
-    list_filter = ("source", "source_entity_type", "status")
+    list_filter = ("source", "source_entity_type", "event_type")
     search_fields = ("title", "source_entity_id", "workspace__name")
     ordering = ("-start_time",)
 

@@ -45,7 +45,8 @@
               <th>Type</th>
               <th>Title</th>
               <th>Start</th>
-              <th>Status</th>
+              <th>Event Type</th>
+              <th>External Status</th>
             </tr>
           </thead>
           <tbody>
@@ -55,11 +56,12 @@
                 <td>{{ event.source_entity_type }}</td>
                 <td><a class="table-link" href="{% url 'event_detail' event.id %}">{{ event.title|default:event.source_entity_id }}</a></td>
                 <td>{{ event.start_time }}</td>
-                <td>{{ event.status|default:"—" }}</td>
+                <td>{{ event.event_type }}</td>
+                <td>{{ event.external_status|default:"—" }}</td>
               </tr>
             {% empty %}
               <tr>
-                <td colspan="5">No events found.</td>
+                <td colspan="6">No events found.</td>
               </tr>
             {% endfor %}
           </tbody>
