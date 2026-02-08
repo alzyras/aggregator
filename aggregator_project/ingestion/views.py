@@ -4,30 +4,29 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 from django.conf import settings
-from django.utils import timezone
 
 from ingestion.models import Job
 from ingestion.providers import get_provider_choices
-from ingestion.services.jobs import enqueue_job, run_job
+from ingestion.services.jobs import queue_sync_jobs, run_job
 
 
 @login_required
 def sync_view(request):
     if request.method == "POST":
-        job = Job.objects.create(
+        jobs = queue_sync_jobs(
             workspace=request.workspace,
-            job_type="sync",
-            job_name="sync_all",
-            input_params={},
             created_by=request.user,
-            next_run_at=timezone.now(),
         )
-        enqueue_job(job.id)
+        if not jobs:
+            messages.warning(request, "No active connector accounts to sync.")
+            return redirect("sync_view")
+
         if settings.DEBUG and request.POST.get("run_immediately"):
-            run_job(job.id)
-            messages.success(request, "Sync job executed.")
+            for job in jobs:
+                run_job(job.id)
+            messages.success(request, f"Ran {len(jobs)} sync jobs.")
             return redirect("jobs_list")
-        messages.success(request, "Sync job queued.")
+        messages.success(request, f"Queued {len(jobs)} sync jobs.")
         return redirect("sync_view")
 
     recent_runs = (

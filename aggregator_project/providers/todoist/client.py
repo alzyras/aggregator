@@ -5,17 +5,20 @@ from typing import Any
 
 import requests
 
+from connectors.models import ConnectorAccount
 from connectors.services import get_required_account
 from workspaces.models import Workspace
 
 
 class TodoistClient:
-    def __init__(self, workspace: Workspace) -> None:
-        self.credentials = self._load_credentials(workspace)
+    def __init__(self, workspace: Workspace, account: ConnectorAccount | None = None) -> None:
+        self.credentials = self._load_credentials(workspace, account)
 
-    def _load_credentials(self, workspace: Workspace) -> dict[str, Any]:
-        account = get_required_account("todoist", workspace)
-        return {"api_token": account.get_access_token()}
+    def _load_credentials(
+        self, workspace: Workspace, account: ConnectorAccount | None
+    ) -> dict[str, Any]:
+        resolved = account or get_required_account("todoist", workspace)
+        return {"api_token": resolved.get_access_token()}
 
     def fetch_since(self, since: datetime | None = None) -> list[dict[str, Any]]:
         """

@@ -56,11 +56,6 @@ class ConnectorAccount(TimestampedModel):
         indexes = [
             models.Index(fields=["workspace", "source", "is_active"]),
         ]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["workspace", "source"], name="unique_connector_account"
-            )
-        ]
 
     def set_access_token(self, value: str) -> None:
         self.encrypted_access_token = encrypt_value(value)

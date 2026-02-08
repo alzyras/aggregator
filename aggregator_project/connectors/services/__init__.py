@@ -12,6 +12,23 @@ def get_active_account(source: str, workspace: Workspace) -> ConnectorAccount | 
         .first()
     )
 
+
+def get_active_accounts(source: str, workspace: Workspace):
+    return (
+        ConnectorAccount.objects.for_workspace(workspace)
+        .filter(source=source, is_active=True, revoked_at__isnull=True)
+        .order_by("created_at")
+    )
+
+
+def get_account_by_id(account_id: str, workspace: Workspace) -> ConnectorAccount | None:
+    return (
+        ConnectorAccount.objects.for_workspace(workspace)
+        .filter(id=account_id)
+        .first()
+    )
+
+
 def get_required_account(source: str, workspace: Workspace) -> ConnectorAccount:
     account = get_active_account(source, workspace)
     if not account:

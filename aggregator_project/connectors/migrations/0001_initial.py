@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
-                    "provider",
+                    "source",
                     models.CharField(
                         choices=[
                             ("google_fit", "Google Fit"),
@@ -77,13 +77,13 @@ class Migration(migrations.Migration):
             options={
                 "indexes": [
                     models.Index(
-                        fields=["workspace", "provider", "is_active"],
-                        name="connectors_workspace_provider_active_idx",
+                        fields=["workspace", "source", "is_active"],
+                        name="connectors_workspace_source_active_idx",
                     )
                 ],
                 "constraints": [
                     models.UniqueConstraint(
-                        fields=("workspace", "provider"),
+                        fields=("workspace", "source"),
                         name="unique_connector_account",
                     )
                 ],

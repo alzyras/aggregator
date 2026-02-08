@@ -21,7 +21,7 @@ class HabiticaProviderConfig(AppConfig):
         self.provider_spec = ProviderSpec(
             source="habitica",
             label="Habitica",
-            client_factory=lambda workspace: HabiticaClient(workspace),
+            client_factory=lambda workspace, account=None: HabiticaClient(workspace, account=account),
             normalizer=normalize_habitica,
             required_fields=[
                 ("user_id", "User ID", "HABITICA_USER_ID"),

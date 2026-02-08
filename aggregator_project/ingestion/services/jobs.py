@@ -10,6 +10,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+from connectors.models import ConnectorAccount
 from ingestion.models import Job
 from ingestion.services.sync import sync_all_sources, sync_source
 
@@ -104,10 +105,16 @@ def execute_job(job: Job):
 def _execute_sync_job(job: Job):
     source = job.input_params.get("source")
     sources = job.input_params.get("sources")
+    connector_account_id = job.input_params.get("connector_account_id")
     since_raw = job.input_params.get("since")
     since = parse_datetime(since_raw) if since_raw else None
     if source:
-        stats = sync_source(source, job.workspace, since=since)
+        stats = sync_source(
+            source,
+            job.workspace,
+            since=since,
+            connector_account_id=connector_account_id,
+        )
         return {"results": [stats]}
     results = sync_all_sources(job.workspace, since=since, sources=sources)
     return {"results": results}
@@ -136,3 +143,41 @@ def _max_attempts() -> int:
 
 def _lock_owner() -> str:
     return f"{socket.gethostname()}:{os.getpid()}"
+
+
+def queue_sync_jobs(
+    *,
+    workspace,
+    created_by=None,
+    sources: list[str] | None = None,
+    since: str | None = None,
+    connector_account_id: str | None = None,
+) -> list[Job]:
+    accounts = ConnectorAccount.objects.for_workspace(workspace).filter(
+        is_active=True,
+        revoked_at__isnull=True,
+    )
+    if sources:
+        accounts = accounts.filter(source__in=sources)
+    if connector_account_id:
+        accounts = accounts.filter(id=connector_account_id)
+    accounts = accounts.order_by("source", "created_at")
+
+    jobs: list[Job] = []
+    for account in accounts:
+        input_params = {
+            "source": account.source,
+            "connector_account_id": str(account.id),
+        }
+        if since:
+            input_params["since"] = since
+        job = Job.objects.create(
+            workspace=workspace,
+            job_type="sync",
+            job_name="sync_source",
+            input_params=input_params,
+            created_by=created_by,
+        )
+        enqueue_job(job.id)
+        jobs.append(job)
+    return jobs

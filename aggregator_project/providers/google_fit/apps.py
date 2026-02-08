@@ -21,7 +21,7 @@ class GoogleFitProviderConfig(AppConfig):
         self.provider_spec = ProviderSpec(
             source="google_fit",
             label="Google Fit",
-            client_factory=lambda workspace: GoogleFitClient(workspace),
+            client_factory=lambda workspace, account=None: GoogleFitClient(workspace, account=account),
             normalizer=normalize_google_fit,
             required_fields=[
                 ("client_id", "Client ID", "GOOGLE_FIT_CLIENT_ID"),

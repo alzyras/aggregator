@@ -27,7 +27,23 @@ set -a
 source .env
 set +a
 
+if [ -z "${ENCRYPTION_KEY:-}" ]; then
+  ENCRYPTION_KEY="$(
+    .venv/bin/python - <<'PY'
+from cryptography.fernet import Fernet
+print(Fernet.generate_key().decode("utf-8"))
+PY
+  )"
+  if grep -q "^ENCRYPTION_KEY=" .env; then
+    sed -i '' "s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=${ENCRYPTION_KEY}|" .env
+  else
+    echo "ENCRYPTION_KEY=${ENCRYPTION_KEY}" >> .env
+  fi
+  export ENCRYPTION_KEY
+fi
+
 .venv/bin/python aggregator_project/manage.py ensure_db
+.venv/bin/python aggregator_project/manage.py makemigrations connectors events ingestion workspaces --noinput
 .venv/bin/python aggregator_project/manage.py migrate
 
 if [ -n "${DJANGO_SUPERUSER_USERNAME:-}" ] && [ -n "${DJANGO_SUPERUSER_PASSWORD:-}" ] && [ -n "${DJANGO_SUPERUSER_EMAIL:-}" ]; then

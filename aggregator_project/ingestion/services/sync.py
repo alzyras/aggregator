@@ -5,7 +5,8 @@ from datetime import datetime
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from connectors.services import get_active_account
+from connectors.models import ConnectorAccount
+from connectors.services import get_active_accounts, get_account_by_id
 from events.models import Event
 from ingestion.normalizers.base import build_dedupe_hash
 from ingestion.providers import get_provider_spec, get_provider_specs
@@ -13,7 +14,10 @@ from ingestion.providers import get_provider_spec, get_provider_specs
 
 @transaction.atomic
 def sync_source(
-    source: str, workspace, since: datetime | None = None
+    source: str,
+    workspace,
+    since: datetime | None = None,
+    connector_account_id: str | None = None,
 ) -> dict[str, int]:
     inserted = 0
     skipped = 0
@@ -22,7 +26,8 @@ def sync_source(
     if not spec:
         raise ValueError(f"Unknown provider source: {source}")
 
-    client = spec.client_factory(workspace)
+    account = _resolve_account(source, workspace, connector_account_id)
+    client = spec.client_factory(workspace, account)
     raw_items = client.fetch_since(since)
     for raw in raw_items:
         normalized = spec.normalizer(raw)
@@ -40,7 +45,6 @@ def sync_source(
         except IntegrityError:
             skipped += 1
 
-    account = get_active_account(source, workspace)
     if account:
         account.last_sync_at = timezone.now()
         account.save(update_fields=["last_sync_at"])
@@ -49,6 +53,7 @@ def sync_source(
         "inserted": inserted,
         "skipped": skipped,
         "total": len(raw_items),
+        "connector_account_id": str(account.id) if account else None,
     }
 
 
@@ -61,3 +66,26 @@ def sync_all_sources(
     for source in source_list:
         results.append(sync_source(source, workspace, since=since))
     return results
+
+
+def _resolve_account(
+    source: str,
+    workspace,
+    connector_account_id: str | None,
+) -> ConnectorAccount | None:
+    if connector_account_id:
+        account = get_account_by_id(connector_account_id, workspace)
+        if not account:
+            raise ValueError("No active connector account found for connector_account_id.")
+        if account.source != source:
+            raise ValueError("Connector account source does not match requested source.")
+        if not account.is_active or account.revoked_at:
+            raise ValueError("Connector account is inactive or revoked.")
+        return account
+
+    accounts = list(get_active_accounts(source, workspace))
+    if len(accounts) == 1:
+        return accounts[0]
+    if len(accounts) > 1:
+        raise ValueError("Multiple connector accounts found; specify connector_account_id.")
+    return None
