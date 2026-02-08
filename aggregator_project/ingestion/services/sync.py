@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import os
+
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -32,7 +34,9 @@ def sync_connector_account(
 
     inserted = 0
     skipped = 0
-    for raw in raw_items:
+    progress_enabled = os.getenv("SYNC_PROGRESS") == "1"
+    progress_every = int(os.getenv("SYNC_PROGRESS_EVERY", "500"))
+    for raw_index, raw in enumerate(raw_items, start=1):
         normalized_items = spec.normalizer(raw)
         if isinstance(normalized_items, dict):
             normalized_items = [normalized_items]
@@ -45,14 +49,22 @@ def sync_connector_account(
                 skipped += 1
                 continue
             try:
-                Event.objects.create(
-                    workspace=workspace,
-                    connector_account=connector_account,
-                    **normalized,
-                )
+                with transaction.atomic():
+                    Event.objects.create(
+                        workspace=workspace,
+                        connector_account=connector_account,
+                        **normalized,
+                    )
                 inserted += 1
             except IntegrityError:
                 skipped += 1
+            if progress_enabled and (inserted + skipped) % progress_every == 0:
+                print(
+                    f"[sync] processed {inserted + skipped} events "
+                    f"(inserted={inserted}, skipped={skipped})"
+                )
+        if progress_enabled and raw_index % progress_every == 0:
+            print(f"[sync] processed {raw_index} raw items")
 
     connector_account.last_sync_at = timezone.now()
     connector_account.last_sync_status = ConnectorAccount.SYNC_STATUS_SUCCESS

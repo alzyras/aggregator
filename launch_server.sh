@@ -42,7 +42,11 @@ PY
   export ENCRYPTION_KEY
 fi
 
-.venv/bin/python aggregator_project/manage.py ensure_db
+if [ "${RESET_DB:-0}" = "1" ]; then
+  .venv/bin/python aggregator_project/manage.py reset_db
+else
+  .venv/bin/python aggregator_project/manage.py ensure_db
+fi
 .venv/bin/python aggregator_project/manage.py migrate
 
 if [ -n "${DJANGO_SUPERUSER_USERNAME:-}" ] && [ -n "${DJANGO_SUPERUSER_PASSWORD:-}" ] && [ -n "${DJANGO_SUPERUSER_EMAIL:-}" ]; then

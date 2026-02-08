@@ -8,7 +8,6 @@ import requests
 from connectors.models import ConnectorAccount
 
 BASE_URL = "https://habitica.com/api/v3"
-X_CLIENT_HEADER = "aggregator"
 
 
 class HabiticaClient:
@@ -28,7 +27,7 @@ class HabiticaClient:
         if not user_id or not api_token:
             return []
 
-        actor = self.get_user_profile()
+        actor = self.get_user_actor_summary()
         habits = self._fetch_tasks(user_id, api_token, "habits")
         dailies = self._fetch_tasks(user_id, api_token, "dailys")
         todos = self._fetch_tasks(user_id, api_token, "todos")
@@ -39,7 +38,8 @@ class HabiticaClient:
         tasks.extend(dailies)
 
         for task in tasks:
-            task["actor"] = actor
+            if actor:
+                task["actor"] = actor
         return tasks
 
     def get_user_profile(self) -> dict[str, Any]:
@@ -50,22 +50,29 @@ class HabiticaClient:
         if not user_id or not api_token:
             self._user_profile = {}
             return self._user_profile
-        headers = {
-            "x-api-user": user_id,
-            "x-api-key": api_token,
-            "x-client": X_CLIENT_HEADER,
-        }
+        headers = self._headers(user_id, api_token)
         response = requests.get(f"{BASE_URL}/user", headers=headers, timeout=30)
         response.raise_for_status()
         self._user_profile = response.json().get("data", {})
         return self._user_profile
 
-    def _fetch_tasks(self, user_id: str, api_token: str, task_type: str) -> list[dict[str, Any]]:
-        headers = {
-            "x-api-user": user_id,
-            "x-api-key": api_token,
-            "x-client": X_CLIENT_HEADER,
+    def get_user_actor_summary(self) -> dict[str, Any]:
+        profile = self.get_user_profile()
+        if not profile:
+            return {}
+        actor_id = profile.get("id") or profile.get("_id") or profile.get("userId")
+        profile_info = profile.get("profile") or {}
+        auth_info = profile.get("auth") or {}
+        local_auth = auth_info.get("local") or {}
+        actor = {
+            "id": actor_id,
+            "display_name": profile_info.get("name") or profile.get("name"),
+            "username": local_auth.get("username"),
         }
+        return {key: value for key, value in actor.items() if value not in (None, "")}
+
+    def _fetch_tasks(self, user_id: str, api_token: str, task_type: str) -> list[dict[str, Any]]:
+        headers = self._headers(user_id, api_token)
         response = requests.get(
             f"{BASE_URL}/tasks/user",
             headers=headers,
@@ -74,6 +81,13 @@ class HabiticaClient:
         )
         response.raise_for_status()
         return response.json().get("data", [])
+
+    def _headers(self, user_id: str, api_token: str) -> dict[str, str]:
+        return {
+            "x-api-user": user_id,
+            "x-api-key": api_token,
+            "x-client": f"aggregator-{user_id}",
+        }
 
     def _merge_tasks(
         self, todos: list[dict[str, Any]], completed_todos: list[dict[str, Any]]

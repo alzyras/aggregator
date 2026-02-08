@@ -338,16 +338,29 @@ def _render_plugins_view(
         .values("connector_account_id")
         .annotate(count=Count("id"))
     }
-    syncing_ids = set(
+    latest_jobs = (
         Job.objects.for_workspace(request.workspace)
-        .filter(job_type="sync", status=Job.STATUS_RUNNING)
-        .values_list("connector_account_id", flat=True)
+        .filter(job_type="sync", connector_account__isnull=False)
+        .select_related("connector_account")
+        .order_by("-queued_at")
     )
+    latest_job_by_connector = {}
+    for job in latest_jobs:
+        if job.connector_account_id not in latest_job_by_connector:
+            latest_job_by_connector[job.connector_account_id] = job
 
     connector_rows = []
     for account in accounts:
         spec = spec_map.get(account.source)
-        status_key = "syncing" if account.id in syncing_ids else account.status
+        latest_job = latest_job_by_connector.get(account.id)
+        status_key = account.status
+        if latest_job:
+            if latest_job.status == Job.STATUS_FAILED:
+                status_key = ConnectorAccount.STATUS_ERROR
+            elif latest_job.status == Job.STATUS_RUNNING:
+                status_key = "syncing"
+            elif latest_job.finished_at and account.status == ConnectorAccount.STATUS_CONNECTED:
+                status_key = ConnectorAccount.STATUS_CONNECTED
         status_label = STATUS_LABELS.get(status_key, status_key.title())
         last_sync_status = SYNC_RESULT_LABELS.get(account.last_sync_status, "—")
         connector_rows.append(

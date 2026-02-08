@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-import logging
+from datetime import datetime
 from typing import Any
 
-import pandas as pd
+import requests
 
 from connectors.models import ConnectorAccount
-from aggregator.plugins.asana.get_done_tasks_df import get_asana_completed_tasks_df
 
-
-logger = logging.getLogger(__name__)
+BASE_URL = "https://app.asana.com/api/1.0"
 
 
 class AsanaClient:
@@ -24,26 +21,90 @@ class AsanaClient:
         }
 
     def fetch_since(self, since: datetime | None = None) -> list[dict[str, Any]]:
-        logger.warning("Old plugin entrypoint was called")
         access_token = self.credentials.get("access_token")
         workspace_gid = self.credentials.get("workspace_gid")
         if not access_token or not workspace_gid:
             return []
 
-        days_to_fetch = self._days_to_fetch(since)
-        df = get_asana_completed_tasks_df(access_token, workspace_gid, days_to_fetch)
-        if df is None or df.empty:
-            return []
-        if isinstance(df, pd.DataFrame):
-            return df.to_dict(orient="records")
-        return []
+        projects = self._fetch_projects(access_token, workspace_gid)
+        tasks: list[dict[str, Any]] = []
+        for project in projects:
+            project_gid = project.get("gid")
+            if not project_gid:
+                continue
+            tasks.extend(self._fetch_project_tasks(access_token, project_gid, since))
+        return tasks
 
-    def _days_to_fetch(self, since: datetime | None) -> int:
-        if since is None:
-            return 548
-        if since.tzinfo is None:
-            since = since.replace(tzinfo=timezone.utc)
-        now = datetime.now(timezone.utc)
-        delta = now - since
-        days = max(1, int(delta.total_seconds() // 86400))
-        return days
+    def _fetch_projects(self, access_token: str, workspace_gid: str) -> list[dict[str, Any]]:
+        params = {
+            "opt_fields": "gid,name,created_at,modified_at,archived",
+        }
+        return self._paginate(
+            f"{BASE_URL}/workspaces/{workspace_gid}/projects",
+            access_token,
+            params,
+        )
+
+    def _fetch_project_tasks(
+        self, access_token: str, project_gid: str, since: datetime | None
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {
+            "opt_fields": ",".join(
+                [
+                    "gid",
+                    "name",
+                    "notes",
+                    "created_at",
+                    "modified_at",
+                    "completed",
+                    "completed_at",
+                    "due_at",
+                    "start_at",
+                    "assignee.gid",
+                    "assignee.name",
+                    "created_by.gid",
+                    "created_by.name",
+                    "completed_by.gid",
+                    "completed_by.name",
+                    "last_modified_by.gid",
+                    "last_modified_by.name",
+                    "followers.gid",
+                    "memberships.project.gid",
+                    "resource_type",
+                    "resource_subtype",
+                    "archived",
+                ]
+            ),
+            "limit": 100,
+            "include_subtasks": "true",
+        }
+        if since is not None:
+            params["modified_since"] = since.isoformat()
+        return self._paginate(
+            f"{BASE_URL}/projects/{project_gid}/tasks",
+            access_token,
+            params,
+        )
+
+    def _paginate(
+        self,
+        url: str,
+        access_token: str,
+        params: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        headers = {"Authorization": f"Bearer {access_token}"}
+        results: list[dict[str, Any]] = []
+        offset: str | None = None
+
+        while True:
+            if offset:
+                params["offset"] = offset
+            response = requests.get(url, headers=headers, params=params, timeout=30)
+            response.raise_for_status()
+            payload = response.json()
+            results.extend(payload.get("data", []))
+            next_page = payload.get("next_page") or {}
+            offset = next_page.get("offset")
+            if not offset:
+                break
+        return results

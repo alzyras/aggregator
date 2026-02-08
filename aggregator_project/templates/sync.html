@@ -24,12 +24,27 @@
 
   <section class="glow">
     <div class="panel">
-      <h2 class="section-title">Recent Sync Jobs</h2>
+      <div class="panel-header">
+        <div>
+          <h2>Recent Sync Jobs</h2>
+          <span class="panel-subtitle">Track queued, running, and completed syncs.</span>
+        </div>
+        <form method="get" class="job-filter">
+          <label class="field-label" for="job-status">Status</label>
+          <select id="job-status" name="status" class="field-input" onchange="this.form.submit()">
+            <option value="">All</option>
+            {% for value, label in status_choices %}
+              <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label|title }}</option>
+            {% endfor %}
+          </select>
+        </form>
+      </div>
       <div class="table-shell">
         <table class="data-table">
           <thead>
             <tr>
               <th>Job</th>
+              <th>Connector</th>
               <th>Status</th>
               <th>Queued</th>
               <th>Started</th>
@@ -45,7 +60,21 @@
                   <strong>{{ run.display_name }}</strong>
                   <div class="table-meta">{{ run.job_type }}</div>
                 </td>
-                <td>{{ run.status }}</td>
+                <td>
+                  {% if run.connector_account %}
+                    {{ run.connector_account.get_source_display }} ({{ run.connector_account.display_name }})
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <td>
+                  <span class="status-badge {{ run.display_status }}">
+                    {% if run.display_status == "running" %}
+                      <span class="spinner"></span>
+                    {% endif %}
+                    {{ run.display_status|title }}
+                  </span>
+                </td>
                 <td>{{ run.queued_at }}</td>
                 <td>{{ run.started_at|default:"—" }}</td>
                 <td>{{ run.finished_at|default:"—" }}</td>
@@ -75,7 +104,7 @@
                 </td>
               </tr>
               <tr class="expanded-row" data-expanded-row="{{ run.id }}" hidden>
-                <td colspan="7">
+                <td colspan="8">
                   <div class="json-expanded">
                     <div class="json-block" data-json-block="params">
                       <div class="json-block-header">Params</div>

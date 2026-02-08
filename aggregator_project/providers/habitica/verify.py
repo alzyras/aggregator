@@ -16,7 +16,7 @@ def verify_habitica(credentials: dict[str, Any]) -> tuple[bool, str]:
             headers={
                 "x-api-user": user_id,
                 "x-api-key": api_token,
-                "x-client": "aggregator",
+                "x-client": f"aggregator-{user_id}",
             },
             timeout=10,
         )
