@@ -6,21 +6,16 @@ from typing import Any
 import requests
 
 from connectors.models import ConnectorAccount
-from connectors.services import get_required_account
-from workspaces.models import Workspace
 
 
 class HabiticaClient:
-    def __init__(self, workspace: Workspace, account: ConnectorAccount | None = None) -> None:
-        self.credentials = self._load_credentials(workspace, account)
+    def __init__(self, account: ConnectorAccount) -> None:
+        self.credentials = self._load_credentials(account)
 
-    def _load_credentials(
-        self, workspace: Workspace, account: ConnectorAccount | None
-    ) -> dict[str, Any]:
-        resolved = account or get_required_account("habitica", workspace)
+    def _load_credentials(self, account: ConnectorAccount) -> dict[str, Any]:
         return {
-            "user_id": resolved.external_account_id,
-            "api_token": resolved.get_access_token(),
+            "user_id": account.external_account_id,
+            "api_token": account.get_access_token(),
         }
 
     def fetch_since(self, since: datetime | None = None) -> list[dict[str, Any]]:

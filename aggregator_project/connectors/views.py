@@ -55,20 +55,15 @@ def connect_provider(request, source: str):
         )
         return render(request, "dashboard.html", {"provider_cards": provider_cards})
 
-    account, _created = ConnectorAccount.objects.for_workspace(
-        request.workspace
-    ).get_or_create(
+    account = ConnectorAccount.objects.create(
         workspace=request.workspace,
         source=spec.source,
-        defaults={
-            "display_name": spec.label,
-            "auth_type": spec.auth_type,
-            "encrypted_access_token": encrypt_value(""),
-        },
+        display_name=spec.label,
+        auth_type=spec.auth_type,
+        encrypted_access_token=encrypt_value(""),
+        status=ConnectorAccount.STATUS_CONNECTING,
+        is_active=True,
     )
-    if account.status == ConnectorAccount.STATUS_CONNECTED:
-        messages.info(request, f"{spec.label} is already connected.")
-        return redirect("dashboard")
 
     account.display_name = spec.label
     account.auth_type = spec.auth_type
@@ -111,14 +106,14 @@ def connect_provider(request, source: str):
             "status",
             "last_error",
             "is_active",
-                "encrypted_access_token",
-                "encrypted_refresh_token",
-                "token_expires_at",
-                "scopes",
-                "external_account_id",
-                "revoked_at",
-                "updated_at",
-            ]
+            "encrypted_access_token",
+            "encrypted_refresh_token",
+            "token_expires_at",
+            "scopes",
+            "external_account_id",
+            "revoked_at",
+            "updated_at",
+        ]
     )
     messages.error(request, f"{spec.label} connection failed: {account.last_error}")
     return redirect("dashboard")

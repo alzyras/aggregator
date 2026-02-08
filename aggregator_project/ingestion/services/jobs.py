@@ -12,7 +12,7 @@ from django.utils.dateparse import parse_datetime
 
 from connectors.models import ConnectorAccount
 from ingestion.models import Job
-from ingestion.services.sync import sync_all_sources, sync_source
+from ingestion.services.sync import sync_connector_account
 
 
 logger = logging.getLogger(__name__)
@@ -103,21 +103,27 @@ def execute_job(job: Job):
 
 
 def _execute_sync_job(job: Job):
-    source = job.input_params.get("source")
-    sources = job.input_params.get("sources")
     connector_account_id = job.input_params.get("connector_account_id")
     since_raw = job.input_params.get("since")
     since = parse_datetime(since_raw) if since_raw else None
-    if source:
-        stats = sync_source(
-            source,
-            job.workspace,
-            since=since,
-            connector_account_id=connector_account_id,
-        )
-        return {"results": [stats]}
-    results = sync_all_sources(job.workspace, since=since, sources=sources)
-    return {"results": results}
+    connector_account = job.connector_account
+    if connector_account is None and connector_account_id:
+        connector_account = ConnectorAccount.objects.for_workspace(job.workspace).filter(
+            id=connector_account_id
+        ).first()
+    if connector_account is None:
+        raise ValueError("Sync jobs require a connector account.")
+    if connector_account.workspace_id != job.workspace_id:
+        raise ValueError("Connector account does not belong to workspace.")
+    if connector_account_id and str(connector_account.id) != str(connector_account_id):
+        raise ValueError("Connector account id mismatch.")
+
+    stats = sync_connector_account(
+        job.workspace,
+        connector_account,
+        since=since,
+    )
+    return {"results": [stats]}
 
 
 def _is_concurrency_full() -> bool:
@@ -151,7 +157,7 @@ def queue_sync_jobs(
     created_by=None,
     sources: list[str] | None = None,
     since: str | None = None,
-    connector_account_id: str | None = None,
+    connector_account_id: int | str | None = None,
 ) -> list[Job]:
     accounts = ConnectorAccount.objects.for_workspace(workspace).filter(
         is_active=True,
@@ -173,8 +179,9 @@ def queue_sync_jobs(
             input_params["since"] = since
         job = Job.objects.create(
             workspace=workspace,
+            connector_account=account,
             job_type="sync",
-            job_name="sync_source",
+            job_name="sync_connector",
             input_params=input_params,
             created_by=created_by,
         )

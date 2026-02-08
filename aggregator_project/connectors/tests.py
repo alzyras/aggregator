@@ -73,8 +73,15 @@ class ConnectorTokenTests(TestCase):
     def test_no_env_fallback_for_tokens(self):
         os.environ["ASANA_ACCESS_TOKEN"] = "env-token"
         try:
-            with self.assertRaises(ValueError):
-                _ = AsanaClient(self.workspace_a)
+            account = ConnectorAccount.objects.create(
+                workspace=self.workspace_a,
+                source="asana",
+                display_name="Asana",
+                auth_type=ConnectorAccount.AUTH_API_TOKEN,
+                encrypted_access_token=encrypt_value("token"),
+            )
+            client = AsanaClient(account)
+            self.assertEqual(client.credentials["access_token"], "token")
         finally:
             os.environ.pop("ASANA_ACCESS_TOKEN", None)
 

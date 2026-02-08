@@ -3,9 +3,10 @@ from __future__ import annotations
 import uuid
 
 from django.conf import settings
-from django.utils import timezone
 from django.db import models
+from django.utils import timezone
 
+from connectors.models import ConnectorAccount
 from workspaces.models import Workspace
 
 
@@ -31,6 +32,12 @@ class Job(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
+    connector_account = models.ForeignKey(
+        ConnectorAccount,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+    )
     job_type = models.CharField(
         max_length=50,
         help_text="Category, e.g. sync, aggregation, ai",
@@ -68,9 +75,16 @@ class Job(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=["status", "next_run_at"]),
+            models.Index(fields=["workspace", "connector_account", "status"]),
             models.Index(fields=["workspace", "status", "queued_at"]),
             models.Index(fields=["workspace", "job_type", "queued_at"]),
         ]
+
+    def display_name(self) -> str:
+        if self.job_type == "sync" and self.connector_account:
+            account = self.connector_account
+            return f"Sync {account.get_source_display()} ({account.display_name})"
+        return self.job_name
 
     def __str__(self) -> str:
         return f"{self.job_type}:{self.job_name} ({self.status})"

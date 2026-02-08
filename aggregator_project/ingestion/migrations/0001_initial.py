@@ -13,6 +13,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
+        ("connectors", "0001_initial"),
         ("workspaces", "0001_initial"),
     ]
 
@@ -70,6 +71,15 @@ class Migration(migrations.Migration):
                 ("error_message", models.TextField(blank=True)),
                 ("error_traceback", models.TextField(blank=True)),
                 (
+                    "connector_account",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="connectors.connectoraccount",
+                    ),
+                ),
+                (
                     "created_by",
                     models.ForeignKey(
                         blank=True,
@@ -91,6 +101,10 @@ class Migration(migrations.Migration):
                     models.Index(
                         fields=["status", "next_run_at"],
                         name="ingestion_status_next_run_idx",
+                    ),
+                    models.Index(
+                        fields=["workspace", "connector_account", "status"],
+                        name="ingestion_workspace_connector_status_idx",
                     ),
                     models.Index(
                         fields=["workspace", "status", "queued_at"],

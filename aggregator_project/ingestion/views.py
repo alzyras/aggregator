@@ -32,6 +32,7 @@ def sync_view(request):
     recent_runs = (
         Job.objects.for_workspace(request.workspace)
         .filter(job_type="sync")
+        .select_related("connector_account")
         .order_by("-queued_at")[:25]
     )
     context = {
@@ -43,5 +44,9 @@ def sync_view(request):
 
 @login_required
 def jobs_list(request):
-    jobs = Job.objects.for_workspace(request.workspace).order_by("-queued_at")
+    jobs = (
+        Job.objects.for_workspace(request.workspace)
+        .select_related("connector_account")
+        .order_by("-queued_at")
+    )
     return render(request, "jobs_list.html", {"jobs": jobs})

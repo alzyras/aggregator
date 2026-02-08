@@ -1,44 +1,48 @@
 from __future__ import annotations
 
 from django.core.management.base import BaseCommand, CommandError
-from django.utils import timezone
-
-from ingestion.models import Job
-from ingestion.services.jobs import enqueue_job
+from ingestion.services.jobs import queue_sync_jobs
 from ingestion.providers import get_provider_sources
 from workspaces.models import Workspace
 
 
 class Command(BaseCommand):
-    help = "Queue a sync job for a single source."
+    help = "Queue sync jobs for a source or a single connector account."
 
     def add_arguments(self, parser):
-        parser.add_argument("--source", required=True, type=str, help="Source to sync")
+        parser.add_argument("--source", type=str, help="Source to sync")
         parser.add_argument(
             "--workspace-id",
             required=True,
             type=int,
             help="Workspace id to sync",
         )
+        parser.add_argument(
+            "--connector-account-id",
+            type=int,
+            help="Connector account id to sync",
+        )
         parser.add_argument("--since", type=str, help="ISO datetime to sync since")
 
     def handle(self, *args, **options):
         source = options.get("source")
         workspace_id = options.get("workspace_id")
-        if not source:
-            raise CommandError("--source is required")
+        connector_account_id = options.get("connector_account_id")
+        if not source and not connector_account_id:
+            raise CommandError("Either --source or --connector-account-id is required")
         workspace = Workspace.objects.filter(id=workspace_id).first()
         if not workspace:
             raise CommandError(f"Unknown workspace id: {workspace_id}")
-        if source not in get_provider_sources():
+        if source and source not in get_provider_sources():
             raise CommandError(f"Unknown source: {source}")
         since_raw = options.get("since")
-        job = Job.objects.create(
+        jobs = queue_sync_jobs(
             workspace=workspace,
-            job_type="sync",
-            job_name="sync_source",
-            input_params={"source": source, "since": since_raw},
-            next_run_at=timezone.now(),
+            sources=[source] if source else None,
+            connector_account_id=connector_account_id,
+            since=since_raw,
         )
-        enqueue_job(job.id)
-        self.stdout.write(self.style.SUCCESS(f"Job queued: {job.id}"))
+        if not jobs:
+            self.stdout.write(self.style.WARNING("No active connector accounts to sync."))
+            return
+        self.stdout.write(self.style.SUCCESS(f"Queued {len(jobs)} sync jobs."))

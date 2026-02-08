@@ -21,7 +21,7 @@ class AsanaProviderConfig(AppConfig):
         self.provider_spec = ProviderSpec(
             source="asana",
             label="Asana",
-            client_factory=lambda workspace, account=None: AsanaClient(workspace, account=account),
+            client_factory=lambda account: AsanaClient(account),
             normalizer=normalize_asana,
             required_fields=[
                 ("access_token", "Access Token", "ASANA_ACCESS_TOKEN / ASANA_PERSONAL_ACCESS_TOKEN"),

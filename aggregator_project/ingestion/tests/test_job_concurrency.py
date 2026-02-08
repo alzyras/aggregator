@@ -20,7 +20,7 @@ class JobConcurrencyTests(TestCase):
             Job.objects.create(
                 workspace=self.workspace,
                 job_type="sync",
-                job_name="sync_all",
+                job_name="sync_connector",
                 status=Job.STATUS_RUNNING,
                 started_at=timezone.now(),
             )
@@ -28,7 +28,7 @@ class JobConcurrencyTests(TestCase):
         queued_job = Job.objects.create(
             workspace=self.workspace,
             job_type="sync",
-            job_name="sync_all",
+            job_name="sync_connector",
             status=Job.STATUS_QUEUED,
             next_run_at=timezone.now(),
         )
@@ -43,14 +43,14 @@ class JobConcurrencyTests(TestCase):
         running_job = Job.objects.create(
             workspace=self.workspace,
             job_type="sync",
-            job_name="sync_all",
+            job_name="sync_connector",
             status=Job.STATUS_RUNNING,
             started_at=timezone.now(),
         )
         queued_job = Job.objects.create(
             workspace=self.workspace,
             job_type="sync",
-            job_name="sync_source",
+            job_name="sync_connector",
             status=Job.STATUS_QUEUED,
             next_run_at=timezone.now(),
         )
@@ -77,14 +77,14 @@ class JobConcurrencyTests(TestCase):
         Job.objects.create(
             workspace=self.workspace,
             job_type="sync",
-            job_name="sync_all",
+            job_name="sync_connector",
             status=Job.STATUS_RUNNING,
             started_at=timezone.now(),
         )
         Job.objects.create(
             workspace=self.workspace,
             job_type="sync",
-            job_name="sync_all",
+            job_name="sync_connector",
             status=Job.STATUS_RUNNING,
             started_at=timezone.now(),
         )
@@ -92,7 +92,7 @@ class JobConcurrencyTests(TestCase):
         queued_job = Job.objects.create(
             workspace=self.workspace,
             job_type="sync",
-            job_name="sync_all",
+            job_name="sync_connector",
             status=Job.STATUS_QUEUED,
             next_run_at=timezone.now(),
         )

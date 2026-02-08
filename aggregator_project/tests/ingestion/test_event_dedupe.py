@@ -5,6 +5,7 @@ from unittest.mock import patch
 from django.test import TestCase, override_settings
 
 from connectors.forms import AsanaConnectForm
+from connectors.models import ConnectorAccount
 from core.constants import SOURCE_ASANA
 from events.models import Event
 from ingestion.providers import ProviderSpec
@@ -31,8 +32,8 @@ class EventDedupeTests(TestCase):
         raw_items = [{"gid": "123", "name": "Test Task", "completed": False}]
 
         class StubClient:
-            def __init__(self, _workspace):
-                self.workspace = _workspace
+            def __init__(self, _account):
+                self.account = _account
 
             def fetch_since(self, since=None):
                 return raw_items
@@ -54,20 +55,16 @@ class EventDedupeTests(TestCase):
                 "source_event_version": raw.get("version") or "v1",
             }
 
-        def empty_credentials():
-            return {}
-
         def ok_credentials(_credentials):
             return True, "ok"
 
         spec = ProviderSpec(
             source="asana",
             label="Asana",
-            client_factory=lambda _workspace: StubClient(_workspace),
+            client_factory=lambda _account: StubClient(_account),
             normalizer=stub_normalizer,
             required_fields=[],
             auth_type="api_token",
-            env_credentials=empty_credentials,
             validate_credentials=ok_credentials,
             form_class=AsanaConnectForm,
             icon="bi-kanban",
@@ -76,12 +73,22 @@ class EventDedupeTests(TestCase):
         def stub_get_provider_spec(source: str):
             return spec if source == "asana" else None
 
+        account = ConnectorAccount.objects.create(
+            workspace=workspace,
+            source=SOURCE_ASANA,
+            display_name="Asana",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+
         with patch("ingestion.services.sync.get_provider_spec", stub_get_provider_spec):
-            sync_service.sync_source("asana", workspace)
+            sync_service.sync_connector_account(workspace, account)
         assert Event.objects.for_workspace(workspace).count() == 1
 
         with patch("ingestion.services.sync.get_provider_spec", stub_get_provider_spec):
-            sync_service.sync_source("asana", workspace)
+            sync_service.sync_connector_account(workspace, account)
         assert Event.objects.for_workspace(workspace).count() == 1
 
     def _create_user(self):

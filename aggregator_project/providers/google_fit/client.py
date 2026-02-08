@@ -6,20 +6,15 @@ from typing import Any
 import requests
 
 from connectors.models import ConnectorAccount
-from connectors.services import get_required_account
-from workspaces.models import Workspace
 
 
 class GoogleFitClient:
-    def __init__(self, workspace: Workspace, account: ConnectorAccount | None = None) -> None:
-        self.credentials = self._load_credentials(workspace, account)
+    def __init__(self, account: ConnectorAccount) -> None:
+        self.credentials = self._load_credentials(account)
 
-    def _load_credentials(
-        self, workspace: Workspace, account: ConnectorAccount | None
-    ) -> dict[str, Any]:
-        resolved = account or get_required_account("google_fit", workspace)
-        credentials = {"access_token": resolved.get_access_token()}
-        refresh_token = resolved.get_refresh_token()
+    def _load_credentials(self, account: ConnectorAccount) -> dict[str, Any]:
+        credentials = {"access_token": account.get_access_token()}
+        refresh_token = account.get_refresh_token()
         if refresh_token:
             credentials["refresh_token"] = refresh_token
         return credentials

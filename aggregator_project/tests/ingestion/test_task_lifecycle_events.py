@@ -5,6 +5,7 @@ from unittest.mock import patch
 from django.test import TestCase, override_settings
 
 from connectors.forms import AsanaConnectForm
+from connectors.models import ConnectorAccount
 from core.constants import SOURCE_ASANA
 from events.models import Event
 from ingestion.providers import ProviderSpec
@@ -23,8 +24,8 @@ from workspaces.models import Workspace
 class TaskLifecycleEventTests(TestCase):
     def _build_spec(self, raw_items):
         class StubClient:
-            def __init__(self, _workspace):
-                self.workspace = _workspace
+            def __init__(self, _account):
+                self.account = _account
 
             def fetch_since(self, since=None):
                 return raw_items
@@ -52,7 +53,7 @@ class TaskLifecycleEventTests(TestCase):
         return ProviderSpec(
             source="asana",
             label="Asana",
-            client_factory=lambda _workspace: StubClient(_workspace),
+            client_factory=lambda _account: StubClient(_account),
             normalizer=stub_normalizer,
             required_fields=[],
             auth_type="api_token",
@@ -61,20 +62,30 @@ class TaskLifecycleEventTests(TestCase):
             icon="bi-kanban",
         )
 
-    def _sync_raw_items(self, workspace, raw_items):
+    def _sync_raw_items(self, workspace, connector_account, raw_items):
         spec = self._build_spec(raw_items)
 
         def stub_get_provider_spec(source: str):
             return spec if source == "asana" else None
 
         with patch("ingestion.services.sync.get_provider_spec", stub_get_provider_spec):
-            sync_service.sync_source("asana", workspace)
+            sync_service.sync_connector_account(workspace, connector_account)
 
     def test_append_only_lifecycle_events(self):
         workspace = Workspace.objects.create(name="Test workspace")
+        account = ConnectorAccount.objects.create(
+            workspace=workspace,
+            source=SOURCE_ASANA,
+            display_name="Asana",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
 
         self._sync_raw_items(
             workspace,
+            account,
             [
                 {
                     "gid": "task-1",
@@ -87,6 +98,7 @@ class TaskLifecycleEventTests(TestCase):
         )
         self._sync_raw_items(
             workspace,
+            account,
             [
                 {
                     "gid": "task-1",
@@ -99,6 +111,7 @@ class TaskLifecycleEventTests(TestCase):
         )
         self._sync_raw_items(
             workspace,
+            account,
             [
                 {
                     "gid": "task-1",
@@ -119,9 +132,19 @@ class TaskLifecycleEventTests(TestCase):
 
     def test_existing_events_are_not_mutated(self):
         workspace = Workspace.objects.create(name="Test workspace")
+        account = ConnectorAccount.objects.create(
+            workspace=workspace,
+            source=SOURCE_ASANA,
+            display_name="Asana",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
 
         self._sync_raw_items(
             workspace,
+            account,
             [
                 {
                     "gid": "task-2",
@@ -134,6 +157,7 @@ class TaskLifecycleEventTests(TestCase):
         )
         self._sync_raw_items(
             workspace,
+            account,
             [
                 {
                     "gid": "task-2",
@@ -154,6 +178,15 @@ class TaskLifecycleEventTests(TestCase):
 
     def test_dedupe_same_lifecycle_event(self):
         workspace = Workspace.objects.create(name="Test workspace")
+        account = ConnectorAccount.objects.create(
+            workspace=workspace,
+            source=SOURCE_ASANA,
+            display_name="Asana",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
         raw = {
             "gid": "task-3",
             "name": "Duplicate",
@@ -162,7 +195,7 @@ class TaskLifecycleEventTests(TestCase):
             "version": "v1",
         }
 
-        self._sync_raw_items(workspace, [raw])
-        self._sync_raw_items(workspace, [raw])
+        self._sync_raw_items(workspace, account, [raw])
+        self._sync_raw_items(workspace, account, [raw])
 
         self.assertEqual(Event.objects.for_workspace(workspace).count(), 1)

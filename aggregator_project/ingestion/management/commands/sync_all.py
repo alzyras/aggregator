@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 from django.core.management.base import BaseCommand, CommandError
-from django.utils import timezone
-
-from ingestion.models import Job
-from ingestion.services.jobs import enqueue_job
+from ingestion.services.jobs import queue_sync_jobs
 from workspaces.models import Workspace
 
 
@@ -33,12 +30,12 @@ class Command(BaseCommand):
             raise CommandError(f"Unknown workspace id: {workspace_id}")
         since_raw = options.get("since")
         sources = options.get("sources")
-        job = Job.objects.create(
+        jobs = queue_sync_jobs(
             workspace=workspace,
-            job_type="sync",
-            job_name="sync_all",
-            input_params={"since": since_raw, "sources": sources or []},
-            next_run_at=timezone.now(),
+            sources=sources or None,
+            since=since_raw,
         )
-        enqueue_job(job.id)
-        self.stdout.write(self.style.SUCCESS(f"Job queued: {job.id}"))
+        if not jobs:
+            self.stdout.write(self.style.WARNING("No active connector accounts to sync."))
+            return
+        self.stdout.write(self.style.SUCCESS(f"Queued {len(jobs)} sync jobs."))

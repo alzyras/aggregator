@@ -8,10 +8,9 @@ from django import forms
 from django.apps import apps
 
 if TYPE_CHECKING:
-    from workspaces.models import Workspace
     from connectors.models import ConnectorAccount
 
-ClientFactory = Callable[["Workspace", "ConnectorAccount | None"], Any]
+ClientFactory = Callable[["ConnectorAccount"], Any]
 Normalizer = Callable[[dict[str, Any]], dict[str, Any]]
 CredentialsValidator = Callable[[dict[str, Any]], tuple[bool, str]]
 

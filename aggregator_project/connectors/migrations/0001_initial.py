@@ -81,12 +81,6 @@ class Migration(migrations.Migration):
                         name="connectors_workspace_source_active_idx",
                     )
                 ],
-                "constraints": [
-                    models.UniqueConstraint(
-                        fields=("workspace", "source"),
-                        name="unique_connector_account",
-                    )
-                ],
             },
         ),
     ]

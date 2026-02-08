@@ -24,30 +24,37 @@
 
   <section class="glow">
     <div class="panel">
-      <h2 class="section-title">Recent Sync Runs</h2>
+      <h2 class="section-title">Recent Sync Jobs</h2>
       <div class="table-shell">
         <table class="data-table">
           <thead>
             <tr>
-              <th>Source</th>
+              <th>Job</th>
+              <th>Status</th>
+              <th>Queued</th>
               <th>Started</th>
               <th>Finished</th>
-              <th>Status</th>
-              <th>Stats</th>
+              <th>Params</th>
+              <th>Summary</th>
             </tr>
           </thead>
           <tbody>
             {% for run in recent_runs %}
               <tr>
-                <td>{{ run.get_source_display }}</td>
-                <td>{{ run.started_at }}</td>
+                <td>
+                  <strong>{{ run.display_name }}</strong>
+                  <div class="table-meta">{{ run.job_type }}</div>
+                </td>
+                <td>{{ run.status }}</td>
+                <td>{{ run.queued_at }}</td>
+                <td>{{ run.started_at|default:"—" }}</td>
                 <td>{{ run.finished_at|default:"—" }}</td>
-                <td>{{ run.get_status_display }}</td>
-                <td><pre class="inline-json">{{ run.stats }}</pre></td>
+                <td><pre class="inline-json">{{ run.input_params }}</pre></td>
+                <td><pre class="inline-json">{{ run.output_summary }}</pre></td>
               </tr>
             {% empty %}
               <tr>
-                <td colspan="5">No sync runs yet.</td>
+                <td colspan="8">No sync jobs yet.</td>
               </tr>
             {% endfor %}
           </tbody>

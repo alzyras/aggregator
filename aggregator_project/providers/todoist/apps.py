@@ -21,7 +21,7 @@ class TodoistProviderConfig(AppConfig):
         self.provider_spec = ProviderSpec(
             source="todoist",
             label="Todoist",
-            client_factory=lambda workspace, account=None: TodoistClient(workspace, account=account),
+            client_factory=lambda account: TodoistClient(account),
             normalizer=normalize_todoist,
             required_fields=[
                 ("api_token", "API Token", "TODOIST_API_TOKEN"),
