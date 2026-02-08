@@ -16,20 +16,26 @@ class WorkspaceQuerySet(models.QuerySet):
 class ConnectorAccount(TimestampedModel):
     AUTH_API_TOKEN = "api_token"
     AUTH_OAUTH = "oauth"
-    STATUS_DISCONNECTED = "disconnected"
-    STATUS_CONNECTING = "connecting"
+    STATUS_VALIDATING = "validating"
     STATUS_CONNECTED = "connected"
     STATUS_ERROR = "error"
+    STATUS_REVOKED = "revoked"
+    SYNC_STATUS_SUCCESS = "success"
+    SYNC_STATUS_FAILED = "failed"
 
     AUTH_TYPE_CHOICES = [
         (AUTH_API_TOKEN, "API Token"),
         (AUTH_OAUTH, "OAuth"),
     ]
     STATUS_CHOICES = [
-        (STATUS_DISCONNECTED, "Disconnected"),
-        (STATUS_CONNECTING, "Connecting"),
+        (STATUS_VALIDATING, "Validating"),
         (STATUS_CONNECTED, "Connected"),
         (STATUS_ERROR, "Error"),
+        (STATUS_REVOKED, "Revoked"),
+    ]
+    SYNC_STATUS_CHOICES = [
+        (SYNC_STATUS_SUCCESS, "Success"),
+        (SYNC_STATUS_FAILED, "Failed"),
     ]
 
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
@@ -43,12 +49,18 @@ class ConnectorAccount(TimestampedModel):
     external_account_id = models.CharField(max_length=255, null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(
-        max_length=20, choices=STATUS_CHOICES, default=STATUS_DISCONNECTED
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_VALIDATING
     )
     last_verified_at = models.DateTimeField(null=True, blank=True)
     last_error = models.TextField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     last_sync_at = models.DateTimeField(null=True, blank=True)
+    last_sync_status = models.CharField(
+        max_length=20,
+        choices=SYNC_STATUS_CHOICES,
+        null=True,
+        blank=True,
+    )
 
     objects = WorkspaceQuerySet.as_manager()
 

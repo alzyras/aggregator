@@ -1,11 +1,21 @@
 from __future__ import annotations
 
 from datetime import datetime
+import logging
 from typing import Any
 
-import requests
+import pandas as pd
 
+from aggregator.plugins.habitica.get_habits_dailies_df import fetch_all_data
+from aggregator.plugins.habitica.get_todos_df import (
+    create_dataframe,
+    fetch_tags,
+    get_completed_todos,
+)
 from connectors.models import ConnectorAccount
+
+
+logger = logging.getLogger(__name__)
 
 
 class HabiticaClient:
@@ -19,9 +29,22 @@ class HabiticaClient:
         }
 
     def fetch_since(self, since: datetime | None = None) -> list[dict[str, Any]]:
-        """
-        TODO: Implement Habitica API calls.
-        For now, return an empty list to keep the pipeline runnable.
-        """
-        _ = requests
-        return []
+        logger.warning("Old plugin entrypoint was called")
+        user_id = self.credentials.get("user_id")
+        api_token = self.credentials.get("api_token")
+        if not user_id or not api_token:
+            return []
+
+        tag_dict = fetch_tags(user_id, api_token)
+        df_habits_dailies = fetch_all_data(user_id, api_token)
+        completed_todos = get_completed_todos(user_id, api_token, tag_dict)
+        df_todos = create_dataframe(completed_todos) if completed_todos else pd.DataFrame()
+
+        frames = [df for df in [df_habits_dailies, df_todos] if df is not None]
+        if not frames:
+            return []
+
+        df = pd.concat(frames, ignore_index=True)
+        if df.empty:
+            return []
+        return df.to_dict(orient="records")

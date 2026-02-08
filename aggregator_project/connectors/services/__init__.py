@@ -7,7 +7,12 @@ from workspaces.models import Workspace
 def get_active_account(source: str, workspace: Workspace) -> ConnectorAccount | None:
     return (
         ConnectorAccount.objects.for_workspace(workspace)
-        .filter(source=source, is_active=True, revoked_at__isnull=True)
+        .filter(
+            source=source,
+            is_active=True,
+            status=ConnectorAccount.STATUS_CONNECTED,
+            revoked_at__isnull=True,
+        )
         .order_by("-updated_at")
         .first()
     )
@@ -16,7 +21,12 @@ def get_active_account(source: str, workspace: Workspace) -> ConnectorAccount | 
 def get_active_accounts(source: str, workspace: Workspace):
     return (
         ConnectorAccount.objects.for_workspace(workspace)
-        .filter(source=source, is_active=True, revoked_at__isnull=True)
+        .filter(
+            source=source,
+            is_active=True,
+            status=ConnectorAccount.STATUS_CONNECTED,
+            revoked_at__isnull=True,
+        )
         .order_by("created_at")
     )
 

@@ -7,7 +7,7 @@
     <form method="post" action="{% url 'account_logout' %}">
       {% csrf_token %}
       <button class="btn primary" type="submit">Log out</button>
-      <a class="btn ghost" href="{% url 'dashboard' %}">Cancel</a>
+      <a class="btn ghost" href="{% url 'plugins_view' %}">Cancel</a>
     </form>
   </div>
 {% endblock %}

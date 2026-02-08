@@ -10,6 +10,25 @@ from ingestion.normalizers.utils import (
 
 
 def normalize_habitica(raw: dict[str, Any]) -> dict[str, Any]:
+    if raw.get("item_id"):
+        completed = raw.get("completed") is True
+        version = raw.get("date_completed") or raw.get("date_created")
+        return {
+            "source": "habitica",
+            "source_entity_type": "task",
+            "source_entity_id": str(raw.get("item_id") or ""),
+            "event_type": "task_completed" if completed else "task_updated",
+            "title": raw.get("item_name"),
+            "description": raw.get("notes"),
+            "start_time": parse_timestamp(raw.get("date_created")),
+            "end_time": parse_timestamp(raw.get("date_completed")),
+            "metric_type": raw.get("item_type"),
+            "metric_value": raw.get("value"),
+            "metric_unit": None,
+            "external_status": "completed" if completed else None,
+            "source_event_version": str(version) if version is not None else None,
+        }
+
     start_time = parse_timestamp(raw.get("created_at") or raw.get("createdAt"))
     end_time = parse_timestamp(raw.get("completed_at") or raw.get("updatedAt"))
     external_status = raw.get("status")

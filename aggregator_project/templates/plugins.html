@@ -1,0 +1,318 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="hero">
+    <div class="hero-pill">Plugins</div>
+    <h1>Manage plugin instances with confidence</h1>
+    <p>Connect multiple accounts per provider, validate credentials, and sync each instance independently.</p>
+  </section>
+
+  <section class="glow">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Add a plugin</h2>
+          <span class="panel-subtitle">Choose a provider and configure a new instance.</span>
+        </div>
+        <button class="btn primary" type="button" data-open-modal>Add plugin</button>
+      </div>
+      <div class="provider-strip">
+        {% for spec in provider_specs %}
+          <div class="provider-chip{% if not spec.enabled %} is-disabled{% endif %}">
+            <span class="provider-chip-dot">{{ spec.label|slice:":1" }}</span>
+            <span>{{ spec.label }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <section class="glow">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Connected plugins</h2>
+          <span class="panel-subtitle">Each instance syncs independently.</span>
+        </div>
+      </div>
+      <div class="table-shell">
+        <table class="data-table plugins-table">
+          <thead>
+            <tr>
+              <th>Plugin</th>
+              <th>Instance</th>
+              <th>Status</th>
+              <th>Last sync</th>
+              <th>Result</th>
+              <th>Data points</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in connector_rows %}
+              <tr>
+                <td>
+                  <div class="plugin-cell">
+                    <span class="plugin-icon">{{ row.spec.label|slice:":1" }}</span>
+                    <div>
+                      <div class="plugin-name">{{ row.spec.label }}</div>
+                      <div class="plugin-subtitle">{{ row.spec.source }}</div>
+                    </div>
+                  </div>
+                </td>
+                <td>{{ row.account.display_name }}</td>
+                <td>
+                  <span class="status-badge {{ row.status_key }}">{{ row.status_label }}</span>
+                </td>
+                <td>{{ row.account.last_sync_at|default:"—" }}</td>
+                <td>{{ row.last_sync_status }}</td>
+                <td>{{ row.event_count }}</td>
+                <td>
+                  <div class="table-actions">
+                    <form method="post" action="{% url 'sync_connector_account' row.account.id %}">
+                      {% csrf_token %}
+                      <button class="btn ghost small" type="submit" {% if row.status_key != "connected" %}disabled{% endif %}>Sync now</button>
+                    </form>
+                    <button
+                      class="btn ghost small"
+                      type="button"
+                      data-edit-account
+                      data-edit-source="{{ row.account.source }}"
+                      data-edit-name="{{ row.account.display_name }}"
+                      data-edit-action="{% url 'update_connector_account' row.account.id %}"
+                    >
+                      Edit
+                    </button>
+                    <form method="post" action="{% url 'remove_connector_account' row.account.id %}">
+                      {% csrf_token %}
+                      <button class="btn ghost small danger" type="submit">Remove</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="7">
+                  <div class="empty-state">
+                    <strong>No plugins connected yet.</strong>
+                    <span>Start by adding a provider above.</span>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <div
+    class="modal"
+    data-modal
+    data-modal-state="{{ modal_state|default:'' }}"
+    data-selected-source="{{ selected_source|default:'' }}"
+    {% if edit_account %}
+      data-edit-source="{{ edit_account.source }}"
+      data-edit-name="{{ edit_account.display_name }}"
+      data-edit-action="{% url 'update_connector_account' edit_account.id %}"
+    {% endif %}
+  >
+    <div class="modal-scrim" data-close-modal></div>
+    <div class="modal-panel">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">Add a plugin</div>
+          <div class="modal-subtitle" data-modal-subtitle>Choose a provider to begin.</div>
+        </div>
+        <button class="modal-close" type="button" data-close-modal>Close</button>
+      </div>
+
+      <div class="wizard" data-wizard>
+        <div class="wizard-step" data-step="1">
+          <div class="wizard-grid">
+            {% for spec in provider_specs %}
+              <button
+                class="provider-card{% if not spec.enabled %} is-disabled{% endif %}"
+                type="button"
+                data-provider="{{ spec.source }}"
+                {% if not spec.enabled %}disabled{% endif %}
+              >
+                <div class="provider-card-header">
+                  <span class="provider-card-icon">{{ spec.label|slice:":1" }}</span>
+                  <span class="provider-card-title">{{ spec.label }}</span>
+                </div>
+                <p class="provider-card-body">{{ spec.description }}</p>
+              </button>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="wizard-step" data-step="2">
+          {% for spec in provider_specs %}
+            <form
+              method="post"
+              action="{% url 'connect_provider' spec.source %}"
+              class="plugin-form"
+              data-provider-form
+              data-provider="{{ spec.source }}"
+              data-connect-action="{% url 'connect_provider' spec.source %}"
+            >
+              {% csrf_token %}
+              <div class="form-section">
+                <label class="field-label" for="display-name-{{ spec.source }}">Instance name</label>
+                <input
+                  class="field-input"
+                  id="display-name-{{ spec.source }}"
+                  name="display_name"
+                  placeholder="e.g. Work {{ spec.label }}"
+                  required
+                />
+              </div>
+
+              {% if spec.form.non_field_errors %}
+                {% for error in spec.form.non_field_errors %}
+                  <div class="inline-alert">{{ error }}</div>
+                {% endfor %}
+              {% endif %}
+
+              {% for field in spec.form %}
+                <div class="form-section">
+                  <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                  {{ field }}
+                  {% if field.errors %}
+                    {% for error in field.errors %}
+                      <div class="field-error">{{ error }}</div>
+                    {% endfor %}
+                  {% endif %}
+                </div>
+              {% endfor %}
+
+              <div class="modal-actions">
+                <button class="btn ghost" type="button" data-wizard-back>Back</button>
+                <button class="btn primary" type="submit">Connect</button>
+              </div>
+            </form>
+          {% endfor %}
+        </div>
+
+        <div class="wizard-step" data-step="3">
+          <div class="wizard-status">
+            <div class="spinner"></div>
+            <div>
+              <strong>Validating credentials…</strong>
+              <p>We’re verifying this plugin. You can close this dialog and check status on reload.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const modal = document.querySelector("[data-modal]");
+      if (!modal) return;
+      const openBtn = document.querySelector("[data-open-modal]");
+      const closeBtns = modal.querySelectorAll("[data-close-modal]");
+      const providerCards = modal.querySelectorAll("[data-provider]");
+      const wizard = modal.querySelector("[data-wizard]");
+      const forms = modal.querySelectorAll("[data-provider-form]");
+      const subtitle = modal.querySelector("[data-modal-subtitle]");
+      const backButtons = modal.querySelectorAll("[data-wizard-back]");
+
+      const steps = {
+        select: "1",
+        configure: "2",
+        validating: "3",
+      };
+
+      function setStep(step) {
+        wizard.querySelectorAll(".wizard-step").forEach((pane) => {
+          pane.classList.toggle("is-active", pane.dataset.step === step);
+        });
+      }
+
+      function openModal() {
+        modal.classList.add("is-open");
+      }
+
+      function closeModal() {
+        modal.classList.remove("is-open");
+        setStep(steps.select);
+        forms.forEach((form) => {
+          form.classList.remove("is-active");
+          const displayInput = form.querySelector("[name='display_name']");
+          if (displayInput) displayInput.value = "";
+          form.action = form.dataset.connectAction;
+        });
+        if (subtitle) subtitle.textContent = "Choose a provider to begin.";
+      }
+
+      function showForm(source, options = {}) {
+        forms.forEach((form) => {
+          const matches = form.dataset.provider === source;
+          form.classList.toggle("is-active", matches);
+          if (matches && options.action) {
+            form.action = options.action;
+          }
+          if (matches && options.displayName) {
+            const displayInput = form.querySelector("[name='display_name']");
+            if (displayInput) displayInput.value = options.displayName;
+          }
+        });
+        setStep(steps.configure);
+        if (subtitle) subtitle.textContent = "Configure the instance details.";
+      }
+
+      openBtn?.addEventListener("click", () => {
+        openModal();
+        setStep(steps.select);
+      });
+
+      closeBtns.forEach((btn) => btn.addEventListener("click", closeModal));
+
+      providerCards.forEach((card) => {
+        card.addEventListener("click", () => {
+          showForm(card.dataset.provider);
+        });
+      });
+
+      backButtons.forEach((btn) => {
+        btn.addEventListener("click", () => setStep(steps.select));
+      });
+
+      forms.forEach((form) => {
+        form.addEventListener("submit", () => {
+          setStep(steps.validating);
+        });
+      });
+
+      document.querySelectorAll("[data-edit-account]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const source = btn.dataset.editSource;
+          const displayName = btn.dataset.editName;
+          const action = btn.dataset.editAction;
+          openModal();
+          showForm(source, { displayName, action });
+          if (subtitle) subtitle.textContent = "Update instance details.";
+        });
+      });
+
+      const modalState = modal.dataset.modalState;
+      const selectedSource = modal.dataset.selectedSource;
+      if (modalState === "configure" && selectedSource) {
+        openModal();
+        showForm(selectedSource);
+      }
+
+      if (modal.dataset.editSource) {
+        openModal();
+        showForm(modal.dataset.editSource, {
+          displayName: modal.dataset.editName,
+          action: modal.dataset.editAction,
+        });
+        if (subtitle) subtitle.textContent = "Update instance details.";
+      }
+    })();
+  </script>
+{% endblock %}

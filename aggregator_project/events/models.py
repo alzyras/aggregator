@@ -6,6 +6,7 @@ from django.db import models
 
 from core.constants import SOURCE_CHOICES
 from core.models import TimestampedModel
+from connectors.models import ConnectorAccount
 from workspaces.models import Workspace
 
 
@@ -17,6 +18,13 @@ class WorkspaceQuerySet(models.QuerySet):
 class Event(TimestampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
+    connector_account = models.ForeignKey(
+        ConnectorAccount,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="events",
+    )
     source = models.CharField(max_length=50, choices=SOURCE_CHOICES)
     source_entity_type = models.CharField(max_length=100)
     source_entity_id = models.CharField(max_length=255)
@@ -47,10 +55,11 @@ class Event(TimestampedModel):
             models.Index(fields=["workspace", "created_at"]),
             models.Index(fields=["workspace", "source", "created_at"]),
             models.Index(fields=["workspace", "source", "dedupe_hash"]),
+            models.Index(fields=["workspace", "connector_account", "created_at"]),
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["workspace", "source", "dedupe_hash"],
+                fields=["workspace", "connector_account", "source", "dedupe_hash"],
                 name="unique_event_dedupe",
             )
         ]

@@ -86,6 +86,8 @@ class SyncIsolationTests(TestCase):
 
         self.assertEqual(Event.objects.for_workspace(workspace_a).count(), 1)
         self.assertEqual(Event.objects.for_workspace(workspace_b).count(), 0)
+        event = Event.objects.for_workspace(workspace_a).first()
+        self.assertEqual(event.connector_account_id, account_a.id)
 
     def test_sync_rejects_mismatched_workspace(self):
         workspace_a = Workspace.objects.create(name="Workspace A")

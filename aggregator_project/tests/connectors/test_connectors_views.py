@@ -9,6 +9,7 @@ from django.urls import reverse
 
 from connectors.forms import AsanaConnectForm
 from connectors.models import ConnectorAccount
+from ingestion.models import Job
 from ingestion.providers import ProviderSpec
 from workspaces.models import Workspace, WorkspaceMember
 
@@ -33,9 +34,7 @@ class ConnectorViewsTests(TestCase):
         )
 
     def _stub_spec(self, validate_result=(True, "ok")) -> ProviderSpec:
-        base_spec = next(
-            spec for spec in _real_specs() if spec.source == "asana"
-        )
+        base_spec = next(spec for spec in _real_specs() if spec.source == "asana")
 
         def validate(_credentials):
             return validate_result
@@ -47,7 +46,7 @@ class ConnectorViewsTests(TestCase):
 
         with patch("connectors.views.get_provider_specs", return_value=[spec]):
             response = self.client.post(
-                reverse("connect_provider", args=["asana"]), data={}
+                reverse("connect_provider", args=["asana"]), data={"display_name": "Work"}
             )
 
         self.assertEqual(response.status_code, 200)
@@ -59,7 +58,11 @@ class ConnectorViewsTests(TestCase):
         with patch("connectors.views.get_provider_specs", return_value=[spec]):
             response = self.client.post(
                 reverse("connect_provider", args=["asana"]),
-                data={"access_token": "token"},
+                data={
+                    "display_name": "Work",
+                    "access_token": "token",
+                    "workspace_gid": "workspace-1",
+                },
             )
 
         self.assertEqual(response.status_code, 200)
@@ -74,11 +77,15 @@ class ConnectorViewsTests(TestCase):
         with patch("connectors.views.get_provider_specs", return_value=[spec]):
             with patch(
                 "connectors.views.verify_credentials",
-                return_value=(False, "Bad credentials\\nmore"),
+                return_value=(False, "Bad credentials\nmore"),
             ):
                 response = self.client.post(
                     reverse("connect_provider", args=["asana"]),
-                    data={"access_token": "token"},
+                    data={
+                        "display_name": "Work",
+                        "access_token": "token",
+                        "workspace_gid": "workspace-1",
+                    },
                 )
 
         self.assertEqual(response.status_code, 302)
@@ -98,7 +105,11 @@ class ConnectorViewsTests(TestCase):
             ):
                 response = self.client.post(
                     reverse("connect_provider", args=["asana"]),
-                    data={"access_token": "token"},
+                    data={
+                        "display_name": "Work",
+                        "access_token": "token",
+                        "workspace_gid": "workspace-1",
+                    },
                 )
 
         self.assertEqual(response.status_code, 302)
@@ -109,26 +120,74 @@ class ConnectorViewsTests(TestCase):
         self.assertIsNotNone(account.last_verified_at)
         self.assertTrue(account.is_active)
 
-    def test_disconnect_provider_clears_credentials(self):
+    def test_connecting_two_instances_creates_two_accounts(self):
+        spec = self._stub_spec()
+
+        with patch("connectors.views.get_provider_specs", return_value=[spec]):
+            with patch(
+                "connectors.views.verify_credentials", return_value=(True, "ok")
+            ):
+                self.client.post(
+                    reverse("connect_provider", args=["asana"]),
+                    data={
+                        "display_name": "Work",
+                        "access_token": "token",
+                        "workspace_gid": "workspace-1",
+                    },
+                )
+                self.client.post(
+                    reverse("connect_provider", args=["asana"]),
+                    data={
+                        "display_name": "Personal",
+                        "access_token": "token-2",
+                        "workspace_gid": "workspace-2",
+                    },
+                )
+
+        self.assertEqual(
+            ConnectorAccount.objects.filter(workspace=self.workspace, source="asana").count(),
+            2,
+        )
+
+    def test_remove_connector_account_clears_credentials(self):
         account = ConnectorAccount.objects.create(
             workspace=self.workspace,
             source="asana",
             display_name="Asana",
             auth_type=ConnectorAccount.AUTH_API_TOKEN,
-            credentials="token",
+            encrypted_access_token=b"token",
             status=ConnectorAccount.STATUS_CONNECTED,
             is_active=True,
         )
 
         response = self.client.post(
-            reverse("disconnect_provider", args=["asana"])
+            reverse("remove_connector_account", args=[account.id])
         )
 
         self.assertEqual(response.status_code, 302)
         account.refresh_from_db()
-        self.assertEqual(account.status, ConnectorAccount.STATUS_DISCONNECTED)
-        self.assertEqual(account.credentials, "")
+        self.assertEqual(account.status, ConnectorAccount.STATUS_REVOKED)
         self.assertFalse(account.is_active)
+
+    def test_sync_now_creates_single_job(self):
+        account = ConnectorAccount.objects.create(
+            workspace=self.workspace,
+            source="asana",
+            display_name="Asana",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            reverse("sync_connector_account", args=[account.id])
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Job.objects.count(), 1)
+        job = Job.objects.get()
+        self.assertEqual(job.connector_account_id, account.id)
 
 
 def _real_specs():

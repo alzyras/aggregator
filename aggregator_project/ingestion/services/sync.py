@@ -41,6 +41,7 @@ def sync_connector_account(
         try:
             Event.objects.create(
                 workspace=workspace,
+                connector_account=connector_account,
                 **normalized,
             )
             inserted += 1
@@ -48,7 +49,8 @@ def sync_connector_account(
             skipped += 1
 
     connector_account.last_sync_at = timezone.now()
-    connector_account.save(update_fields=["last_sync_at"])
+    connector_account.last_sync_status = ConnectorAccount.SYNC_STATUS_SUCCESS
+    connector_account.save(update_fields=["last_sync_at", "last_sync_status"])
 
     return {
         "inserted": inserted,

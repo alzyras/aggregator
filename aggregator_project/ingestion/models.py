@@ -5,6 +5,7 @@ import uuid
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 
 from connectors.models import ConnectorAccount
 from workspaces.models import Workspace
@@ -85,6 +86,17 @@ class Job(models.Model):
             account = self.connector_account
             return f"Sync {account.get_source_display()} ({account.display_name})"
         return self.job_name
+
+    def clean(self) -> None:
+        if self.job_type == "sync":
+            if not self.connector_account_id:
+                raise ValidationError("Sync jobs must include a connector account.")
+            if self.connector_account and self.connector_account.workspace_id != self.workspace_id:
+                raise ValidationError("Job workspace must match connector account workspace.")
+
+    def save(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return f"{self.job_type}:{self.job_name} ({self.status})"

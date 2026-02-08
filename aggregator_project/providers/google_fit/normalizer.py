@@ -6,6 +6,27 @@ from ingestion.normalizers.utils import extract_source_event_version, parse_time
 
 
 def normalize_google_fit(raw: dict[str, Any]) -> dict[str, Any]:
+    if raw.get("record_type"):
+        timestamp = parse_timestamp(raw.get("timestamp"))
+        data_type = raw.get("data_type") or raw.get("record_type") or "activity"
+        value = raw.get("value") or raw.get("steps") or raw.get("heart_rate")
+        version = raw.get("timestamp")
+        return {
+            "source": "google_fit",
+            "source_entity_type": "activity",
+            "source_entity_id": str(raw.get("id") or raw.get("record_id") or ""),
+            "event_type": "activity_recorded",
+            "title": data_type,
+            "description": raw.get("metadata"),
+            "start_time": timestamp,
+            "end_time": timestamp,
+            "metric_type": data_type,
+            "metric_value": value,
+            "metric_unit": raw.get("unit"),
+            "external_status": None,
+            "source_event_version": str(version) if version is not None else None,
+        }
+
     start_time = parse_timestamp(
         raw.get("start_time")
         or raw.get("startTime")

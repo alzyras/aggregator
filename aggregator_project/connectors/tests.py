@@ -66,6 +66,8 @@ class ConnectorTokenTests(TestCase):
             auth_type=ConnectorAccount.AUTH_API_TOKEN,
             encrypted_access_token=encrypt_value("token"),
             revoked_at=timezone.now(),
+            status=ConnectorAccount.STATUS_REVOKED,
+            is_active=False,
         )
         with self.assertRaises(ValueError):
             _ = get_required_account("asana", self.workspace_a)
@@ -92,6 +94,8 @@ class ConnectorTokenTests(TestCase):
             display_name="Asana",
             auth_type=ConnectorAccount.AUTH_API_TOKEN,
             encrypted_access_token=encrypt_value("token"),
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
         )
         account = get_required_account("asana", self.workspace_a)
         self.assertEqual(account.source, "asana")

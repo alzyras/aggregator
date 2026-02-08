@@ -7,6 +7,7 @@ class AsanaConnectForm(forms.Form):
     access_token = forms.CharField(
         label="Access Token", max_length=255, widget=forms.PasswordInput
     )
+    workspace_gid = forms.CharField(label="Workspace GID", max_length=255)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -69,11 +70,11 @@ class GoogleFitConnectForm(forms.Form):
         refresh_token = cleaned.get("refresh_token")
         client_id = cleaned.get("client_id")
         client_secret = cleaned.get("client_secret")
-        if not access_token and not refresh_token:
+        if not refresh_token:
             raise forms.ValidationError(
-                "Provide an access token or a refresh token to verify."
+                "Refresh token is required for Google Fit."
             )
-        if refresh_token and (not client_id or not client_secret):
+        if not client_id or not client_secret:
             raise forms.ValidationError(
                 "Client ID and Client Secret are required with a refresh token."
             )

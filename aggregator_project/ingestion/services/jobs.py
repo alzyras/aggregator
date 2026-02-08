@@ -53,6 +53,10 @@ def run_job(job_id):
         output = execute_job(job)
         job.status = Job.STATUS_SUCCESS
         job.output_summary = output or {}
+        if job.job_type == "sync" and job.connector_account_id:
+            ConnectorAccount.objects.filter(id=job.connector_account_id).update(
+                last_sync_status=ConnectorAccount.SYNC_STATUS_SUCCESS
+            )
         logger.info(
             "job_success",
             extra={"job_id": str(job.id), "workspace_id": job.workspace_id, "status": job.status},
@@ -61,6 +65,11 @@ def run_job(job_id):
         job.attempt_count += 1
         job.error_message = str(exc)
         job.error_traceback = traceback.format_exc()
+        if job.job_type == "sync" and job.connector_account_id:
+            ConnectorAccount.objects.filter(id=job.connector_account_id).update(
+                last_sync_status=ConnectorAccount.SYNC_STATUS_FAILED,
+                last_sync_at=timezone.now(),
+            )
         if job.attempt_count < _max_attempts():
             job.status = Job.STATUS_QUEUED
             job.next_run_at = timezone.now() + _retry_delay(job.attempt_count)
@@ -103,24 +112,17 @@ def execute_job(job: Job):
 
 
 def _execute_sync_job(job: Job):
-    connector_account_id = job.input_params.get("connector_account_id")
     since_raw = job.input_params.get("since")
     since = parse_datetime(since_raw) if since_raw else None
     connector_account = job.connector_account
-    if connector_account is None and connector_account_id:
-        connector_account = ConnectorAccount.objects.for_workspace(job.workspace).filter(
-            id=connector_account_id
-        ).first()
     if connector_account is None:
         raise ValueError("Sync jobs require a connector account.")
     if connector_account.workspace_id != job.workspace_id:
         raise ValueError("Connector account does not belong to workspace.")
-    if connector_account_id and str(connector_account.id) != str(connector_account_id):
-        raise ValueError("Connector account id mismatch.")
 
     stats = sync_connector_account(
-        job.workspace,
-        connector_account,
+        workspace=job.workspace,
+        connector_account=connector_account,
         since=since,
     )
     return {"results": [stats]}
@@ -161,6 +163,7 @@ def queue_sync_jobs(
 ) -> list[Job]:
     accounts = ConnectorAccount.objects.for_workspace(workspace).filter(
         is_active=True,
+        status=ConnectorAccount.STATUS_CONNECTED,
         revoked_at__isnull=True,
     )
     if sources:
@@ -171,13 +174,10 @@ def queue_sync_jobs(
 
     jobs: list[Job] = []
     for account in accounts:
-        input_params = {
-            "source": account.source,
-            "connector_account_id": str(account.id),
-        }
+        input_params = {"source": account.source}
         if since:
             input_params["since"] = since
-        job = Job.objects.create(
+        job = Job(
             workspace=workspace,
             connector_account=account,
             job_type="sync",
@@ -185,6 +185,8 @@ def queue_sync_jobs(
             input_params=input_params,
             created_by=created_by,
         )
+        job.full_clean()
+        job.save()
         enqueue_job(job.id)
         jobs.append(job)
     return jobs

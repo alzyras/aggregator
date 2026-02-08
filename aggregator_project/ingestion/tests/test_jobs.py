@@ -3,6 +3,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
@@ -66,7 +67,7 @@ class JobTests(TestCase):
             connector_account=account,
             job_type="sync",
             job_name="sync_connector",
-            input_params={"source": "asana", "connector_account_id": str(account.id)},
+            input_params={"source": "asana"},
         )
 
         with patch(
@@ -95,7 +96,7 @@ class JobTests(TestCase):
             connector_account=account,
             job_type="sync",
             job_name="sync_connector",
-            input_params={"source": "asana", "connector_account_id": str(account.id)},
+            input_params={"source": "asana"},
         )
 
         with patch.dict("os.environ", {"JOB_MAX_ATTEMPTS": "1"}):
@@ -110,13 +111,33 @@ class JobTests(TestCase):
         self.assertTrue(result.error_traceback)
 
     def test_jobs_are_workspace_isolated(self):
+        account_a = ConnectorAccount.objects.create(
+            workspace=self.workspace_a,
+            source="asana",
+            display_name="Asana",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+        account_b = ConnectorAccount.objects.create(
+            workspace=self.workspace_b,
+            source="asana",
+            display_name="Asana",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
         Job.objects.create(
             workspace=self.workspace_a,
+            connector_account=account_a,
             job_type="sync",
             job_name="sync_connector",
         )
         Job.objects.create(
             workspace=self.workspace_b,
+            connector_account=account_b,
             job_type="sync",
             job_name="sync_connector",
         )
@@ -184,18 +205,14 @@ class JobTests(TestCase):
             status=ConnectorAccount.STATUS_CONNECTED,
             is_active=True,
         )
-        job = Job.objects.create(
-            workspace=self.workspace_a,
-            connector_account=account_b,
-            job_type="sync",
-            job_name="sync_connector",
-            input_params={"source": "asana", "connector_account_id": str(account_b.id)},
-        )
-
-        with patch.dict("os.environ", {"JOB_MAX_ATTEMPTS": "1"}):
-            result = job_service.run_job(job.id)
-        self.assertEqual(result.status, Job.STATUS_FAILED)
-        self.assertIn("Connector account does not belong", result.error_message)
+        with self.assertRaises(ValidationError):
+            job = Job(
+                workspace=self.workspace_a,
+                connector_account=account_b,
+                job_type="sync",
+                job_name="sync_connector",
+            )
+            job.full_clean()
 
     def test_failure_does_not_block_other_connector_jobs(self):
         account_one = ConnectorAccount.objects.create(
@@ -221,14 +238,14 @@ class JobTests(TestCase):
             connector_account=account_one,
             job_type="sync",
             job_name="sync_connector",
-            input_params={"source": "asana", "connector_account_id": str(account_one.id)},
+            input_params={"source": "asana"},
         )
         job_two = Job.objects.create(
             workspace=self.workspace_a,
             connector_account=account_two,
             job_type="sync",
             job_name="sync_connector",
-            input_params={"source": "asana", "connector_account_id": str(account_two.id)},
+            input_params={"source": "asana"},
         )
 
         def stub_sync(workspace, connector_account, since=None):
@@ -267,14 +284,14 @@ class JobTests(TestCase):
             connector_account=account_one,
             job_type="sync",
             job_name="sync_connector",
-            input_params={"source": "asana", "connector_account_id": str(account_one.id)},
+            input_params={"source": "asana"},
         )
         job_two = Job.objects.create(
             workspace=self.workspace_a,
             connector_account=account_two,
             job_type="sync",
             job_name="sync_connector",
-            input_params={"source": "asana", "connector_account_id": str(account_two.id)},
+            input_params={"source": "asana"},
         )
 
         with patch(

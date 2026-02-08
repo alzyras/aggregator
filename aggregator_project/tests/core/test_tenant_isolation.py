@@ -73,7 +73,7 @@ class TenantIsolationTests(TestCase):
         self.assertFalse(WorkspaceMember.objects.filter(user=user_d).exists())
 
         self.client.force_login(user_d)
-        response = self.client.get(reverse("dashboard"))
+        response = self.client.get(reverse("plugins_view"))
         self.assertEqual(response.status_code, 200)
         self.assertTrue(WorkspaceMember.objects.filter(user=user_d).exists())
 

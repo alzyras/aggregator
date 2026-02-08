@@ -132,7 +132,7 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 LOGIN_URL = "account_login"
-LOGIN_REDIRECT_URL = "dashboard"
+LOGIN_REDIRECT_URL = "plugins_view"
 LOGOUT_REDIRECT_URL = "account_login"
 
 ACCOUNT_AUTHENTICATION_METHOD = "username_email"

@@ -417,6 +417,21 @@ a {
   color: #b91c1c;
 }
 
+.status-badge.validating {
+  background: rgba(59, 130, 246, 0.16);
+  color: #1d4ed8;
+}
+
+.status-badge.syncing {
+  background: rgba(14, 116, 144, 0.18);
+  color: #0e7490;
+}
+
+.status-badge.revoked {
+  background: rgba(71, 85, 105, 0.18);
+  color: #475569;
+}
+
 .status-badge.inactive {
   background: rgba(220, 38, 38, 0.12);
   color: #b91c1c;
@@ -782,6 +797,236 @@ a {
 .nav-user {
   color: var(--muted);
   font-weight: 600;
+}
+
+.provider-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.provider-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(223, 230, 248, 0.9);
+  font-size: 0.85rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.provider-chip-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(140deg, #7a63df, #d466a3);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.provider-chip.is-disabled {
+  opacity: 0.5;
+}
+
+.plugins-table .plugin-name {
+  font-weight: 600;
+}
+
+.plugin-subtitle {
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.plugin-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.table-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.table-actions form {
+  margin: 0;
+}
+
+.table-actions .btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.empty-state {
+  display: grid;
+  gap: 0.3rem;
+  padding: 1.5rem 0;
+  text-align: center;
+  color: var(--muted);
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.modal.is-open {
+  display: flex;
+}
+
+.modal-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 12, 40, 0.45);
+  backdrop-filter: blur(4px);
+}
+
+.modal-panel {
+  position: relative;
+  width: min(920px, 92vw);
+  max-height: 90vh;
+  overflow: hidden;
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 30px 80px rgba(10, 14, 40, 0.25);
+  z-index: 1;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.5rem 1.8rem 1rem;
+  border-bottom: 1px solid rgba(223, 230, 248, 0.8);
+}
+
+.modal-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.modal-subtitle {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.modal-close {
+  border: none;
+  background: #f1f3ff;
+  color: var(--accent);
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wizard {
+  padding: 1.5rem 1.8rem 2rem;
+  overflow-y: auto;
+}
+
+.wizard-step {
+  display: none;
+}
+
+.wizard-step.is-active {
+  display: block;
+}
+
+.wizard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.2rem;
+}
+
+.provider-card {
+  border: 1px solid rgba(223, 230, 248, 0.9);
+  border-radius: 18px;
+  padding: 1.2rem;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.provider-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px rgba(15, 23, 85, 0.12);
+}
+
+.provider-card.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.provider-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-weight: 600;
+}
+
+.provider-card-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(140deg, #7a63df, #d466a3);
+  color: #fff;
+  font-weight: 700;
+}
+
+.provider-card-body {
+  margin: 0.8rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.plugin-form {
+  display: none;
+  gap: 1rem;
+}
+
+.plugin-form.is-active {
+  display: grid;
+}
+
+.form-section {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.wizard-status {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  background: #f6f8ff;
+  padding: 1.5rem;
+  border-radius: 16px;
 }
 
 @keyframes spin {

@@ -25,6 +25,7 @@ class AsanaProviderConfig(AppConfig):
             normalizer=normalize_asana,
             required_fields=[
                 ("access_token", "Access Token", "ASANA_ACCESS_TOKEN / ASANA_PERSONAL_ACCESS_TOKEN"),
+                ("workspace_gid", "Workspace GID", "ASANA_WORKSPACE_GID"),
             ],
             auth_type="api_token",
             validate_credentials=validate_credentials,

@@ -86,3 +86,78 @@ class SyncIsolationTests(TestCase):
 
         self.assertEqual(Event.objects.for_workspace(workspace_a).count(), 1)
         self.assertEqual(Event.objects.for_workspace(workspace_b).count(), 0)
+        event = Event.objects.for_workspace(workspace_a).first()
+        self.assertEqual(event.connector_account_id, account_a.id)
+
+    def test_sync_writes_only_to_target_connector(self):
+        workspace = Workspace.objects.create(name="Workspace")
+
+        raw_items = [{"gid": "123", "name": "Test Task", "completed": False}]
+
+        class StubClient:
+            def __init__(self, _account):
+                self.account = _account
+
+            def fetch_since(self, since=None):
+                return raw_items
+
+        def stub_normalizer(raw):
+            return {
+                "source": SOURCE_ASANA,
+                "source_entity_type": "task",
+                "source_entity_id": raw.get("gid"),
+                "event_type": "task_updated",
+                "title": raw.get("name"),
+                "description": None,
+                "start_time": None,
+                "end_time": None,
+                "metric_type": None,
+                "metric_value": None,
+                "metric_unit": None,
+                "external_status": "open",
+                "source_event_version": raw.get("version") or "v1",
+                "raw": raw,
+            }
+
+        def ok_credentials(_credentials):
+            return True, "ok"
+
+        spec = ProviderSpec(
+            source="asana",
+            label="Asana",
+            client_factory=lambda _account: StubClient(_account),
+            normalizer=stub_normalizer,
+            required_fields=[],
+            auth_type="api_token",
+            validate_credentials=ok_credentials,
+            form_class=AsanaConnectForm,
+            icon="bi-kanban",
+        )
+
+        def stub_get_provider_spec(source: str):
+            return spec if source == "asana" else None
+
+        account_a = ConnectorAccount.objects.create(
+            workspace=workspace,
+            source=SOURCE_ASANA,
+            display_name="Asana A",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+        account_b = ConnectorAccount.objects.create(
+            workspace=workspace,
+            source=SOURCE_ASANA,
+            display_name="Asana B",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+
+        with patch("ingestion.services.sync.get_provider_spec", stub_get_provider_spec):
+            sync_service.sync_connector_account(workspace, account_a)
+
+        self.assertEqual(Event.objects.filter(connector_account=account_a).count(), 1)
+        self.assertEqual(Event.objects.filter(connector_account=account_b).count(), 0)

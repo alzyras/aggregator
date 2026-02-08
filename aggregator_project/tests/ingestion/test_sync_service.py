@@ -130,6 +130,7 @@ class SyncServiceTests(TestCase):
         dedupe_hash = build_dedupe_hash(normalized)
         Event.objects.create(
             workspace=workspace,
+            connector_account=account,
             dedupe_hash=dedupe_hash,
             raw={},
             **normalized,
@@ -169,6 +170,7 @@ class SyncServiceTests(TestCase):
         self.assertEqual(stats.get("inserted"), 0)
         self.assertIsNotNone(account.last_sync_at)
         self.assertLessEqual(account.last_sync_at, timezone.now())
+        self.assertEqual(account.last_sync_status, ConnectorAccount.SYNC_STATUS_SUCCESS)
 
     def test_raw_payload_is_preserved(self):
         workspace = Workspace.objects.create(name="Test workspace")
