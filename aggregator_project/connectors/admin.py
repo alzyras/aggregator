@@ -9,7 +9,8 @@ from connectors.models import ConnectorAccount
 class ConnectorAccountAdmin(admin.ModelAdmin):
     list_display = (
         "id",
-        "source",
+        "workspace",
+        "provider",
         "display_name",
         "auth_type",
         "status",
@@ -18,5 +19,22 @@ class ConnectorAccountAdmin(admin.ModelAdmin):
         "last_verified_at",
         "updated_at",
     )
-    list_filter = ("source", "auth_type", "status", "is_active")
-    search_fields = ("display_name",)
+    list_select_related = ("workspace",)
+    list_filter = ("provider", "auth_type", "status", "is_active")
+    search_fields = ("display_name", "workspace__name")
+    exclude = ("encrypted_access_token", "encrypted_refresh_token")
+
+    def has_module_permission(self, request):
+        return request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_add_permission(self, request):
+        return request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser

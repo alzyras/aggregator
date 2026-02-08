@@ -11,7 +11,10 @@ from ingestion.providers import get_provider_choices
 
 @login_required
 def event_list(request):
-    events = Event.objects.all().order_by("-start_time", "-created_at")
+    events = (
+        Event.objects.for_workspace(request.workspace)
+        .order_by("-start_time", "-created_at")
+    )
 
     source = request.GET.get("source")
     source_entity_type = request.GET.get("type")
@@ -46,7 +49,9 @@ def event_list(request):
 
 @login_required
 def event_detail(request, pk):
-    event = get_object_or_404(Event, pk=pk)
+    event = get_object_or_404(
+        Event.objects.for_workspace(request.workspace), pk=pk
+    )
     context = {
         "event": event,
     }

@@ -1,0 +1,137 @@
+from __future__ import annotations
+
+from dataclasses import replace
+from unittest.mock import patch
+
+from django.contrib.auth import get_user_model
+from django.test import TestCase
+from django.urls import reverse
+
+from connectors.forms import AsanaConnectForm
+from connectors.models import ConnectorAccount
+from ingestion.providers import ProviderSpec
+from workspaces.models import Workspace, WorkspaceMember
+
+
+class ConnectorViewsTests(TestCase):
+    def setUp(self) -> None:
+        self.user = self._create_user("tester")
+        self.client.force_login(self.user)
+        self.workspace = Workspace.objects.create(name="Workspace")
+        WorkspaceMember.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            role=WorkspaceMember.ROLE_OWNER,
+        )
+
+    def _create_user(self, username: str):
+        user_model = get_user_model()
+        return user_model.objects.create_user(
+            username=username,
+            email=f"{username}@example.com",
+            password="password123",
+        )
+
+    def _stub_spec(self, validate_result=(True, "ok")) -> ProviderSpec:
+        base_spec = next(
+            spec for spec in _real_specs() if spec.source == "asana"
+        )
+
+        def validate(_credentials):
+            return validate_result
+
+        return replace(base_spec, validate_credentials=validate, form_class=AsanaConnectForm)
+
+    def test_connect_provider_invalid_form(self):
+        spec = self._stub_spec()
+
+        with patch("connectors.views.get_provider_specs", return_value=[spec]):
+            response = self.client.post(
+                reverse("connect_provider", args=["asana"]), data={}
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ConnectorAccount.objects.count(), 0)
+
+    def test_connect_provider_validation_failure(self):
+        spec = self._stub_spec(validate_result=(False, "Missing access token."))
+
+        with patch("connectors.views.get_provider_specs", return_value=[spec]):
+            response = self.client.post(
+                reverse("connect_provider", args=["asana"]),
+                data={"access_token": "token"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        account = ConnectorAccount.objects.filter(
+            workspace=self.workspace, source="asana"
+        ).first()
+        self.assertIsNone(account)
+
+    def test_connect_provider_verify_failure(self):
+        spec = self._stub_spec()
+
+        with patch("connectors.views.get_provider_specs", return_value=[spec]):
+            with patch(
+                "connectors.views.verify_credentials",
+                return_value=(False, "Bad credentials\\nmore"),
+            ):
+                response = self.client.post(
+                    reverse("connect_provider", args=["asana"]),
+                    data={"access_token": "token"},
+                )
+
+        self.assertEqual(response.status_code, 302)
+        account = ConnectorAccount.objects.get(
+            workspace=self.workspace, source="asana"
+        )
+        self.assertEqual(account.status, ConnectorAccount.STATUS_ERROR)
+        self.assertEqual(account.last_error, "Bad credentials")
+        self.assertFalse(account.is_active)
+
+    def test_connect_provider_success(self):
+        spec = self._stub_spec()
+
+        with patch("connectors.views.get_provider_specs", return_value=[spec]):
+            with patch(
+                "connectors.views.verify_credentials", return_value=(True, "ok")
+            ):
+                response = self.client.post(
+                    reverse("connect_provider", args=["asana"]),
+                    data={"access_token": "token"},
+                )
+
+        self.assertEqual(response.status_code, 302)
+        account = ConnectorAccount.objects.get(
+            workspace=self.workspace, source="asana"
+        )
+        self.assertEqual(account.status, ConnectorAccount.STATUS_CONNECTED)
+        self.assertIsNotNone(account.last_verified_at)
+        self.assertTrue(account.is_active)
+
+    def test_disconnect_provider_clears_credentials(self):
+        account = ConnectorAccount.objects.create(
+            workspace=self.workspace,
+            source="asana",
+            display_name="Asana",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            credentials="token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            reverse("disconnect_provider", args=["asana"])
+        )
+
+        self.assertEqual(response.status_code, 302)
+        account.refresh_from_db()
+        self.assertEqual(account.status, ConnectorAccount.STATUS_DISCONNECTED)
+        self.assertEqual(account.credentials, "")
+        self.assertFalse(account.is_active)
+
+
+def _real_specs():
+    from ingestion.providers import get_provider_specs
+
+    return get_provider_specs()

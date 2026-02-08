@@ -6,10 +6,17 @@ from django.db import models
 
 from core.constants import SOURCE_CHOICES
 from core.models import TimestampedModel
+from workspaces.models import Workspace
+
+
+class WorkspaceQuerySet(models.QuerySet):
+    def for_workspace(self, workspace: Workspace) -> "WorkspaceQuerySet":
+        return self.filter(workspace=workspace)
 
 
 class Event(TimestampedModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
     source = models.CharField(max_length=50, choices=SOURCE_CHOICES)
     source_entity_type = models.CharField(max_length=100)
     source_entity_id = models.CharField(max_length=255)
@@ -24,14 +31,20 @@ class Event(TimestampedModel):
     raw = models.JSONField()
     dedupe_hash = models.CharField(max_length=64)
 
+    objects = WorkspaceQuerySet.as_manager()
+
     class Meta:
         indexes = [
-            models.Index(fields=["source", "source_entity_id"]),
-            models.Index(fields=["start_time"]),
+            models.Index(fields=["workspace", "source", "source_entity_id"]),
+            models.Index(fields=["workspace", "start_time"]),
+            models.Index(fields=["workspace", "created_at"]),
+            models.Index(fields=["workspace", "source", "created_at"]),
+            models.Index(fields=["workspace", "source", "dedupe_hash"]),
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["source", "dedupe_hash"], name="unique_event_dedupe"
+                fields=["workspace", "source", "dedupe_hash"],
+                name="unique_event_dedupe",
             )
         ]
 

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Type
+from typing import Any, Callable, Type, TYPE_CHECKING
 
 from django import forms
 
 from django.apps import apps
 
-ClientFactory = Callable[[], Any]
+if TYPE_CHECKING:
+    from workspaces.models import Workspace
+
+ClientFactory = Callable[["Workspace"], Any]
 Normalizer = Callable[[dict[str, Any]], dict[str, Any]]
-CredentialsBuilder = Callable[[], dict[str, Any]]
 CredentialsValidator = Callable[[dict[str, Any]], tuple[bool, str]]
 
 
@@ -21,7 +23,6 @@ class ProviderSpec:
     normalizer: Normalizer
     required_fields: list[tuple[str, str, str]]
     auth_type: str
-    env_credentials: CredentialsBuilder
     validate_credentials: CredentialsValidator
     form_class: Type[forms.Form]
     icon: str

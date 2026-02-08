@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-from typing import Any
-
 from django.db import models
 
-from core.constants import SOURCE_CHOICES
-from core.encryption import decrypt_payload, encrypt_payload
+from core.constants import PROVIDER_CHOICES
 from core.models import TimestampedModel
+from connectors.encryption import decrypt_value, encrypt_value
+from workspaces.models import Workspace
+
+
+class WorkspaceQuerySet(models.QuerySet):
+    def for_workspace(self, workspace: Workspace) -> "WorkspaceQuerySet":
+        return self.filter(workspace=workspace)
 
 
 class ConnectorAccount(TimestampedModel):
@@ -28,13 +32,16 @@ class ConnectorAccount(TimestampedModel):
         (STATUS_ERROR, "Error"),
     ]
 
-    source = models.CharField(max_length=50, choices=SOURCE_CHOICES)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
+    provider = models.CharField(max_length=50, choices=PROVIDER_CHOICES)
     display_name = models.CharField(max_length=255)
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES)
-    credentials = models.TextField(
-        help_text="Encrypted JSON payload when ENCRYPTION_KEY is set."
-    )
-    credentials_encrypted = models.BooleanField(default=False)
+    encrypted_access_token = models.BinaryField()
+    encrypted_refresh_token = models.BinaryField(null=True, blank=True)
+    token_expires_at = models.DateTimeField(null=True, blank=True)
+    scopes = models.JSONField(default=list, blank=True)
+    external_account_id = models.CharField(max_length=255, null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default=STATUS_DISCONNECTED
     )
@@ -43,24 +50,38 @@ class ConnectorAccount(TimestampedModel):
     is_active = models.BooleanField(default=True)
     last_sync_at = models.DateTimeField(null=True, blank=True)
 
+    objects = WorkspaceQuerySet.as_manager()
+
     class Meta:
         indexes = [
-            models.Index(fields=["source", "is_active"]),
+            models.Index(fields=["workspace", "provider", "is_active"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "provider"], name="unique_connector_account"
+            )
         ]
 
-    def set_credentials(self, data: dict[str, Any]) -> None:
-        result = encrypt_payload(data)
-        self.credentials = result.payload
-        self.credentials_encrypted = result.encrypted
+    def set_access_token(self, value: str) -> None:
+        self.encrypted_access_token = encrypt_value(value)
 
-    def get_credentials(self) -> dict[str, Any]:
-        if not self.credentials:
-            return {}
-        return decrypt_payload(self.credentials)
+    def get_access_token(self) -> str:
+        return decrypt_value(self.encrypted_access_token)
 
-    def clear_credentials(self) -> None:
-        self.credentials = ""
-        self.credentials_encrypted = False
+    def set_refresh_token(self, value: str | None) -> None:
+        if value:
+            self.encrypted_refresh_token = encrypt_value(value)
+        else:
+            self.encrypted_refresh_token = None
+
+    def get_refresh_token(self) -> str | None:
+        if not self.encrypted_refresh_token:
+            return None
+        return decrypt_value(self.encrypted_refresh_token)
+
+    def clear_tokens(self) -> None:
+        self.encrypted_access_token = b""
+        self.encrypted_refresh_token = None
 
     def __str__(self) -> str:
-        return f"{self.get_source_display()} ({self.display_name})"
+        return f"{self.get_provider_display()} ({self.display_name})"

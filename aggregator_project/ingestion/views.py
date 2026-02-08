@@ -12,11 +12,14 @@ from ingestion.services.sync import sync_all_sources
 @login_required
 def sync_view(request):
     if request.method == "POST":
-        runs = sync_all_sources()
+        runs = sync_all_sources(request.workspace)
         messages.success(request, f"Sync complete. Runs: {len(runs)}")
         return redirect("sync_view")
 
-    recent_runs = SyncRun.objects.order_by("-started_at")[:25]
+    recent_runs = (
+        SyncRun.objects.for_workspace(request.workspace)
+        .order_by("-started_at")[:25]
+    )
     context = {
         "recent_runs": recent_runs,
         "source_choices": get_provider_choices(),

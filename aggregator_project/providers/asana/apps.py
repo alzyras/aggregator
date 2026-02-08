@@ -14,20 +14,19 @@ class AsanaProviderConfig(AppConfig):
 
     def ready(self) -> None:
         from providers.asana.client import AsanaClient
-        from providers.asana.credentials import env_credentials, validate_credentials
+        from providers.asana.credentials import validate_credentials
         from providers.asana.normalizer import normalize_asana
         from connectors.forms import AsanaConnectForm
 
         self.provider_spec = ProviderSpec(
             source="asana",
             label="Asana",
-            client_factory=AsanaClient,
+            client_factory=lambda workspace: AsanaClient(workspace),
             normalizer=normalize_asana,
             required_fields=[
                 ("access_token", "Access Token", "ASANA_ACCESS_TOKEN / ASANA_PERSONAL_ACCESS_TOKEN"),
             ],
             auth_type="api_token",
-            env_credentials=env_credentials,
             validate_credentials=validate_credentials,
             form_class=AsanaConnectForm,
             icon="bi-kanban",

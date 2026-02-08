@@ -14,20 +14,19 @@ class TodoistProviderConfig(AppConfig):
 
     def ready(self) -> None:
         from providers.todoist.client import TodoistClient
-        from providers.todoist.credentials import env_credentials, validate_credentials
+        from providers.todoist.credentials import validate_credentials
         from providers.todoist.normalizer import normalize_todoist
         from connectors.forms import TodoistConnectForm
 
         self.provider_spec = ProviderSpec(
             source="todoist",
             label="Todoist",
-            client_factory=TodoistClient,
+            client_factory=lambda workspace: TodoistClient(workspace),
             normalizer=normalize_todoist,
             required_fields=[
                 ("api_token", "API Token", "TODOIST_API_TOKEN"),
             ],
             auth_type="api_token",
-            env_credentials=env_credentials,
             validate_credentials=validate_credentials,
             form_class=TodoistConnectForm,
             icon="bi-check2-square",

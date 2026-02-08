@@ -4,6 +4,12 @@ from django.db import models
 
 from core.constants import SOURCE_CHOICES
 from core.models import TimestampedModel
+from workspaces.models import Workspace
+
+
+class WorkspaceQuerySet(models.QuerySet):
+    def for_workspace(self, workspace: Workspace) -> "WorkspaceQuerySet":
+        return self.filter(workspace=workspace)
 
 
 class SyncRun(TimestampedModel):
@@ -17,6 +23,7 @@ class SyncRun(TimestampedModel):
         (STATUS_PARTIAL, "Partial"),
     ]
 
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
     source = models.CharField(max_length=50, choices=SOURCE_CHOICES)
     started_at = models.DateTimeField()
     finished_at = models.DateTimeField(null=True, blank=True)
@@ -24,9 +31,11 @@ class SyncRun(TimestampedModel):
     stats = models.JSONField(default=dict, blank=True)
     error = models.TextField(null=True, blank=True)
 
+    objects = WorkspaceQuerySet.as_manager()
+
     class Meta:
         indexes = [
-            models.Index(fields=["source", "started_at"]),
+            models.Index(fields=["workspace", "source", "started_at"]),
         ]
 
     def __str__(self) -> str:

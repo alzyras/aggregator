@@ -14,21 +14,20 @@ class HabiticaProviderConfig(AppConfig):
 
     def ready(self) -> None:
         from providers.habitica.client import HabiticaClient
-        from providers.habitica.credentials import env_credentials, validate_credentials
+        from providers.habitica.credentials import validate_credentials
         from providers.habitica.normalizer import normalize_habitica
         from connectors.forms import HabiticaConnectForm
 
         self.provider_spec = ProviderSpec(
             source="habitica",
             label="Habitica",
-            client_factory=HabiticaClient,
+            client_factory=lambda workspace: HabiticaClient(workspace),
             normalizer=normalize_habitica,
             required_fields=[
                 ("user_id", "User ID", "HABITICA_USER_ID"),
                 ("api_token", "API Token", "HABITICA_API_TOKEN"),
             ],
             auth_type="api_token",
-            env_credentials=env_credentials,
             validate_credentials=validate_credentials,
             form_class=HabiticaConnectForm,
             icon="bi-heart-pulse",

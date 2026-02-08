@@ -5,19 +5,17 @@ from typing import Any
 
 import requests
 
-from connectors.services import get_active_account
-from providers.asana.credentials import env_credentials
+from connectors.services import get_required_account
+from workspaces.models import Workspace
 
 
 class AsanaClient:
-    def __init__(self) -> None:
-        self.credentials = self._load_credentials()
+    def __init__(self, workspace: Workspace) -> None:
+        self.credentials = self._load_credentials(workspace)
 
-    def _load_credentials(self) -> dict[str, Any]:
-        account = get_active_account("asana")
-        if account:
-            return account.get_credentials()
-        return env_credentials()
+    def _load_credentials(self, workspace: Workspace) -> dict[str, Any]:
+        account = get_required_account("asana", workspace)
+        return {"access_token": account.get_access_token()}
 
     def fetch_since(self, since: datetime | None = None) -> list[dict[str, Any]]:
         """

@@ -1,31 +1,22 @@
 from __future__ import annotations
 
 from connectors.models import ConnectorAccount
-from ingestion.providers import ProviderSpec
+from workspaces.models import Workspace
 
 
-def get_active_account(source: str) -> ConnectorAccount | None:
+def get_active_account(provider: str, workspace: Workspace) -> ConnectorAccount | None:
     return (
-        ConnectorAccount.objects.filter(source=source, is_active=True)
+        ConnectorAccount.objects.for_workspace(workspace)
+        .filter(provider=provider, is_active=True, revoked_at__isnull=True)
         .order_by("-updated_at")
         .first()
     )
 
-
-def resolve_credentials(spec: ProviderSpec) -> tuple[dict, str | None]:
-    account = get_active_account(spec.source)
-    if account:
-        return account.get_credentials(), "stored"
-    env_creds = spec.env_credentials()
-    if any(env_creds.values()):
-        return env_creds, "env"
-    return {}, None
-
-
-def validate_provider(spec: ProviderSpec) -> tuple[bool, str, str | None]:
-    credentials, source = resolve_credentials(spec)
-    ok, message = spec.validate_credentials(credentials)
-    return ok, message, source
+def get_required_account(provider: str, workspace: Workspace) -> ConnectorAccount:
+    account = get_active_account(provider, workspace)
+    if not account:
+        raise ValueError("No active connector account found.")
+    return account
 
 
 def sanitize_error(message: str) -> str:

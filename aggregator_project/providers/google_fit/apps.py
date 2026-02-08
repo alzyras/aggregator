@@ -14,14 +14,14 @@ class GoogleFitProviderConfig(AppConfig):
 
     def ready(self) -> None:
         from providers.google_fit.client import GoogleFitClient
-        from providers.google_fit.credentials import env_credentials, validate_credentials
+        from providers.google_fit.credentials import validate_credentials
         from providers.google_fit.normalizer import normalize_google_fit
         from connectors.forms import GoogleFitConnectForm
 
         self.provider_spec = ProviderSpec(
             source="google_fit",
             label="Google Fit",
-            client_factory=GoogleFitClient,
+            client_factory=lambda workspace: GoogleFitClient(workspace),
             normalizer=normalize_google_fit,
             required_fields=[
                 ("client_id", "Client ID", "GOOGLE_FIT_CLIENT_ID"),
@@ -30,7 +30,6 @@ class GoogleFitProviderConfig(AppConfig):
                 ("access_token", "Access Token (optional)", "GOOGLE_FIT_ACCESS_TOKEN"),
             ],
             auth_type="oauth",
-            env_credentials=env_credentials,
             validate_credentials=validate_credentials,
             form_class=GoogleFitConnectForm,
             icon="bi-activity",
