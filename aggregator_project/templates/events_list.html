@@ -10,32 +10,95 @@
 
   <section class="glow">
     <div class="panel">
-      <form method="get" class="filter-form">
-        <div>
-          <label class="field-label">Source</label>
-          <select name="source" class="field-input">
-            <option value="">All</option>
-            {% for value, label in source_choices %}
-              <option value="{{ value }}" {% if filters.source == value %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
+      <form method="get" class="filter-bar" data-filter-bar>
+        <div class="filter-row primary-row">
+          <div class="filter-field">
+            <label class="field-label" for="filter-source">Source</label>
+            <select id="filter-source" name="source" class="field-input">
+              <option value="">All</option>
+              {% for value, label in source_choices %}
+                <option value="{{ value }}" {% if filters.source == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="filter-field filter-field-search">
+            <label class="field-label" for="filter-search">Search</label>
+            <input id="filter-search" type="search" name="q" value="{{ filters.q }}" class="field-input" placeholder="Search events…" />
+          </div>
+          <div class="filter-field">
+            <label class="field-label" for="filter-start">Start</label>
+            <input id="filter-start" type="date" name="start" value="{{ filters.start }}" class="field-input" />
+          </div>
+          <div class="filter-field">
+            <label class="field-label" for="filter-end">End</label>
+            <input id="filter-end" type="date" name="end" value="{{ filters.end }}" class="field-input" />
+          </div>
+          <div class="filter-field filter-actions">
+            <button type="submit" class="btn primary">Filter</button>
+            <a class="btn ghost" href="?">Reset</a>
+            <button type="button" class="btn ghost" data-advanced-toggle aria-expanded="false">More filters</button>
+          </div>
         </div>
-        <div>
-          <label class="field-label">Type</label>
-          <input type="text" name="type" value="{{ filters.type }}" class="field-input" placeholder="task, activity" />
+
+        <div class="filter-row presets-row">
+          <span class="field-label">Quick dates</span>
+          <div class="preset-group">
+            <button type="button" class="preset-btn" data-date-preset="today">Today</button>
+            <button type="button" class="preset-btn" data-date-preset="last-7">Last 7 days</button>
+            <button type="button" class="preset-btn" data-date-preset="last-30">Last 30 days</button>
+            <button type="button" class="preset-btn" data-date-preset="all">All time</button>
+          </div>
         </div>
-        <div>
-          <label class="field-label">Start</label>
-          <input type="date" name="start" value="{{ filters.start }}" class="field-input" />
-        </div>
-        <div>
-          <label class="field-label">End</label>
-          <input type="date" name="end" value="{{ filters.end }}" class="field-input" />
-        </div>
-        <div class="filter-action">
-          <button type="submit" class="btn primary">Filter</button>
+
+        <div class="filter-row secondary-row" data-advanced-row hidden>
+          <div class="filter-field">
+            <label class="field-label" for="filter-entity-type">Entity type</label>
+            <input id="filter-entity-type" type="text" name="type" value="{{ filters.type }}" class="field-input" placeholder="task, activity" />
+          </div>
+          <div class="filter-field">
+            <label class="field-label" for="filter-event-type">Event type</label>
+            <select id="filter-event-type" name="event_type" class="field-input" multiple>
+              {% for group_label, options in event_type_groups %}
+                {% if options %}
+                  <optgroup label="{{ group_label }}">
+                    {% for value, label in options %}
+                      <option value="{{ value }}" {% if value in filters.event_type %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                  </optgroup>
+                {% endif %}
+              {% endfor %}
+            </select>
+          </div>
+          <div class="filter-field">
+            <label class="field-label" for="filter-external-status">External status</label>
+            <select id="filter-external-status" name="external_status" class="field-input">
+              <option value="">All</option>
+              {% for value in external_status_choices %}
+                <option value="{{ value }}" {% if filters.external_status == value %}selected{% endif %}>{{ value|title }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="filter-field">
+            <label class="field-label" for="filter-connector">Plugin instance</label>
+            <select id="filter-connector" name="connector_account" class="field-input">
+              <option value="">All plugins</option>
+              {% for account in connector_accounts %}
+                <option value="{{ account.id }}" {% if filters.connector_account == account.id|stringformat:"s" %}selected{% endif %}>
+                  {{ account.get_source_display }} · {{ account.display_name }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
         </div>
       </form>
+
+      {% if active_filters %}
+        <div class="filter-pill-row">
+          {% for item in active_filters %}
+            <a class="filter-pill" href="{{ item.remove }}">{{ item.label }} <span aria-hidden="true">×</span></a>
+          {% endfor %}
+        </div>
+      {% endif %}
 
       <div class="table-shell">
         <table class="data-table">
@@ -70,13 +133,68 @@
 
       <div class="pagination">
         {% if page_obj.has_previous %}
-          <a class="btn ghost small" href="?page={{ page_obj.previous_page_number }}">Previous</a>
+          <a class="btn ghost small" href="{% if pagination_query %}?{{ pagination_query }}&page={{ page_obj.previous_page_number }}{% else %}?page={{ page_obj.previous_page_number }}{% endif %}">Previous</a>
         {% endif %}
         <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
         {% if page_obj.has_next %}
-          <a class="btn ghost small" href="?page={{ page_obj.next_page_number }}">Next</a>
+          <a class="btn ghost small" href="{% if pagination_query %}?{{ pagination_query }}&page={{ page_obj.next_page_number }}{% else %}?page={{ page_obj.next_page_number }}{% endif %}">Next</a>
         {% endif %}
       </div>
     </div>
   </section>
+
+  <script>
+    (function () {
+      const bar = document.querySelector("[data-filter-bar]");
+      if (!bar) return;
+      const advancedRow = bar.querySelector("[data-advanced-row]");
+      const toggle = bar.querySelector("[data-advanced-toggle]");
+      const startInput = bar.querySelector("#filter-start");
+      const endInput = bar.querySelector("#filter-end");
+
+      function setAdvanced(open) {
+        bar.classList.toggle("is-advanced-open", open);
+        if (advancedRow) advancedRow.hidden = !open;
+        if (toggle) toggle.setAttribute("aria-expanded", open ? "true" : "false");
+        if (toggle) toggle.textContent = open ? "Less filters" : "More filters";
+      }
+
+      const hasAdvancedValues =
+        (bar.querySelector(\"#filter-entity-type\")?.value || \"\") ||
+        (bar.querySelector(\"#filter-event-type\")?.selectedOptions?.length || 0) ||
+        (bar.querySelector(\"#filter-external-status\")?.value || \"\") ||
+        (bar.querySelector(\"#filter-connector\")?.value || \"\");
+
+      setAdvanced(Boolean(hasAdvancedValues));
+
+      toggle?.addEventListener(\"click\", () => {
+        setAdvanced(!bar.classList.contains(\"is-advanced-open\"));
+      });
+
+      bar.querySelectorAll(\"[data-date-preset]\").forEach((btn) => {
+        btn.addEventListener(\"click\", () => {
+          const now = new Date();
+          const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          let start = null;
+          const preset = btn.dataset.datePreset;
+          if (preset === \"today\") {
+            start = end;
+          } else if (preset === \"last-7\") {
+            start = new Date(end);
+            start.setDate(start.getDate() - 6);
+          } else if (preset === \"last-30\") {
+            start = new Date(end);
+            start.setDate(start.getDate() - 29);
+          } else if (preset === \"all\") {
+            startInput.value = \"\";
+            endInput.value = \"\";
+            return;
+          }
+          const toValue = (date) => date.toISOString().slice(0, 10);
+          startInput.value = toValue(start);
+          endInput.value = toValue(end);
+        });
+      });
+    })();
+  </script>
 {% endblock %}
