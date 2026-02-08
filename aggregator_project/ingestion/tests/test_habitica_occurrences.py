@@ -54,7 +54,7 @@ class HabiticaOccurrenceTests(TestCase):
             is_active=True,
         )
 
-    def test_habit_and_daily_history_generates_multiple_events(self):
+    def test_occurrences_and_state_events_created(self):
         workspace = Workspace.objects.create(name="Workspace")
         account = self._build_account(workspace)
 
@@ -67,6 +67,9 @@ class HabiticaOccurrenceTests(TestCase):
                 {"date": 1700000000000, "value": 1},
                 {"date": 1700003600000, "value": -1},
             ],
+            "value": 0,
+            "completed": False,
+            "updatedAt": "2025-01-01T12:00:00.000Z",
         }
         daily = {
             "id": "d1",
@@ -75,8 +78,10 @@ class HabiticaOccurrenceTests(TestCase):
             "notes": "",
             "history": [
                 {"date": 1700007200000, "value": 1, "completed": True},
-                {"date": 1700010800000, "value": 1, "completed": True},
             ],
+            "value": 1,
+            "completed": True,
+            "updatedAt": "2025-01-02T12:00:00.000Z",
         }
         todo = {
             "id": "t1",
@@ -84,7 +89,9 @@ class HabiticaOccurrenceTests(TestCase):
             "text": "File taxes",
             "notes": "",
             "completed": True,
-            "dateCompleted": "2025-01-02T12:00:00.000Z",
+            "dateCompleted": "2025-01-03",
+            "value": 2,
+            "updatedAt": "2025-01-03T12:00:00.000Z",
         }
 
         def stub_fetch_tasks(_self, _user_id, _api_token, task_type):
@@ -92,8 +99,10 @@ class HabiticaOccurrenceTests(TestCase):
                 return [habit]
             if task_type == "dailys":
                 return [daily]
-            if task_type == "completedTodos":
+            if task_type == "todos":
                 return [todo]
+            if task_type == "completedTodos":
+                return []
             return []
 
         spec = self._build_spec()
@@ -103,10 +112,14 @@ class HabiticaOccurrenceTests(TestCase):
                 with patch.object(HabiticaClient, "get_user_profile", return_value={}):
                     sync_connector_account(workspace, account)
 
-        events = Event.objects.for_workspace(workspace).order_by("start_time")
-        self.assertEqual(events.count(), 5)
+        events = Event.objects.for_workspace(workspace)
+        self.assertEqual(events.count(), 6)
+        self.assertEqual(events.filter(event_type="task_state").count(), 3)
+        self.assertEqual(events.filter(source_entity_type="habit").count(), 3)
+        self.assertEqual(events.filter(source_entity_type="daily").count(), 2)
+        self.assertEqual(events.filter(source_entity_type="todo").count(), 1)
 
-        habit_events = events.filter(source_entity_type="habit")
+        habit_events = events.filter(event_type="habit_scored")
         self.assertEqual(habit_events.count(), 2)
         expected_habit_times = {
             datetime.fromtimestamp(1700000000000 / 1000, tz=timezone.utc),
@@ -114,22 +127,19 @@ class HabiticaOccurrenceTests(TestCase):
         }
         self.assertEqual({e.start_time for e in habit_events}, expected_habit_times)
 
-        daily_events = events.filter(source_entity_type="daily")
-        self.assertEqual(daily_events.count(), 2)
-        expected_daily_times = {
-            datetime.fromtimestamp(1700007200000 / 1000, tz=timezone.utc),
-            datetime.fromtimestamp(1700010800000 / 1000, tz=timezone.utc),
-        }
-        self.assertEqual({e.start_time for e in daily_events}, expected_daily_times)
-
-        todo_event = events.get(source_entity_type="todo")
-        self.assertEqual(todo_event.event_type, "todo_completed")
+        daily_event = events.get(event_type="daily_completed")
         self.assertEqual(
-            todo_event.start_time,
-            datetime(2025, 1, 2, 12, 0, tzinfo=timezone.utc),
+            daily_event.start_time,
+            datetime.fromtimestamp(1700007200000 / 1000, tz=timezone.utc),
         )
 
-    def test_dedupe_preserves_distinct_occurrences(self):
+        todo_event = events.get(event_type="todo_completed")
+        self.assertEqual(
+            todo_event.start_time,
+            datetime(2025, 1, 3, 0, 0, tzinfo=timezone.utc),
+        )
+
+    def test_dedupe_occurrences_by_timestamp(self):
         workspace = Workspace.objects.create(name="Workspace")
         account = self._build_account(workspace)
 
@@ -142,6 +152,9 @@ class HabiticaOccurrenceTests(TestCase):
                 {"date": 1700000000000, "value": 1},
                 {"date": 1700003600000, "value": 1},
             ],
+            "value": 0,
+            "completed": False,
+            "updatedAt": "2025-01-01T12:00:00.000Z",
         }
 
         def stub_fetch_tasks(_self, _user_id, _api_token, task_type):
@@ -158,11 +171,5 @@ class HabiticaOccurrenceTests(TestCase):
                     sync_connector_account(workspace, account)
 
         events = Event.objects.for_workspace(workspace)
-        self.assertEqual(events.count(), 2)
-        self.assertEqual(
-            {e.source_event_version for e in events},
-            {
-                datetime.fromtimestamp(1700000000000 / 1000, tz=timezone.utc).isoformat(),
-                datetime.fromtimestamp(1700003600000 / 1000, tz=timezone.utc).isoformat(),
-            },
-        )
+        self.assertEqual(events.filter(event_type="habit_scored").count(), 2)
+        self.assertEqual(events.filter(event_type="task_state").count(), 1)

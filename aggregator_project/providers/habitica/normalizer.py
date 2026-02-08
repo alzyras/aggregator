@@ -1,40 +1,160 @@
 from __future__ import annotations
 
+from datetime import datetime, time, timezone
 from typing import Any
+
+from django.utils.dateparse import parse_date
 
 from ingestion.normalizers.utils import build_actor_fields, parse_timestamp
 
 
-def normalize_habitica(raw: dict[str, Any]) -> dict[str, Any]:
-    task = raw.get("task") or raw
-    occurrence = raw.get("occurrence") or {}
-    task_type = raw.get("task_type") or task.get("type") or "todo"
-    actor = raw.get("actor")
+def normalize_habitica(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    task = raw
+    task_type = task.get("type") or "todo"
+    actor = task.get("actor")
 
-    occurred_at = parse_timestamp(
-        occurrence.get("date")
-        or occurrence.get("dateCompleted")
-        or task.get("dateCompleted")
-    )
+    events: list[dict[str, Any]] = []
 
     if task_type == "habit":
-        event_type = "habit_scored"
-        external_status = "scored"
-        metric_value = occurrence.get("value")
-        metric_type = "score" if metric_value is not None else None
+        events.extend(_habit_occurrences(task, actor))
     elif task_type == "daily":
-        event_type = "daily_completed"
-        external_status = "completed"
-        metric_value = occurrence.get("value")
-        metric_type = "score" if metric_value is not None else None
+        events.extend(_daily_occurrences(task, actor))
     else:
-        event_type = "todo_completed"
-        external_status = "completed"
-        metric_value = None
-        metric_type = None
+        events.extend(_todo_occurrences(task, actor))
 
-    source_event_version = occurred_at.isoformat() if occurred_at else None
+    events.append(_task_state(task, actor, task_type))
+    return events
 
+
+def _habit_occurrences(task: dict[str, Any], actor: dict[str, Any] | None) -> list[dict[str, Any]]:
+    history = task.get("history") or []
+    events: list[dict[str, Any]] = []
+    for entry in history:
+        occurred_at = _parse_occurrence_timestamp(entry.get("date"))
+        if not occurred_at:
+            continue
+        payload = _base_event(
+            task=task,
+            actor=actor,
+            task_type="habit",
+            event_type="habit_scored",
+            occurred_at=occurred_at,
+            metric_value=entry.get("value"),
+            metric_type="score" if entry.get("value") is not None else None,
+            external_status="scored",
+            source_event_version=occurred_at.isoformat(),
+            raw={"task": task, "occurrence": entry},
+        )
+        events.append(payload)
+    return events
+
+
+def _daily_occurrences(task: dict[str, Any], actor: dict[str, Any] | None) -> list[dict[str, Any]]:
+    history = task.get("history") or []
+    events: list[dict[str, Any]] = []
+    if history:
+        for entry in history:
+            if entry.get("completed") is False:
+                continue
+            occurred_at = _parse_occurrence_timestamp(entry.get("date"))
+            if not occurred_at:
+                continue
+            payload = _base_event(
+                task=task,
+                actor=actor,
+                task_type="daily",
+                event_type="daily_completed",
+                occurred_at=occurred_at,
+                metric_value=entry.get("value"),
+                metric_type="score" if entry.get("value") is not None else None,
+                external_status="completed",
+                source_event_version=occurred_at.isoformat(),
+                raw={"task": task, "occurrence": entry},
+            )
+            events.append(payload)
+        return events
+
+    if task.get("completed") and task.get("dateCompleted"):
+        occurred_at = _parse_occurrence_timestamp(task.get("dateCompleted"))
+        if occurred_at:
+            payload = _base_event(
+                task=task,
+                actor=actor,
+                task_type="daily",
+                event_type="daily_completed",
+                occurred_at=occurred_at,
+                metric_value=task.get("value"),
+                metric_type="value" if task.get("value") is not None else None,
+                external_status="completed",
+                source_event_version=occurred_at.isoformat(),
+                raw={"task": task, "occurrence": {"date": task.get("dateCompleted")}},
+            )
+            events.append(payload)
+    return events
+
+
+def _todo_occurrences(task: dict[str, Any], actor: dict[str, Any] | None) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    if task.get("completed") and task.get("dateCompleted"):
+        occurred_at = _parse_occurrence_timestamp(task.get("dateCompleted"))
+        if occurred_at:
+            payload = _base_event(
+                task=task,
+                actor=actor,
+                task_type="todo",
+                event_type="todo_completed",
+                occurred_at=occurred_at,
+                metric_value=task.get("value"),
+                metric_type="value" if task.get("value") is not None else None,
+                external_status="completed",
+                source_event_version=occurred_at.isoformat(),
+                raw={"task": task, "occurrence": {"date": task.get("dateCompleted")}},
+            )
+            events.append(payload)
+    return events
+
+
+def _task_state(task: dict[str, Any], actor: dict[str, Any] | None, task_type: str) -> dict[str, Any]:
+    updated_at = _parse_occurrence_timestamp(task.get("updatedAt"))
+    created_at = _parse_occurrence_timestamp(task.get("dateCreated"))
+    occurred_at = updated_at or created_at or datetime.now(timezone.utc)
+    status = "completed" if task.get("completed") else "open"
+    metric_value = task.get("value")
+    metric_type = "value" if metric_value is not None else None
+    source_version = (
+        updated_at.isoformat()
+        if updated_at
+        else created_at.isoformat()
+        if created_at
+        else occurred_at.isoformat()
+    )
+    return _base_event(
+        task=task,
+        actor=actor,
+        task_type=task_type,
+        event_type="task_state",
+        occurred_at=occurred_at,
+        metric_value=metric_value,
+        metric_type=metric_type,
+        external_status=status,
+        source_event_version=source_version,
+        raw=task,
+    )
+
+
+def _base_event(
+    *,
+    task: dict[str, Any],
+    actor: dict[str, Any] | None,
+    task_type: str,
+    event_type: str,
+    occurred_at: datetime,
+    metric_value: Any,
+    metric_type: str | None,
+    external_status: str | None,
+    source_event_version: str | None,
+    raw: dict[str, Any],
+) -> dict[str, Any]:
     payload = {
         "source": "habitica",
         "source_entity_type": task_type,
@@ -49,6 +169,18 @@ def normalize_habitica(raw: dict[str, Any]) -> dict[str, Any]:
         "metric_unit": "points" if metric_type else None,
         "external_status": external_status,
         "source_event_version": source_event_version,
+        "raw": raw,
     }
     payload.update(build_actor_fields(actor, default_type="user"))
     return payload
+
+
+def _parse_occurrence_timestamp(value: Any) -> datetime | None:
+    parsed = parse_timestamp(value)
+    if parsed:
+        return parsed
+    if isinstance(value, str):
+        date_value = parse_date(value)
+        if date_value:
+            return datetime.combine(date_value, time(0, 0), tzinfo=timezone.utc)
+    return None

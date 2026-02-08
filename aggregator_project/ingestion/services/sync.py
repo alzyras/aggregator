@@ -33,21 +33,26 @@ def sync_connector_account(
     inserted = 0
     skipped = 0
     for raw in raw_items:
-        normalized = spec.normalizer(raw)
-        normalized["raw"] = serialize_raw(raw)
-        normalized["dedupe_hash"] = build_dedupe_hash(normalized)
-        if not normalized.get("source_entity_id") or not normalized.get("event_type"):
-            skipped += 1
-            continue
-        try:
-            Event.objects.create(
-                workspace=workspace,
-                connector_account=connector_account,
-                **normalized,
-            )
-            inserted += 1
-        except IntegrityError:
-            skipped += 1
+        normalized_items = spec.normalizer(raw)
+        if isinstance(normalized_items, dict):
+            normalized_items = [normalized_items]
+        for normalized in normalized_items:
+            if "raw" not in normalized:
+                normalized["raw"] = raw
+            normalized["raw"] = serialize_raw(normalized["raw"])
+            normalized["dedupe_hash"] = build_dedupe_hash(normalized)
+            if not normalized.get("source_entity_id") or not normalized.get("event_type"):
+                skipped += 1
+                continue
+            try:
+                Event.objects.create(
+                    workspace=workspace,
+                    connector_account=connector_account,
+                    **normalized,
+                )
+                inserted += 1
+            except IntegrityError:
+                skipped += 1
 
     connector_account.last_sync_at = timezone.now()
     connector_account.last_sync_status = ConnectorAccount.SYNC_STATUS_SUCCESS

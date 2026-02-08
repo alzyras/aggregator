@@ -28,18 +28,19 @@ class HabiticaClient:
         if not user_id or not api_token:
             return []
 
-        user_profile = self.get_user_profile()
+        actor = self.get_user_profile()
         habits = self._fetch_tasks(user_id, api_token, "habits")
         dailies = self._fetch_tasks(user_id, api_token, "dailys")
         todos = self._fetch_tasks(user_id, api_token, "todos")
         completed_todos = self._fetch_tasks(user_id, api_token, "completedTodos")
 
-        records: list[dict[str, Any]] = []
-        records.extend(self._expand_habits(habits, user_profile))
-        records.extend(self._expand_dailies(dailies, user_profile))
-        records.extend(self._expand_todos(todos, user_profile))
-        records.extend(self._expand_todos(completed_todos, user_profile))
-        return records
+        tasks = self._merge_tasks(todos, completed_todos)
+        tasks.extend(habits)
+        tasks.extend(dailies)
+
+        for task in tasks:
+            task["actor"] = actor
+        return tasks
 
     def get_user_profile(self) -> dict[str, Any]:
         if self._user_profile is not None:
@@ -56,8 +57,7 @@ class HabiticaClient:
         }
         response = requests.get(f"{BASE_URL}/user", headers=headers, timeout=30)
         response.raise_for_status()
-        data = response.json().get("data", {}) if response.ok else {}
-        self._user_profile = data
+        self._user_profile = response.json().get("data", {})
         return self._user_profile
 
     def _fetch_tasks(self, user_id: str, api_token: str, task_type: str) -> list[dict[str, Any]]:
@@ -75,81 +75,18 @@ class HabiticaClient:
         response.raise_for_status()
         return response.json().get("data", [])
 
-    def _expand_habits(
-        self, tasks: list[dict[str, Any]], actor: dict[str, Any]
+    def _merge_tasks(
+        self, todos: list[dict[str, Any]], completed_todos: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        records: list[dict[str, Any]] = []
-        for task in tasks:
-            history = task.get("history") or []
-            for entry in history:
-                if entry.get("date") is None:
-                    continue
-                records.append(
-                    {
-                        "task": task,
-                        "occurrence": entry,
-                        "task_type": "habit",
-                        "actor": actor,
-                    }
-                )
-        return records
-
-    def _expand_dailies(
-        self, tasks: list[dict[str, Any]], actor: dict[str, Any]
-    ) -> list[dict[str, Any]]:
-        records: list[dict[str, Any]] = []
-        for task in tasks:
-            history = task.get("history") or []
-            if history:
-                for entry in history:
-                    if entry.get("date") is None:
-                        continue
-                    if entry.get("completed") is False:
-                        continue
-                    records.append(
-                        {
-                            "task": task,
-                            "occurrence": entry,
-                            "task_type": "daily",
-                            "actor": actor,
-                        }
-                    )
+        merged: dict[str, dict[str, Any]] = {}
+        for task in todos + completed_todos:
+            task_id = task.get("id") or task.get("_id")
+            if not task_id:
                 continue
-
-            if task.get("completed") and task.get("dateCompleted"):
-                records.append(
-                    {
-                        "task": task,
-                        "occurrence": {
-                            "date": task.get("dateCompleted"),
-                            "value": task.get("value"),
-                            "completed": True,
-                        },
-                        "task_type": "daily",
-                        "actor": actor,
-                    }
-                )
-        return records
-
-    def _expand_todos(
-        self, tasks: list[dict[str, Any]], actor: dict[str, Any]
-    ) -> list[dict[str, Any]]:
-        records: list[dict[str, Any]] = []
-        for task in tasks:
-            if not task.get("completed"):
+            existing = merged.get(task_id)
+            if not existing:
+                merged[task_id] = task
                 continue
-            if not task.get("dateCompleted"):
-                continue
-            records.append(
-                {
-                    "task": task,
-                    "occurrence": {
-                        "date": task.get("dateCompleted"),
-                        "value": task.get("value"),
-                        "completed": True,
-                    },
-                    "task_type": "todo",
-                    "actor": actor,
-                }
-            )
-        return records
+            if task.get("completed") and not existing.get("completed"):
+                merged[task_id] = task
+        return list(merged.values())
