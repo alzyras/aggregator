@@ -11,11 +11,8 @@ def build_dedupe_hash(payload: dict[str, Any]) -> str:
             "source",
             "source_entity_type",
             "source_entity_id",
-            "start_time",
-            "end_time",
-            "metric_type",
-            "metric_value",
-            "status",
+            "event_type",
+            "source_event_version",
         ]
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()

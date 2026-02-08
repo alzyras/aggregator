@@ -63,6 +63,7 @@ class SyncServiceTests(TestCase):
                 "source": SOURCE_ASANA,
                 "source_entity_type": "task",
                 "source_entity_id": raw.get("gid"),
+                "event_type": "task_updated",
                 "title": raw.get("name"),
                 "description": None,
                 "start_time": None,
@@ -70,7 +71,8 @@ class SyncServiceTests(TestCase):
                 "metric_type": None,
                 "metric_value": None,
                 "metric_unit": None,
-                "status": "open",
+                "external_status": "open",
+                "source_event_version": raw.get("version") or "v1",
             }
 
         spec = self._build_spec(raw_items, normalizer)
@@ -92,6 +94,7 @@ class SyncServiceTests(TestCase):
                 "source": SOURCE_ASANA,
                 "source_entity_type": "task",
                 "source_entity_id": raw.get("gid"),
+                "event_type": "task_updated",
                 "title": raw.get("name"),
                 "description": None,
                 "start_time": None,
@@ -99,7 +102,8 @@ class SyncServiceTests(TestCase):
                 "metric_type": None,
                 "metric_value": None,
                 "metric_unit": None,
-                "status": "open",
+                "external_status": "open",
+                "source_event_version": raw.get("version") or "v1",
             }
 
         normalized = normalizer(raw_items[0])
@@ -157,6 +161,7 @@ class SyncServiceTests(TestCase):
                 "source": SOURCE_ASANA,
                 "source_entity_type": "task",
                 "source_entity_id": raw.get("gid"),
+                "event_type": "task_updated",
                 "title": raw.get("name"),
                 "description": None,
                 "start_time": None,
@@ -164,7 +169,8 @@ class SyncServiceTests(TestCase):
                 "metric_type": None,
                 "metric_value": None,
                 "metric_unit": None,
-                "status": "open",
+                "external_status": "open",
+                "source_event_version": raw.get("version") or "v1",
             }
 
         spec = self._build_spec(raw_items, normalizer)

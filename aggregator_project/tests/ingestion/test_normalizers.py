@@ -38,16 +38,13 @@ class NormalizerUtilsTests(TestCase):
             "source": "asana",
             "source_entity_type": "task",
             "source_entity_id": "123",
-            "start_time": "2025-01-01",
-            "end_time": None,
-            "metric_type": None,
-            "metric_value": None,
-            "status": "open",
+            "event_type": "task_updated",
+            "source_event_version": "v1",
         }
         hash_a = build_dedupe_hash(payload)
         hash_b = build_dedupe_hash(payload)
 
-        payload_changed = {**payload, "status": "completed"}
+        payload_changed = {**payload, "event_type": "task_completed"}
         hash_c = build_dedupe_hash(payload_changed)
 
         self.assertEqual(hash_a, hash_b)

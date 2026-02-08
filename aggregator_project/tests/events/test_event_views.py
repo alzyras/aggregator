@@ -37,9 +37,11 @@ class EventViewsTests(TestCase):
             source=SOURCE_ASANA,
             source_entity_type="task",
             source_entity_id="1",
+            event_type="task_updated",
             title="A",
             start_time=now - timedelta(days=2),
             raw={},
+            source_event_version="v1",
             dedupe_hash="hash-a",
         )
         Event.objects.create(
@@ -47,9 +49,11 @@ class EventViewsTests(TestCase):
             source=SOURCE_TODOIST,
             source_entity_type="task",
             source_entity_id="2",
+            event_type="task_updated",
             title="B",
             start_time=now - timedelta(days=1),
             raw={},
+            source_event_version="v1",
             dedupe_hash="hash-b",
         )
 
@@ -74,8 +78,10 @@ class EventViewsTests(TestCase):
             source=SOURCE_ASANA,
             source_entity_type="task",
             source_entity_id="1",
+            event_type="task_updated",
             title="Detail",
             raw={},
+            source_event_version="v1",
             dedupe_hash="hash-detail",
         )
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ingestion.normalizers.utils import parse_timestamp
+from ingestion.normalizers.utils import extract_source_event_version, parse_timestamp
 
 
 def normalize_google_fit(raw: dict[str, Any]) -> dict[str, Any]:
@@ -28,6 +28,7 @@ def normalize_google_fit(raw: dict[str, Any]) -> dict[str, Any]:
             or raw.get("sessionId")
             or ""
         ),
+        "event_type": "activity_recorded",
         "title": raw.get("name") or raw.get("activityName"),
         "description": raw.get("description"),
         "start_time": start_time,
@@ -35,5 +36,14 @@ def normalize_google_fit(raw: dict[str, Any]) -> dict[str, Any]:
         "metric_type": raw.get("metric_type") or raw.get("metricType") or raw.get("dataType"),
         "metric_value": raw.get("metric_value") or raw.get("value"),
         "metric_unit": raw.get("metric_unit") or raw.get("unit"),
-        "status": raw.get("status"),
+        "external_status": raw.get("status"),
+        "source_event_version": extract_source_event_version(
+            raw,
+            "updated_at",
+            "updatedAt",
+            "endTime",
+            "endTimeMillis",
+            "startTime",
+            "startTimeMillis",
+        ),
     }

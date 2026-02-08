@@ -42,6 +42,7 @@ class EventDedupeTests(TestCase):
                 "source": SOURCE_ASANA,
                 "source_entity_type": "task",
                 "source_entity_id": raw.get("gid"),
+                "event_type": "task_updated",
                 "title": raw.get("name"),
                 "description": None,
                 "start_time": None,
@@ -49,7 +50,8 @@ class EventDedupeTests(TestCase):
                 "metric_type": None,
                 "metric_value": None,
                 "metric_unit": None,
-                "status": "open",
+                "external_status": "open",
+                "source_event_version": raw.get("version") or "v1",
             }
 
         def empty_credentials():

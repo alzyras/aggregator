@@ -34,8 +34,10 @@ class TenantIsolationTests(TestCase):
             source=SOURCE_ASANA,
             source_entity_type="task",
             source_entity_id="123",
+            event_type="task_updated",
             title="Private",
             raw={},
+            source_event_version="v1",
             dedupe_hash="hash-a",
         )
 
@@ -55,8 +57,10 @@ class TenantIsolationTests(TestCase):
             source=SOURCE_ASANA,
             source_entity_type="task",
             source_entity_id="456",
+            event_type="task_updated",
             title="Shared",
             raw={},
+            source_event_version="v1",
             dedupe_hash="hash-b",
         )
 
@@ -81,8 +85,10 @@ class TenantIsolationTests(TestCase):
             source=SOURCE_ASANA,
             source_entity_type="task",
             source_entity_id="dup-1",
+            event_type="task_updated",
             title="A",
             raw={},
+            source_event_version="v1",
             dedupe_hash="same-hash",
         )
         Event.objects.create(
@@ -90,8 +96,10 @@ class TenantIsolationTests(TestCase):
             source=SOURCE_ASANA,
             source_entity_type="task",
             source_entity_id="dup-2",
+            event_type="task_updated",
             title="B",
             raw={},
+            source_event_version="v1",
             dedupe_hash="same-hash",
         )
 

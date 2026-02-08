@@ -15,7 +15,9 @@
         <div><strong>Source:</strong> {{ event.get_source_display }}</div>
         <div><strong>Entity Type:</strong> {{ event.source_entity_type }}</div>
         <div><strong>Entity ID:</strong> {{ event.source_entity_id }}</div>
-        <div><strong>Status:</strong> {{ event.status|default:"—" }}</div>
+        <div><strong>Event Type:</strong> {{ event.event_type }}</div>
+        <div><strong>External Status:</strong> {{ event.external_status|default:"—" }}</div>
+        <div><strong>Source Version:</strong> {{ event.source_event_version|default:"—" }}</div>
         <div><strong>Start:</strong> {{ event.start_time }}</div>
         <div><strong>End:</strong> {{ event.end_time }}</div>
         <div><strong>Metric:</strong> {{ event.metric_type }} {{ event.metric_value }} {{ event.metric_unit }}</div>

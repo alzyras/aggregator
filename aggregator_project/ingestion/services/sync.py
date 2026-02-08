@@ -40,7 +40,7 @@ def sync_source(
             normalized = spec.normalizer(raw)
             normalized["raw"] = raw_payload
             normalized["dedupe_hash"] = build_dedupe_hash(normalized)
-            if not normalized.get("source_entity_id"):
+            if not normalized.get("source_entity_id") or not normalized.get("event_type"):
                 skipped += 1
                 continue
             try:
