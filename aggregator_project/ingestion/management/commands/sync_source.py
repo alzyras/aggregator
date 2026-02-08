@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 from django.core.management.base import BaseCommand, CommandError
-from django.utils.dateparse import parse_datetime
+from django.utils import timezone
 
+from ingestion.models import Job
+from ingestion.services.jobs import enqueue_job
 from ingestion.providers import get_provider_sources
-from ingestion.services.sync import sync_source
 from workspaces.models import Workspace
 
 
 class Command(BaseCommand):
-    help = "Sync a single source."
+    help = "Queue a sync job for a single source."
 
     def add_arguments(self, parser):
         parser.add_argument("--source", required=True, type=str, help="Source to sync")
@@ -32,6 +33,12 @@ class Command(BaseCommand):
         if source not in get_provider_sources():
             raise CommandError(f"Unknown source: {source}")
         since_raw = options.get("since")
-        since = parse_datetime(since_raw) if since_raw else None
-        run = sync_source(source, workspace, since=since)
-        self.stdout.write(self.style.SUCCESS(f"Sync complete: {run.status}"))
+        job = Job.objects.create(
+            workspace=workspace,
+            job_type="sync",
+            job_name="sync_source",
+            input_params={"source": source, "since": since_raw},
+            next_run_at=timezone.now(),
+        )
+        enqueue_job(job.id)
+        self.stdout.write(self.style.SUCCESS(f"Job queued: {job.id}"))

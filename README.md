@@ -7,6 +7,7 @@ Personal data aggregator that ingests and normalizes data from Google Fit, Asana
 - PostgreSQL database with automatic database creation via `ensure_db`.
 - Admin UI + simple Django templates for browsing events and triggering syncs.
 - Service layer for connector clients, normalizers, and sync orchestration.
+- DB-backed background jobs for sync execution.
 
 ## Quickstart
 
@@ -25,7 +26,8 @@ cp .env.example .env
 3. Visit:
 - `http://localhost:8000/` for dashboard
 - `http://localhost:8000/events/` for events
-- `http://localhost:8000/sync/` to trigger syncs
+- `http://localhost:8000/sync/` to trigger sync jobs
+- `http://localhost:8000/jobs/` to inspect job status
 - `http://localhost:8000/admin/` for admin
 
 ## Database
@@ -48,17 +50,25 @@ python aggregator_project/manage.py migrate
 
 ## Syncing
 
-Run all sources:
+Queue a sync for all sources:
 
 ```bash
-python aggregator_project/manage.py sync_all
+python aggregator_project/manage.py sync_all --workspace-id <id>
 ```
 
-Run a single source:
+Queue a single source:
 
 ```bash
-python aggregator_project/manage.py sync_source --source=asana
+python aggregator_project/manage.py sync_source --source=asana --workspace-id <id>
 ```
+
+Run a worker (production / separate process):
+
+```bash
+python aggregator_project/manage.py run_worker
+```
+
+In development, a background worker thread auto-starts when `DEBUG=true`.
 
 Optionally pass `--since=2025-01-01T00:00:00Z` to limit scope.
 
@@ -72,7 +82,7 @@ Optionally pass `--since=2025-01-01T00:00:00Z` to limit scope.
 - `aggregator_project/` Django project
 - `aggregator_project/core/` settings & utilities
 - `aggregator_project/connectors/` provider auth tokens (ConnectorAccount)
-- `aggregator_project/ingestion/` sync orchestration, normalizers, jobs
+- `aggregator_project/ingestion/` sync orchestration, jobs, worker
 - `aggregator_project/events/` normalized data model + UI
 - `aggregator_project/providers/` per-provider apps (client + normalizer)
 

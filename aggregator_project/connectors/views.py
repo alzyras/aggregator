@@ -7,6 +7,7 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
+from connectors.encryption import encrypt_value
 from connectors.models import ConnectorAccount
 from connectors.services import sanitize_error
 from connectors.services.verify import verify_credentials
@@ -58,11 +59,11 @@ def connect_provider(request, source: str):
         request.workspace
     ).get_or_create(
         workspace=request.workspace,
-        provider=spec.source,
+        source=spec.source,
         defaults={
             "display_name": spec.label,
             "auth_type": spec.auth_type,
-            "encrypted_access_token": b"",
+            "encrypted_access_token": encrypt_value(""),
         },
     )
     if account.status == ConnectorAccount.STATUS_CONNECTED:
@@ -129,7 +130,7 @@ def disconnect_provider(request, source: str):
         return redirect("dashboard")
 
     account = ConnectorAccount.objects.for_workspace(request.workspace).filter(
-        provider=source
+        source=source
     ).first()
     if not account:
         messages.info(request, "No connector to disconnect.")
@@ -173,7 +174,7 @@ def _build_provider_cards(workspace, overrides: dict[str, object] | None = None)
     for spec in get_provider_specs():
         enabled = True if not enabled_set else spec.source in enabled_set
         account = ConnectorAccount.objects.for_workspace(workspace).filter(
-            provider=spec.source
+            source=spec.source
         ).first()
         if account:
             status = account.status

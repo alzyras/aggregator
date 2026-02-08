@@ -10,7 +10,7 @@ class ConnectorAccountAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "workspace",
-        "provider",
+        "source",
         "display_name",
         "auth_type",
         "status",
@@ -20,7 +20,7 @@ class ConnectorAccountAdmin(admin.ModelAdmin):
         "updated_at",
     )
     list_select_related = ("workspace",)
-    list_filter = ("provider", "auth_type", "status", "is_active")
+    list_filter = ("source", "auth_type", "status", "is_active")
     search_fields = ("display_name", "workspace__name")
     exclude = ("encrypted_access_token", "encrypted_refresh_token")
 

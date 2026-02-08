@@ -1,57 +1,83 @@
 from __future__ import annotations
 
+import uuid
+
+from django.conf import settings
 from django.db import migrations, models
 import django.db.models.deletion
+from django.utils import timezone
 
 
 class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
+        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
         ("workspaces", "0001_initial"),
     ]
 
     operations = [
         migrations.CreateModel(
-            name="SyncRun",
+            name="Job",
             fields=[
                 (
                     "id",
-                    models.BigAutoField(
-                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
                     ),
                 ),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("updated_at", models.DateTimeField(auto_now=True)),
                 (
-                    "source",
+                    "job_type",
                     models.CharField(
-                        choices=[
-                            ("asana", "Asana"),
-                            ("todoist", "Todoist"),
-                            ("google_fit", "Google Fit"),
-                            ("habitica", "Habitica"),
-                            ("toggl", "Toggl"),
-                            ("llm_summary", "LLM Summary"),
-                        ],
+                        help_text="Category, e.g. sync, aggregation, ai",
                         max_length=50,
                     ),
                 ),
-                ("started_at", models.DateTimeField()),
-                ("finished_at", models.DateTimeField(blank=True, null=True)),
+                (
+                    "job_name",
+                    models.CharField(
+                        help_text="Specific job, e.g. sync_asana, daily_rollup",
+                        max_length=100,
+                    ),
+                ),
                 (
                     "status",
                     models.CharField(
                         choices=[
-                            ("success", "Success"),
-                            ("failure", "Failure"),
-                            ("partial", "Partial"),
+                            ("queued", "queued"),
+                            ("running", "running"),
+                            ("success", "success"),
+                            ("failed", "failed"),
+                            ("cancelled", "cancelled"),
                         ],
+                        default="queued",
                         max_length=20,
                     ),
                 ),
-                ("stats", models.JSONField(blank=True, default=dict)),
-                ("error", models.TextField(blank=True, null=True)),
+                ("priority", models.IntegerField(default=0)),
+                ("queued_at", models.DateTimeField(auto_now_add=True)),
+                ("next_run_at", models.DateTimeField(default=timezone.now)),
+                ("started_at", models.DateTimeField(blank=True, null=True)),
+                ("finished_at", models.DateTimeField(blank=True, null=True)),
+                ("locked_at", models.DateTimeField(blank=True, null=True)),
+                ("locked_by", models.CharField(blank=True, max_length=100, null=True)),
+                ("attempt_count", models.IntegerField(default=0)),
+                ("input_params", models.JSONField(blank=True, default=dict)),
+                ("output_summary", models.JSONField(blank=True, default=dict)),
+                ("error_message", models.TextField(blank=True)),
+                ("error_traceback", models.TextField(blank=True)),
+                (
+                    "created_by",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
                 (
                     "workspace",
                     models.ForeignKey(
@@ -63,9 +89,17 @@ class Migration(migrations.Migration):
             options={
                 "indexes": [
                     models.Index(
-                        fields=["workspace", "source", "started_at"],
-                        name="ingestion_workspace_source_started_idx",
-                    )
+                        fields=["status", "next_run_at"],
+                        name="ingestion_status_next_run_idx",
+                    ),
+                    models.Index(
+                        fields=["workspace", "status", "queued_at"],
+                        name="ingestion_workspace_status_queued_idx",
+                    ),
+                    models.Index(
+                        fields=["workspace", "job_type", "queued_at"],
+                        name="ingestion_workspace_job_type_queued_idx",
+                    ),
                 ]
             },
         ),

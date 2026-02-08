@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from django.core.management.base import BaseCommand, CommandError
-from django.utils.dateparse import parse_datetime
+from django.utils import timezone
 
-from ingestion.services.sync import sync_all_sources
+from ingestion.models import Job
+from ingestion.services.jobs import enqueue_job
 from workspaces.models import Workspace
 
 
 class Command(BaseCommand):
-    help = "Sync all sources or a subset of sources."
+    help = "Queue a sync job for all sources or a subset of sources."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -32,6 +33,12 @@ class Command(BaseCommand):
             raise CommandError(f"Unknown workspace id: {workspace_id}")
         since_raw = options.get("since")
         sources = options.get("sources")
-        since = parse_datetime(since_raw) if since_raw else None
-        runs = sync_all_sources(workspace, since=since, sources=sources)
-        self.stdout.write(self.style.SUCCESS(f"Sync complete. Runs: {len(runs)}"))
+        job = Job.objects.create(
+            workspace=workspace,
+            job_type="sync",
+            job_name="sync_all",
+            input_params={"since": since_raw, "sources": sources or []},
+            next_run_at=timezone.now(),
+        )
+        enqueue_job(job.id)
+        self.stdout.write(self.style.SUCCESS(f"Job queued: {job.id}"))

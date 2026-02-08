@@ -2,24 +2,25 @@ from __future__ import annotations
 
 from django.contrib import admin
 
-from ingestion.models import SyncRun
+from ingestion.models import Job
 
 
-@admin.register(SyncRun)
-class SyncRunAdmin(admin.ModelAdmin):
+@admin.register(Job)
+class JobAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "workspace",
-        "source",
+        "job_type",
+        "job_name",
         "status",
+        "queued_at",
         "started_at",
         "finished_at",
-        "updated_at",
     )
     list_select_related = ("workspace",)
-    list_filter = ("source", "status")
-    search_fields = ("error", "workspace__name")
-    ordering = ("-started_at",)
+    list_filter = ("job_type", "status")
+    search_fields = ("error_message", "workspace__name")
+    ordering = ("-queued_at",)
 
     def has_module_permission(self, request):
         return request.user.is_superuser

@@ -22,7 +22,7 @@ class ConnectorTokenTests(TestCase):
     def test_token_is_encrypted_at_rest(self):
         account = ConnectorAccount.objects.create(
             workspace=self.workspace_a,
-            provider="asana",
+            source="asana",
             display_name="Asana",
             auth_type=ConnectorAccount.AUTH_API_TOKEN,
             encrypted_access_token=b"",
@@ -39,14 +39,14 @@ class ConnectorTokenTests(TestCase):
     def test_workspace_isolation_for_provider_tokens(self):
         account_a = ConnectorAccount.objects.create(
             workspace=self.workspace_a,
-            provider="asana",
+            source="asana",
             display_name="Asana",
             auth_type=ConnectorAccount.AUTH_API_TOKEN,
             encrypted_access_token=encrypt_value("token-a"),
         )
         account_b = ConnectorAccount.objects.create(
             workspace=self.workspace_b,
-            provider="asana",
+            source="asana",
             display_name="Asana",
             auth_type=ConnectorAccount.AUTH_API_TOKEN,
             encrypted_access_token=encrypt_value("token-b"),
@@ -54,14 +54,14 @@ class ConnectorTokenTests(TestCase):
 
         self.assertNotEqual(account_a.workspace_id, account_b.workspace_id)
         self.assertEqual(
-            ConnectorAccount.objects.filter(provider="asana").count(),
+            ConnectorAccount.objects.filter(source="asana").count(),
             2,
         )
 
     def test_revoked_account_cannot_be_used(self):
         ConnectorAccount.objects.create(
             workspace=self.workspace_a,
-            provider="asana",
+            source="asana",
             display_name="Asana",
             auth_type=ConnectorAccount.AUTH_API_TOKEN,
             encrypted_access_token=encrypt_value("token"),
@@ -77,3 +77,14 @@ class ConnectorTokenTests(TestCase):
                 _ = AsanaClient(self.workspace_a)
         finally:
             os.environ.pop("ASANA_ACCESS_TOKEN", None)
+
+    def test_get_active_account_uses_source_field(self):
+        ConnectorAccount.objects.create(
+            workspace=self.workspace_a,
+            source="asana",
+            display_name="Asana",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=encrypt_value("token"),
+        )
+        account = get_required_account("asana", self.workspace_a)
+        self.assertEqual(account.source, "asana")

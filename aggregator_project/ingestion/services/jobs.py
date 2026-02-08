@@ -1,0 +1,138 @@
+from __future__ import annotations
+
+import logging
+import os
+import socket
+import traceback
+
+from django.conf import settings
+from django.db import transaction
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+
+from ingestion.models import Job
+from ingestion.services.sync import sync_all_sources, sync_source
+
+
+logger = logging.getLogger(__name__)
+
+
+def enqueue_job(job_id):
+    Job.objects.filter(id=job_id, status=Job.STATUS_QUEUED, next_run_at__isnull=True).update(
+        next_run_at=timezone.now()
+    )
+    logger.info("job_queued", extra={"job_id": str(job_id)})
+    return job_id
+
+
+def run_job(job_id):
+    if _is_concurrency_full():
+        _defer_job(job_id)
+        logger.info("job_deferred_concurrency", extra={"job_id": str(job_id)})
+        return Job.objects.get(id=job_id)
+
+    with transaction.atomic():
+        job = Job.objects.select_for_update(skip_locked=True).get(id=job_id)
+        now = timezone.now()
+        if job.status != Job.STATUS_QUEUED:
+            return job
+        if job.next_run_at and job.next_run_at > now:
+            return job
+        job.status = Job.STATUS_RUNNING
+        job.started_at = now
+        job.locked_at = now
+        job.locked_by = _lock_owner()
+        job.save(update_fields=["status", "started_at", "locked_at", "locked_by"])
+        logger.info(
+            "job_started",
+            extra={"job_id": str(job.id), "workspace_id": job.workspace_id, "status": job.status},
+        )
+
+    try:
+        output = execute_job(job)
+        job.status = Job.STATUS_SUCCESS
+        job.output_summary = output or {}
+        logger.info(
+            "job_success",
+            extra={"job_id": str(job.id), "workspace_id": job.workspace_id, "status": job.status},
+        )
+    except Exception as exc:  # noqa: BLE001
+        job.attempt_count += 1
+        job.error_message = str(exc)
+        job.error_traceback = traceback.format_exc()
+        if job.attempt_count < _max_attempts():
+            job.status = Job.STATUS_QUEUED
+            job.next_run_at = timezone.now() + _retry_delay(job.attempt_count)
+            logger.info(
+                "job_retry_scheduled",
+                extra={
+                    "job_id": str(job.id),
+                    "workspace_id": job.workspace_id,
+                    "status": job.status,
+                },
+            )
+        else:
+            job.status = Job.STATUS_FAILED
+            logger.info(
+                "job_failed",
+                extra={"job_id": str(job.id), "workspace_id": job.workspace_id, "status": job.status},
+            )
+    finally:
+        job.finished_at = timezone.now()
+        job.save(
+            update_fields=[
+                "status",
+                "output_summary",
+                "error_message",
+                "error_traceback",
+                "finished_at",
+                "attempt_count",
+                "next_run_at",
+                "locked_at",
+                "locked_by",
+            ]
+        )
+    return job
+
+
+def execute_job(job: Job):
+    if job.job_type == "sync":
+        return _execute_sync_job(job)
+    raise ValueError(f"Unsupported job type: {job.job_type}")
+
+
+def _execute_sync_job(job: Job):
+    source = job.input_params.get("source")
+    sources = job.input_params.get("sources")
+    since_raw = job.input_params.get("since")
+    since = parse_datetime(since_raw) if since_raw else None
+    if source:
+        stats = sync_source(source, job.workspace, since=since)
+        return {"results": [stats]}
+    results = sync_all_sources(job.workspace, since=since, sources=sources)
+    return {"results": results}
+
+
+def _is_concurrency_full() -> bool:
+    running_count = Job.objects.filter(status=Job.STATUS_RUNNING).count()
+    return running_count >= settings.JOB_MAX_CONCURRENCY
+
+
+def _defer_job(job_id):
+    now = timezone.now()
+    Job.objects.filter(id=job_id, status=Job.STATUS_QUEUED).update(
+        next_run_at=now + _retry_delay(1)
+    )
+
+
+def _retry_delay(attempt_count: int):
+    delay_seconds = min(60 * attempt_count, 300)
+    return timezone.timedelta(seconds=delay_seconds)
+
+
+def _max_attempts() -> int:
+    return int(os.getenv("JOB_MAX_ATTEMPTS", "3"))
+
+
+def _lock_owner() -> str:
+    return f"{socket.gethostname()}:{os.getpid()}"

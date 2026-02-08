@@ -47,6 +47,7 @@ class Migration(migrations.Migration):
                 ),
                 ("source_entity_type", models.CharField(max_length=100)),
                 ("source_entity_id", models.CharField(max_length=255)),
+                ("event_type", models.CharField(max_length=100)),
                 ("title", models.CharField(blank=True, max_length=255, null=True)),
                 ("description", models.TextField(blank=True, null=True)),
                 ("start_time", models.DateTimeField(blank=True, null=True)),
@@ -59,7 +60,16 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("metric_unit", models.CharField(blank=True, max_length=50, null=True)),
-                ("status", models.CharField(blank=True, max_length=50, null=True)),
+                (
+                    "external_status",
+                    models.CharField(
+                        blank=True,
+                        help_text="Status in the source system at the time of the event",
+                        max_length=50,
+                        null=True,
+                    ),
+                ),
+                ("source_event_version", models.CharField(blank=True, max_length=255, null=True)),
                 ("raw", models.JSONField()),
                 ("dedupe_hash", models.CharField(max_length=64)),
                 (

@@ -33,7 +33,7 @@ class ConnectorAccount(TimestampedModel):
     ]
 
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
-    provider = models.CharField(max_length=50, choices=PROVIDER_CHOICES)
+    source = models.CharField(max_length=50, choices=PROVIDER_CHOICES)
     display_name = models.CharField(max_length=255)
     auth_type = models.CharField(max_length=20, choices=AUTH_TYPE_CHOICES)
     encrypted_access_token = models.BinaryField()
@@ -54,11 +54,11 @@ class ConnectorAccount(TimestampedModel):
 
     class Meta:
         indexes = [
-            models.Index(fields=["workspace", "provider", "is_active"]),
+            models.Index(fields=["workspace", "source", "is_active"]),
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["workspace", "provider"], name="unique_connector_account"
+                fields=["workspace", "source"], name="unique_connector_account"
             )
         ]
 
@@ -80,8 +80,8 @@ class ConnectorAccount(TimestampedModel):
         return decrypt_value(self.encrypted_refresh_token)
 
     def clear_tokens(self) -> None:
-        self.encrypted_access_token = b""
+        self.encrypted_access_token = encrypt_value("")
         self.encrypted_refresh_token = None
 
     def __str__(self) -> str:
-        return f"{self.get_provider_display()} ({self.display_name})"
+        return f"{self.get_source_display()} ({self.display_name})"
