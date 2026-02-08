@@ -13,7 +13,11 @@ def verify_habitica(credentials: dict[str, Any]) -> tuple[bool, str]:
     try:
         response = requests.get(
             "https://habitica.com/api/v3/user",
-            headers={"x-api-user": user_id, "x-api-key": api_token},
+            headers={
+                "x-api-user": user_id,
+                "x-api-key": api_token,
+                "x-client": "aggregator",
+            },
             timeout=10,
         )
     except requests.RequestException:
