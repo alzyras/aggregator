@@ -35,8 +35,14 @@
             <a class="nav-link" href="{% url 'sync_view' %}">Sync</a>
           </nav>
           <div class="nav-actions">
-            <a class="btn ghost" href="/admin/">Admin</a>
-            <a class="btn primary" href="{% url 'sync_view' %}">Sync now</a>
+            {% if user.is_authenticated %}
+              <span class="nav-user">{{ user.get_username }}</span>
+              <a class="btn ghost" href="{% url 'account_logout' %}">Log out</a>
+              <a class="btn primary" href="{% url 'sync_view' %}">Sync now</a>
+            {% else %}
+              <a class="btn ghost" href="{% url 'account_login' %}">Log in</a>
+              <a class="btn primary" href="{% url 'account_signup' %}">Create account</a>
+            {% endif %}
           </div>
         </div>
       </header>

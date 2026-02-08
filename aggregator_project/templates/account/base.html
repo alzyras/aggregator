@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="auth-shell">
+    <div class="auth-layout">
+      <aside class="auth-aside">
+        <div class="auth-brand">
+          <span class="brand-mark">
+            <span class="brand-dot"></span>
+          </span>
+          <span class="brand-name">Aggregator</span>
+        </div>
+        <h1 class="auth-hero">Your unified activity hub.</h1>
+        <p class="auth-hero-sub">
+          Collect, connect, and sync your daily systems in one secure workspace.
+        </p>
+        <div class="auth-highlights">
+          <div class="auth-highlight">
+            <span class="auth-highlight-title">Fast setup</span>
+            <span class="auth-highlight-body">Create an account in under a minute.</span>
+          </div>
+          <div class="auth-highlight">
+            <span class="auth-highlight-title">Privacy first</span>
+            <span class="auth-highlight-body">Credentials are stored securely and encrypted.</span>
+          </div>
+          <div class="auth-highlight">
+            <span class="auth-highlight-title">Live insights</span>
+            <span class="auth-highlight-body">Stay on top of events with smart summaries.</span>
+          </div>
+        </div>
+      </aside>
+      <div class="auth-main">
+        {% block auth_content %}{% endblock %}
+      </div>
+    </div>
+  </section>
+{% endblock %}

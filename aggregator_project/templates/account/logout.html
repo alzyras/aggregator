@@ -1,0 +1,13 @@
+{% extends "account/base.html" %}
+
+{% block auth_content %}
+  <div class="auth-card">
+    <h1>Log out</h1>
+    <p class="auth-subtitle">Are you sure you want to log out?</p>
+    <form method="post" action="{% url 'account_logout' %}">
+      {% csrf_token %}
+      <button class="btn primary" type="submit">Log out</button>
+      <a class="btn ghost" href="{% url 'dashboard' %}">Cancel</a>
+    </form>
+  </div>
+{% endblock %}

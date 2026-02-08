@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, render
 from django.utils.dateparse import parse_date
@@ -8,6 +9,7 @@ from events.models import Event
 from ingestion.providers import get_provider_choices
 
 
+@login_required
 def event_list(request):
     events = Event.objects.all().order_by("-start_time", "-created_at")
 
@@ -42,6 +44,7 @@ def event_list(request):
     return render(request, "events_list.html", context)
 
 
+@login_required
 def event_detail(request, pk):
     event = get_object_or_404(Event, pk=pk)
     context = {

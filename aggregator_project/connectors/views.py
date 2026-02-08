@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
@@ -13,6 +14,7 @@ from events.models import Event
 from ingestion.providers import get_provider_specs
 
 
+@login_required
 def dashboard(request):
     provider_cards = _build_provider_cards()
     recent_events = Event.objects.order_by("-created_at")[:8]
@@ -23,6 +25,7 @@ def dashboard(request):
     )
 
 
+@login_required
 def connect_provider(request, source: str):
     if request.method != "POST":
         return redirect("dashboard")
@@ -102,6 +105,7 @@ def connect_provider(request, source: str):
     return redirect("dashboard")
 
 
+@login_required
 def disconnect_provider(request, source: str):
     if request.method != "POST":
         return redirect("dashboard")

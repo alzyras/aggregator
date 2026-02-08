@@ -1,0 +1,27 @@
+{% extends "account/base.html" %}
+
+{% block auth_content %}
+  <div class="auth-card">
+    <div class="auth-header">
+      <span class="auth-kicker">Get started</span>
+      <h2>Create your account</h2>
+      <p class="auth-subtitle">Set up your profile in a few steps.</p>
+    </div>
+
+    <form class="auth-form" method="post" action="{% url 'account_signup' %}">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <div class="auth-actions">
+        <button class="btn primary" type="submit">Create account</button>
+        <a class="btn ghost" href="{% url 'account_login' %}">I already have one</a>
+      </div>
+    </form>
+
+    <p class="auth-legal">
+      By continuing you agree to the platform terms and privacy policy.
+    </p>
+    <p class="auth-footer">
+      Already have an account? <a href="{% url 'account_login' %}">Log in</a>
+    </p>
+  </div>
+{% endblock %}

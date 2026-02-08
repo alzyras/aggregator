@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 
 from ingestion.models import SyncRun
@@ -8,6 +9,7 @@ from ingestion.providers import get_provider_choices
 from ingestion.services.sync import sync_all_sources
 
 
+@login_required
 def sync_view(request):
     if request.method == "POST":
         runs = sync_all_sources()
