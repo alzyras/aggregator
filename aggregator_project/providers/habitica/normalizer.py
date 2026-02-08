@@ -2,59 +2,50 @@ from __future__ import annotations
 
 from typing import Any
 
-from ingestion.normalizers.utils import (
-    derive_task_event_type,
-    extract_source_event_version,
-    parse_timestamp,
-)
+from ingestion.normalizers.utils import parse_timestamp
 
 
 def normalize_habitica(raw: dict[str, Any]) -> dict[str, Any]:
-    if raw.get("item_id"):
-        completed = raw.get("completed") is True
-        version = raw.get("date_completed") or raw.get("date_created")
-        return {
-            "source": "habitica",
-            "source_entity_type": "task",
-            "source_entity_id": str(raw.get("item_id") or ""),
-            "event_type": "task_completed" if completed else "task_updated",
-            "title": raw.get("item_name"),
-            "description": raw.get("notes"),
-            "start_time": parse_timestamp(raw.get("date_created")),
-            "end_time": parse_timestamp(raw.get("date_completed")),
-            "metric_type": raw.get("item_type"),
-            "metric_value": raw.get("value"),
-            "metric_unit": None,
-            "external_status": "completed" if completed else None,
-            "source_event_version": str(version) if version is not None else None,
-        }
+    task = raw.get("task") or raw
+    occurrence = raw.get("occurrence") or {}
+    task_type = raw.get("task_type") or task.get("type") or "todo"
 
-    start_time = parse_timestamp(raw.get("created_at") or raw.get("createdAt"))
-    end_time = parse_timestamp(raw.get("completed_at") or raw.get("updatedAt"))
-    external_status = raw.get("status")
+    occurred_at = parse_timestamp(
+        occurrence.get("date")
+        or occurrence.get("dateCompleted")
+        or task.get("dateCompleted")
+    )
+
+    if task_type == "habit":
+        event_type = "habit_scored"
+        external_status = "scored"
+        metric_value = occurrence.get("value")
+        metric_type = "score" if metric_value is not None else None
+    elif task_type == "daily":
+        event_type = "daily_completed"
+        external_status = "completed"
+        metric_value = occurrence.get("value")
+        metric_type = "score" if metric_value is not None else None
+    else:
+        event_type = "todo_completed"
+        external_status = "completed"
+        metric_value = None
+        metric_type = None
+
+    source_event_version = occurred_at.isoformat() if occurred_at else None
+
     return {
         "source": "habitica",
-        "source_entity_type": raw.get("type") or "task",
-        "source_entity_id": str(raw.get("id") or raw.get("_id") or ""),
-        "event_type": derive_task_event_type(
-            raw,
-            completed=raw.get("completed"),
-            status=external_status,
-        ),
-        "title": raw.get("text") or raw.get("name"),
-        "description": raw.get("notes"),
-        "start_time": start_time,
-        "end_time": end_time,
-        "metric_type": raw.get("metric_type"),
-        "metric_value": raw.get("metric_value"),
-        "metric_unit": raw.get("metric_unit"),
+        "source_entity_type": task_type,
+        "source_entity_id": str(task.get("id") or task.get("_id") or ""),
+        "event_type": event_type,
+        "title": task.get("text") or task.get("name"),
+        "description": task.get("notes"),
+        "start_time": occurred_at,
+        "end_time": None,
+        "metric_type": metric_type,
+        "metric_value": metric_value,
+        "metric_unit": "points" if metric_type else None,
         "external_status": external_status,
-        "source_event_version": extract_source_event_version(
-            raw,
-            "updatedAt",
-            "updated_at",
-            "completed_at",
-            "createdAt",
-            "created_at",
-        ),
+        "source_event_version": source_event_version,
     }
