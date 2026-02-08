@@ -22,6 +22,20 @@ def parse_timestamp(value: Any) -> datetime | None:
     return None
 
 
+def serialize_raw(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: serialize_raw(val) for key, val in value.items()}
+    if isinstance(value, list):
+        return [serialize_raw(item) for item in value]
+    return str(value)
+
+
 def extract_source_event_version(raw: dict[str, Any], *candidates: str) -> str | None:
     for key in candidates:
         value = raw.get(key)

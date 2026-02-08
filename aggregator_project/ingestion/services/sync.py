@@ -8,6 +8,7 @@ from django.utils import timezone
 from connectors.models import ConnectorAccount
 from events.models import Event
 from ingestion.normalizers.base import build_dedupe_hash
+from ingestion.normalizers.utils import serialize_raw
 from ingestion.providers import get_provider_spec
 
 
@@ -33,7 +34,7 @@ def sync_connector_account(
     skipped = 0
     for raw in raw_items:
         normalized = spec.normalizer(raw)
-        normalized["raw"] = raw
+        normalized["raw"] = serialize_raw(raw)
         normalized["dedupe_hash"] = build_dedupe_hash(normalized)
         if not normalized.get("source_entity_id") or not normalized.get("event_type"):
             skipped += 1
