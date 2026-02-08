@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from ingestion.normalizers.utils import parse_timestamp
+from ingestion.normalizers.utils import build_actor_fields, parse_timestamp
 
 
 def normalize_habitica(raw: dict[str, Any]) -> dict[str, Any]:
     task = raw.get("task") or raw
     occurrence = raw.get("occurrence") or {}
     task_type = raw.get("task_type") or task.get("type") or "todo"
+    actor = raw.get("actor")
 
     occurred_at = parse_timestamp(
         occurrence.get("date")
@@ -34,7 +35,7 @@ def normalize_habitica(raw: dict[str, Any]) -> dict[str, Any]:
 
     source_event_version = occurred_at.isoformat() if occurred_at else None
 
-    return {
+    payload = {
         "source": "habitica",
         "source_entity_type": task_type,
         "source_entity_id": str(task.get("id") or task.get("_id") or ""),
@@ -49,3 +50,5 @@ def normalize_habitica(raw: dict[str, Any]) -> dict[str, Any]:
         "external_status": external_status,
         "source_event_version": source_event_version,
     }
+    payload.update(build_actor_fields(actor, default_type="user"))
+    return payload

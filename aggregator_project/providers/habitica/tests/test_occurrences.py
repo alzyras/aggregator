@@ -100,7 +100,8 @@ class HabiticaOccurrenceTests(TestCase):
 
         with patch("ingestion.services.sync.get_provider_spec", return_value=spec):
             with patch.object(HabiticaClient, "_fetch_tasks", new=stub_fetch_tasks):
-                sync_connector_account(workspace, account)
+                with patch.object(HabiticaClient, "get_user_profile", return_value={}):
+                    sync_connector_account(workspace, account)
 
         events = Event.objects.for_workspace(workspace).order_by("start_time")
         self.assertEqual(events.count(), 5)
@@ -152,8 +153,9 @@ class HabiticaOccurrenceTests(TestCase):
 
         with patch("ingestion.services.sync.get_provider_spec", return_value=spec):
             with patch.object(HabiticaClient, "_fetch_tasks", new=stub_fetch_tasks):
-                sync_connector_account(workspace, account)
-                sync_connector_account(workspace, account)
+                with patch.object(HabiticaClient, "get_user_profile", return_value={}):
+                    sync_connector_account(workspace, account)
+                    sync_connector_account(workspace, account)
 
         events = Event.objects.for_workspace(workspace)
         self.assertEqual(events.count(), 2)

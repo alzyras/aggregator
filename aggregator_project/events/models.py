@@ -42,6 +42,10 @@ class Event(TimestampedModel):
         null=True,
         help_text="Status in the source system at the time of the event",
     )
+    external_actor_id = models.CharField(max_length=255, null=True, blank=True)
+    external_actor_type = models.CharField(max_length=50, null=True, blank=True)
+    external_actor_display_name = models.CharField(max_length=255, null=True, blank=True)
+    external_actor_raw = models.JSONField(null=True, blank=True)
     source_event_version = models.CharField(max_length=255, null=True, blank=True)
     raw = models.JSONField()
     dedupe_hash = models.CharField(max_length=64)
@@ -50,12 +54,38 @@ class Event(TimestampedModel):
 
     class Meta:
         indexes = [
-            models.Index(fields=["workspace", "source", "source_entity_id"]),
-            models.Index(fields=["workspace", "start_time"]),
-            models.Index(fields=["workspace", "created_at"]),
-            models.Index(fields=["workspace", "source", "created_at"]),
-            models.Index(fields=["workspace", "source", "dedupe_hash"]),
-            models.Index(fields=["workspace", "connector_account", "created_at"]),
+            models.Index(
+                fields=["workspace", "source", "source_entity_id"],
+                name="ev_ws_src_entity_idx",
+            ),
+            models.Index(
+                fields=["workspace", "start_time"],
+                name="ev_ws_start_idx",
+            ),
+            models.Index(
+                fields=["workspace", "created_at"],
+                name="ev_ws_created_idx",
+            ),
+            models.Index(
+                fields=["workspace", "source", "created_at"],
+                name="ev_ws_src_created_idx",
+            ),
+            models.Index(
+                fields=["workspace", "source", "dedupe_hash"],
+                name="ev_ws_src_dedupe_idx",
+            ),
+            models.Index(
+                fields=["workspace", "connector_account", "created_at"],
+                name="ev_ws_conn_created_idx",
+            ),
+            models.Index(
+                fields=["workspace", "source", "external_actor_id"],
+                name="ev_ws_src_actor_idx",
+            ),
+            models.Index(
+                fields=["workspace", "external_actor_id"],
+                name="ev_ws_actor_idx",
+            ),
         ]
         constraints = [
             models.UniqueConstraint(

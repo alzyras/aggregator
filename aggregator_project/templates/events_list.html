@@ -110,6 +110,7 @@
               <th>Start</th>
               <th>Event Type</th>
               <th>External Status</th>
+              <th>Actor</th>
             </tr>
           </thead>
           <tbody>
@@ -121,10 +122,11 @@
                 <td>{{ event.start_time }}</td>
                 <td>{{ event.event_type }}</td>
                 <td>{{ event.external_status|default:"—" }}</td>
+                <td>{{ event.external_actor_display_name|default:event.external_actor_id|default:"—" }}</td>
               </tr>
             {% empty %}
               <tr>
-                <td colspan="6">No events found.</td>
+                <td colspan="7">No events found.</td>
               </tr>
             {% endfor %}
           </tbody>

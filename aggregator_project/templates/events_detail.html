@@ -17,6 +17,8 @@
         <div><strong>Entity ID:</strong> {{ event.source_entity_id }}</div>
         <div><strong>Event Type:</strong> {{ event.event_type }}</div>
         <div><strong>External Status:</strong> {{ event.external_status|default:"—" }}</div>
+        <div><strong>Actor:</strong> {{ event.external_actor_display_name|default:event.external_actor_id|default:"—" }}</div>
+        <div><strong>Actor Type:</strong> {{ event.external_actor_type|default:"—" }}</div>
         <div><strong>Source Version:</strong> {{ event.source_event_version|default:"—" }}</div>
         <div><strong>Start:</strong> {{ event.start_time }}</div>
         <div><strong>End:</strong> {{ event.end_time }}</div>

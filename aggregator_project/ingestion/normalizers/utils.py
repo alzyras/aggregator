@@ -36,6 +36,41 @@ def serialize_raw(value: Any) -> Any:
     return str(value)
 
 
+def build_actor_fields(
+    actor: dict[str, Any] | None,
+    *,
+    default_type: str | None = None,
+) -> dict[str, Any]:
+    if not actor:
+        return {
+            "external_actor_id": None,
+            "external_actor_type": None,
+            "external_actor_display_name": None,
+            "external_actor_raw": None,
+        }
+
+    actor_id = (
+        actor.get("id")
+        or actor.get("_id")
+        or actor.get("userId")
+        or actor.get("gid")
+    )
+    display_name = (
+        actor.get("display_name")
+        or actor.get("name")
+        or actor.get("profile", {}).get("name")
+        or actor.get("auth", {}).get("local", {}).get("username")
+    )
+    actor_type = actor.get("type") or default_type
+
+    return {
+        "external_actor_id": str(actor_id) if actor_id is not None else None,
+        "external_actor_type": actor_type,
+        "external_actor_display_name": display_name,
+        "external_actor_raw": actor,
+    }
+
+
 def extract_source_event_version(raw: dict[str, Any], *candidates: str) -> str | None:
     for key in candidates:
         value = raw.get(key)

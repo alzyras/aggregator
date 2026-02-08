@@ -43,7 +43,6 @@ PY
 fi
 
 .venv/bin/python aggregator_project/manage.py ensure_db
-.venv/bin/python aggregator_project/manage.py makemigrations connectors events ingestion workspaces --noinput
 .venv/bin/python aggregator_project/manage.py migrate
 
 if [ -n "${DJANGO_SUPERUSER_USERNAME:-}" ] && [ -n "${DJANGO_SUPERUSER_PASSWORD:-}" ] && [ -n "${DJANGO_SUPERUSER_EMAIL:-}" ]; then

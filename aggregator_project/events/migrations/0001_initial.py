@@ -10,6 +10,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
+        ("connectors", "0001_initial"),
         ("workspaces", "0001_initial"),
     ]
 
@@ -35,12 +36,10 @@ class Migration(migrations.Migration):
                     "source",
                     models.CharField(
                         choices=[
+                            ("google_fit", "Google Fit"),
                             ("asana", "Asana"),
                             ("todoist", "Todoist"),
-                            ("google_fit", "Google Fit"),
                             ("habitica", "Habitica"),
-                            ("toggl", "Toggl"),
-                            ("llm_summary", "LLM Summary"),
                         ],
                         max_length=50,
                     ),
@@ -69,9 +68,23 @@ class Migration(migrations.Migration):
                         null=True,
                     ),
                 ),
+                ("external_actor_id", models.CharField(blank=True, max_length=255, null=True)),
+                ("external_actor_type", models.CharField(blank=True, max_length=50, null=True)),
+                ("external_actor_display_name", models.CharField(blank=True, max_length=255, null=True)),
+                ("external_actor_raw", models.JSONField(blank=True, null=True)),
                 ("source_event_version", models.CharField(blank=True, max_length=255, null=True)),
                 ("raw", models.JSONField()),
                 ("dedupe_hash", models.CharField(max_length=64)),
+                (
+                    "connector_account",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="events",
+                        to="connectors.connectoraccount",
+                    ),
+                ),
                 (
                     "workspace",
                     models.ForeignKey(
@@ -84,28 +97,40 @@ class Migration(migrations.Migration):
                 "indexes": [
                     models.Index(
                         fields=["workspace", "source", "source_entity_id"],
-                        name="events_workspace_source_entity_idx",
+                        name="ev_ws_src_entity_idx",
                     ),
                     models.Index(
                         fields=["workspace", "start_time"],
-                        name="events_workspace_start_time_idx",
+                        name="ev_ws_start_idx",
                     ),
                     models.Index(
                         fields=["workspace", "created_at"],
-                        name="events_workspace_created_idx",
+                        name="ev_ws_created_idx",
                     ),
                     models.Index(
                         fields=["workspace", "source", "created_at"],
-                        name="events_workspace_source_created_idx",
+                        name="ev_ws_src_created_idx",
                     ),
                     models.Index(
                         fields=["workspace", "source", "dedupe_hash"],
-                        name="events_workspace_source_dedupe_idx",
+                        name="ev_ws_src_dedupe_idx",
+                    ),
+                    models.Index(
+                        fields=["workspace", "connector_account", "created_at"],
+                        name="ev_ws_conn_created_idx",
+                    ),
+                    models.Index(
+                        fields=["workspace", "source", "external_actor_id"],
+                        name="ev_ws_src_actor_idx",
+                    ),
+                    models.Index(
+                        fields=["workspace", "external_actor_id"],
+                        name="ev_ws_actor_idx",
                     ),
                 ],
                 "constraints": [
                     models.UniqueConstraint(
-                        fields=("workspace", "source", "dedupe_hash"),
+                        fields=("workspace", "connector_account", "source", "dedupe_hash"),
                         name="unique_event_dedupe",
                     )
                 ],
