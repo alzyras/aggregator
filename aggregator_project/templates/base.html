@@ -59,5 +59,26 @@
         {% block content %}{% endblock %}
       </main>
     </div>
+    <script>
+      (function () {
+        document.addEventListener("submit", (event) => {
+          const form = event.target;
+          if (!(form instanceof HTMLFormElement)) return;
+          if (form.dataset.skipFeedback) return;
+          const method = (form.getAttribute("method") || "get").toLowerCase();
+          if (method !== "post") return;
+          form.setAttribute("aria-busy", "true");
+          const buttons = form.querySelectorAll("button[type='submit'], input[type='submit']");
+          buttons.forEach((btn) => {
+            btn.disabled = true;
+            btn.classList.add("is-loading");
+            const loadingText = btn.getAttribute("data-loading-text");
+            if (loadingText && btn.textContent.trim() !== loadingText) {
+              btn.textContent = loadingText;
+            }
+          });
+        });
+      })();
+    </script>
   </body>
 </html>

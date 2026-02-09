@@ -175,6 +175,45 @@ a {
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
+.btn:focus-visible,
+.nav-link:focus-visible,
+.table-link:focus-visible,
+.card-toggle:focus-visible,
+.toggle-btn:focus-visible,
+.preset-btn:focus-visible,
+.modal-close:focus-visible,
+.provider-card:focus-visible,
+.json-toggle-btn:focus-visible {
+  outline: 3px solid rgba(8, 14, 98, 0.25);
+  outline-offset: 3px;
+}
+
+.btn[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn.is-loading {
+  pointer-events: none;
+  opacity: 0.75;
+}
+
+.btn.is-loading::after {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  border-top-color: currentColor;
+  animation: spin 1s linear infinite;
+}
+
+.btn.ghost.is-loading::after {
+  border-color: rgba(8, 14, 98, 0.3);
+  border-top-color: currentColor;
+}
+
 .btn.primary {
   background: #080e62;
   color: #fff;

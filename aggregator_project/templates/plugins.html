@@ -71,7 +71,7 @@
                   <div class="table-actions">
                     <form method="post" action="{% url 'sync_connector_account' row.account.id %}">
                       {% csrf_token %}
-                      <button class="btn ghost small" type="submit" {% if row.status_key != "connected" %}disabled{% endif %}>Sync now</button>
+                      <button class="btn ghost small" type="submit" data-loading-text="Syncing…" {% if row.status_key != "connected" %}disabled{% endif %}>Sync now</button>
                     </form>
                     <button
                       class="btn ghost small"
@@ -85,7 +85,7 @@
                     </button>
                     <form method="post" action="{% url 'remove_connector_account' row.account.id %}">
                       {% csrf_token %}
-                      <button class="btn ghost small danger" type="submit">Remove</button>
+                      <button class="btn ghost small danger" type="submit" data-loading-text="Removing…">Remove</button>
                     </form>
                   </div>
                 </td>

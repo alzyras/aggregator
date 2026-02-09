@@ -12,7 +12,7 @@
     <div class="panel">
       <form method="post">
         {% csrf_token %}
-        <button type="submit" class="btn primary">Run Sync All</button>
+        <button type="submit" class="btn primary" data-loading-text="Queued…">Run Sync All</button>
         {% if debug %}
           <button type="submit" name="run_immediately" value="1" class="btn ghost">
             Sync now (run immediately)
