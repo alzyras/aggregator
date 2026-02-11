@@ -36,6 +36,50 @@ def serialize_raw(value: Any) -> Any:
     return str(value)
 
 
+CANONICAL_EVENT_TYPES = {
+    "task_created",
+    "task_updated",
+    "task_completed",
+    "task_reopened",
+    "task_deleted",
+    "task_state",
+    "metric_recorded",
+}
+
+
+def canonical_event_type(value: Any) -> str:
+    if not value:
+        return "task_updated"
+    normalized = str(value).strip().lower()
+    mapping = {
+        "created": "task_created",
+        "create": "task_created",
+        "task_created": "task_created",
+        "completed": "task_completed",
+        "complete": "task_completed",
+        "done": "task_completed",
+        "task_completed": "task_completed",
+        "reopened": "task_reopened",
+        "reopen": "task_reopened",
+        "task_reopened": "task_reopened",
+        "deleted": "task_deleted",
+        "delete": "task_deleted",
+        "removed": "task_deleted",
+        "archived": "task_deleted",
+        "task_deleted": "task_deleted",
+        "updated": "task_updated",
+        "update": "task_updated",
+        "task_updated": "task_updated",
+        "task_state": "task_state",
+        "metric_recorded": "metric_recorded",
+        "activity_recorded": "metric_recorded",
+        "habit_scored": "metric_recorded",
+        "daily_completed": "task_completed",
+        "todo_completed": "task_completed",
+    }
+    return mapping.get(normalized, "task_updated")
+
+
 def build_actor_fields(
     actor: dict[str, Any] | None,
     *,

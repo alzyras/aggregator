@@ -5,7 +5,7 @@ from typing import Any
 
 from django.utils.dateparse import parse_date
 
-from ingestion.normalizers.utils import build_actor_fields, parse_timestamp
+from ingestion.normalizers.utils import build_actor_fields, canonical_event_type, parse_timestamp
 
 
 def normalize_habitica(raw: dict[str, Any]) -> list[dict[str, Any]]:
@@ -37,7 +37,7 @@ def _habit_occurrences(task: dict[str, Any], actor: dict[str, Any] | None) -> li
             task=task,
             actor=actor,
             task_type="habit",
-            event_type="habit_scored",
+            event_type=canonical_event_type("habit_scored"),
             occurred_at=occurred_at,
             metric_value=entry.get("value"),
             metric_type="score" if entry.get("value") is not None else None,
@@ -63,7 +63,7 @@ def _daily_occurrences(task: dict[str, Any], actor: dict[str, Any] | None) -> li
                 task=task,
                 actor=actor,
                 task_type="daily",
-                event_type="daily_completed",
+                event_type=canonical_event_type("daily_completed"),
                 occurred_at=occurred_at,
                 metric_value=entry.get("value"),
                 metric_type="score" if entry.get("value") is not None else None,
@@ -81,7 +81,7 @@ def _daily_occurrences(task: dict[str, Any], actor: dict[str, Any] | None) -> li
                 task=task,
                 actor=actor,
                 task_type="daily",
-                event_type="daily_completed",
+                event_type=canonical_event_type("daily_completed"),
                 occurred_at=occurred_at,
                 metric_value=task.get("value"),
                 metric_type="value" if task.get("value") is not None else None,
@@ -102,7 +102,7 @@ def _todo_occurrences(task: dict[str, Any], actor: dict[str, Any] | None) -> lis
                 task=task,
                 actor=actor,
                 task_type="todo",
-                event_type="todo_completed",
+                event_type=canonical_event_type("todo_completed"),
                 occurred_at=occurred_at,
                 metric_value=task.get("value"),
                 metric_type="value" if task.get("value") is not None else None,
@@ -132,7 +132,7 @@ def _task_state(task: dict[str, Any], actor: dict[str, Any] | None, task_type: s
         task=task,
         actor=actor,
         task_type=task_type,
-        event_type="task_state",
+        event_type=canonical_event_type("task_state"),
         occurred_at=occurred_at,
         metric_value=metric_value,
         metric_type=metric_type,

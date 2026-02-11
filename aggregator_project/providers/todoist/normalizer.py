@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ingestion.normalizers.utils import (
+    canonical_event_type,
     derive_task_event_type,
     extract_source_event_version,
     parse_timestamp,
@@ -19,10 +20,12 @@ def normalize_todoist(raw: dict[str, Any]) -> dict[str, Any]:
         "source": "todoist",
         "source_entity_type": raw.get("type") or "task",
         "source_entity_id": str(raw.get("id") or raw.get("gid") or ""),
-        "event_type": derive_task_event_type(
-            raw,
-            completed=raw.get("completed"),
-            status=external_status,
+        "event_type": canonical_event_type(
+            derive_task_event_type(
+                raw,
+                completed=raw.get("completed"),
+                status=external_status,
+            )
         ),
         "title": raw.get("content") or raw.get("title"),
         "description": raw.get("description"),

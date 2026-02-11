@@ -5,7 +5,7 @@ from typing import Any
 
 from django.utils.dateparse import parse_date
 
-from ingestion.normalizers.utils import build_actor_fields, parse_timestamp
+from ingestion.normalizers.utils import build_actor_fields, canonical_event_type, parse_timestamp
 
 
 def normalize_asana(raw: dict[str, Any]) -> list[dict[str, Any]]:
@@ -24,7 +24,7 @@ def normalize_asana(raw: dict[str, Any]) -> list[dict[str, Any]]:
             _base_event(
                 task=task,
                 actor=task.get("created_by") or actor_default,
-                event_type="task_created",
+                event_type=canonical_event_type("task_created"),
                 occurred_at=created_at,
                 external_status="open",
                 source_event_version=created_at.isoformat(),
@@ -37,7 +37,7 @@ def normalize_asana(raw: dict[str, Any]) -> list[dict[str, Any]]:
             _base_event(
                 task=task,
                 actor=task.get("completed_by") or actor_default,
-                event_type="task_completed",
+                event_type=canonical_event_type("task_completed"),
                 occurred_at=completed_at,
                 external_status="completed",
                 source_event_version=completed_at.isoformat(),
@@ -52,7 +52,7 @@ def normalize_asana(raw: dict[str, Any]) -> list[dict[str, Any]]:
                 _base_event(
                     task=task,
                     actor=actor_default,
-                    event_type="task_reopened",
+                    event_type=canonical_event_type("task_reopened"),
                     occurred_at=reopened_at,
                     external_status="open",
                     source_event_version=reopened_at.isoformat(),
@@ -67,7 +67,7 @@ def normalize_asana(raw: dict[str, Any]) -> list[dict[str, Any]]:
                 _base_event(
                     task=task,
                     actor=actor_default,
-                    event_type="task_deleted",
+                    event_type=canonical_event_type("task_deleted"),
                     occurred_at=archived_at,
                     external_status="deleted",
                     source_event_version=archived_at.isoformat(),
@@ -80,7 +80,7 @@ def normalize_asana(raw: dict[str, Any]) -> list[dict[str, Any]]:
             _base_event(
                 task=task,
                 actor=actor_default,
-                event_type="task_updated",
+                event_type=canonical_event_type("task_updated"),
                 occurred_at=modified_at,
                 external_status="completed" if task.get("completed") else "open",
                 source_event_version=modified_at.isoformat(),
@@ -93,7 +93,7 @@ def normalize_asana(raw: dict[str, Any]) -> list[dict[str, Any]]:
         _base_event(
             task=task,
             actor=actor_default,
-            event_type="task_state",
+            event_type=canonical_event_type("task_state"),
             occurred_at=state_time,
             external_status="completed" if task.get("completed") else "open",
             source_event_version=state_time.isoformat(),
@@ -118,7 +118,7 @@ def _base_event(
         "source": "asana",
         "source_entity_type": task.get("resource_type") or "task",
         "source_entity_id": str(task.get("gid") or task.get("id") or ""),
-        "event_type": event_type,
+        "event_type": canonical_event_type(event_type),
         "title": task.get("name"),
         "description": task.get("notes"),
         "start_time": occurred_at,

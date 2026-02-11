@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ingestion.normalizers.utils import extract_source_event_version, parse_timestamp
+from ingestion.normalizers.utils import canonical_event_type, extract_source_event_version, parse_timestamp
 
 
 def normalize_google_fit(raw: dict[str, Any]) -> dict[str, Any]:
@@ -15,7 +15,7 @@ def normalize_google_fit(raw: dict[str, Any]) -> dict[str, Any]:
             "source": "google_fit",
             "source_entity_type": "activity",
             "source_entity_id": str(raw.get("id") or raw.get("record_id") or ""),
-            "event_type": "activity_recorded",
+            "event_type": canonical_event_type("activity_recorded"),
             "title": data_type,
             "description": raw.get("metadata"),
             "start_time": timestamp,
@@ -49,7 +49,7 @@ def normalize_google_fit(raw: dict[str, Any]) -> dict[str, Any]:
             or raw.get("sessionId")
             or ""
         ),
-        "event_type": "activity_recorded",
+        "event_type": canonical_event_type("activity_recorded"),
         "title": raw.get("name") or raw.get("activityName"),
         "description": raw.get("description"),
         "start_time": start_time,
