@@ -6,9 +6,11 @@ DEFAULT_SETTINGS: dict[str, bool] = {
     "sync_habits": True,
     "sync_todos": True,
     "sync_dailies": True,
-    "task_state_completed": False,
+    "emit_history_occurrences": True,
+    "emit_completion_occurrences": True,
     "task_state_created": False,
     "task_state_updated": True,
+    "task_state_completed": False,
 }
 MASKED_TOKEN = "*********************"
 
@@ -31,9 +33,11 @@ def extract_habitica_settings(cleaned_data: dict[str, Any]) -> dict[str, bool]:
         "sync_habits": bool(cleaned_data.get("sync_habits")),
         "sync_todos": bool(cleaned_data.get("sync_todos")),
         "sync_dailies": bool(cleaned_data.get("sync_dailies")),
-        "task_state_completed": bool(cleaned_data.get("task_state_completed")),
+        "emit_history_occurrences": bool(cleaned_data.get("emit_history_occurrences")),
+        "emit_completion_occurrences": bool(cleaned_data.get("emit_completion_occurrences")),
         "task_state_created": bool(cleaned_data.get("task_state_created")),
         "task_state_updated": bool(cleaned_data.get("task_state_updated")),
+        "task_state_completed": bool(cleaned_data.get("task_state_completed")),
     }
 
 

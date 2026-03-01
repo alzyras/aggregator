@@ -28,3 +28,10 @@ Actor fields are provider-scoped and stored on each event.
 ## Timestamp rules
 
 If a date-only value is provided (`due_at` without time), it is parsed as UTC midnight.
+
+## Configurable options
+
+- `sync_tasks`, `sync_subtasks`: gate fetching/normalization for tasks and subtasks.
+- `include_completed`, `include_archived`: filter tasks prior to normalization.
+- Occurrence toggles: `emit_task_created`, `emit_task_updated`, `emit_task_completed`, `emit_task_reopened`, `emit_task_deleted`.
+- Task-state toggles: `task_state_created`, `task_state_updated`, `task_state_completed`; skipped if the required timestamp is missing.

@@ -28,17 +28,21 @@ def normalize_habitica(raw: dict[str, Any]) -> list[dict[str, Any]]:
 
     events: list[dict[str, Any]] = []
     if task_type == "habit":
-        events.extend(_habit_occurrences(task, actor))
+        events.extend(_habit_occurrences(task, actor, settings))
     elif task_type == "daily":
-        events.extend(_daily_occurrences(task, actor))
+        events.extend(_daily_occurrences(task, actor, settings))
     else:
-        events.extend(_todo_occurrences(task, actor))
+        events.extend(_todo_occurrences(task, actor, settings))
 
     events.extend(_task_state_events(task, actor, task_type, settings))
     return events
 
 
-def _habit_occurrences(task: dict[str, Any], actor: dict[str, Any] | None) -> list[dict[str, Any]]:
+def _habit_occurrences(
+    task: dict[str, Any], actor: dict[str, Any] | None, settings: dict[str, bool]
+) -> list[dict[str, Any]]:
+    if not settings.get("emit_history_occurrences"):
+        return []
     history = task.get("history") or []
     events: list[dict[str, Any]] = []
     for entry in history:
@@ -61,7 +65,11 @@ def _habit_occurrences(task: dict[str, Any], actor: dict[str, Any] | None) -> li
     return events
 
 
-def _daily_occurrences(task: dict[str, Any], actor: dict[str, Any] | None) -> list[dict[str, Any]]:
+def _daily_occurrences(
+    task: dict[str, Any], actor: dict[str, Any] | None, settings: dict[str, bool]
+) -> list[dict[str, Any]]:
+    if not settings.get("emit_completion_occurrences"):
+        return []
     history = task.get("history") or []
     events: list[dict[str, Any]] = []
     if history:
@@ -105,7 +113,11 @@ def _daily_occurrences(task: dict[str, Any], actor: dict[str, Any] | None) -> li
     return events
 
 
-def _todo_occurrences(task: dict[str, Any], actor: dict[str, Any] | None) -> list[dict[str, Any]]:
+def _todo_occurrences(
+    task: dict[str, Any], actor: dict[str, Any] | None, settings: dict[str, bool]
+) -> list[dict[str, Any]]:
+    if not settings.get("emit_completion_occurrences"):
+        return []
     events: list[dict[str, Any]] = []
     if task.get("completed") and task.get("dateCompleted"):
         occurred_at = _parse_occurrence_timestamp(task.get("dateCompleted"))
