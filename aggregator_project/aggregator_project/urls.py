@@ -12,6 +12,7 @@ urlpatterns = [
     path("", include("connectors.urls")),
     path("events/", event_views.event_list, name="event_list"),
     path("events/<uuid:pk>/", event_views.event_detail, name="event_detail"),
+    path("stats/", event_views.stats_view, name="stats_view"),
     path("sync/", ingestion_views.sync_view, name="sync_view"),
     path("jobs/", ingestion_views.jobs_list, name="jobs_list"),
 ]

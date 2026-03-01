@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
 from django.http import QueryDict
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db.models import CharField, Count, Max, OuterRef, Q, Subquery, Value
+from django.db.models.functions import Coalesce, TruncDate
 from django.shortcuts import get_object_or_404, render
+from django.utils import timezone
 from django.utils.dateparse import parse_date
 
 from connectors.models import ConnectorAccount
 from events.models import Event
+from ingestion.models import Job
 from ingestion.providers import get_provider_choices
 
 LIFECYCLE_FILTER_ORDER = (
@@ -33,6 +39,18 @@ LIFECYCLE_EVENT_ACTIONS = (
 
 EXCLUDED_GENERIC_STATES = {
     "scored",
+}
+
+STATS_CACHE_TIMEOUT_SECONDS = 60
+STATS_COMPLETION_WINDOW_DAYS = 30
+
+SYNC_STATUS_LABELS = {
+    Job.STATUS_SUCCESS: "Success",
+    Job.STATUS_FAILED: "Failed",
+    Job.STATUS_RUNNING: "Running",
+    Job.STATUS_QUEUED: "Queued",
+    Job.STATUS_CANCELLED: "Cancelled",
+    "never": "Never synced",
 }
 
 
@@ -278,6 +296,25 @@ def event_detail(request, pk):
     return render(request, "events_detail.html", context)
 
 
+@login_required
+def stats_view(request):
+    workspace = request.workspace
+    bypass_cache = request.GET.get("nocache") == "1"
+    cache_key = f"stats:workspace:{workspace.id}:v2"
+    context = None if bypass_cache else cache.get(cache_key)
+    if context is None:
+        context = _build_stats_context(workspace)
+        if not bypass_cache:
+            cache.set(cache_key, context, STATS_CACHE_TIMEOUT_SECONDS)
+
+    render_context = {
+        **context,
+        "last_generated_at": timezone.now(),
+        "cache_bypassed": bypass_cache,
+    }
+    return render(request, "stats.html", render_context)
+
+
 def _remove_filter(query_params, key: str, *, value: str | None = None, remove_second: str | None = None) -> str:
     updated = query_params.copy()
     if value is None:
@@ -435,3 +472,192 @@ def _build_sanitized_query_params(
     if connector_account_ids:
         params.setlist("connector_account", connector_account_ids)
     return params
+
+
+def _build_stats_context(workspace) -> dict[str, object]:
+    source_labels = dict(get_provider_choices())
+    provider_totals_rows = (
+        Event.objects.for_workspace(workspace)
+        .values("source")
+        .annotate(event_count=Count("id"))
+        .order_by("-event_count", "source")
+    )
+    provider_totals = [
+        {
+            "source": row["source"],
+            "source_label": source_labels.get(row["source"], row["source"].title()),
+            "event_count": row["event_count"],
+        }
+        for row in provider_totals_rows
+    ]
+
+    event_type_totals_rows = (
+        Event.objects.for_workspace(workspace)
+        .exclude(event_type__isnull=True)
+        .exclude(event_type__exact="")
+        .values("event_type")
+        .annotate(event_count=Count("id"))
+        .order_by("-event_count", "event_type")
+    )
+    event_type_totals = [
+        {
+            "event_type": row["event_type"],
+            "event_type_label": row["event_type"].replace("_", " ").replace("-", " ").title(),
+            "event_count": row["event_count"],
+        }
+        for row in event_type_totals_rows
+    ]
+
+    completion_series = _build_completion_series(workspace)
+
+    top_entities_rows = (
+        Event.objects.for_workspace(workspace)
+        .values("source", "source_entity_type", "source_entity_id")
+        .annotate(
+            event_count=Count("id"),
+            title=Coalesce(
+                Max("title"),
+                Value("Untitled", output_field=CharField()),
+            ),
+        )
+        .order_by("-event_count", "source", "source_entity_type", "source_entity_id")[:10]
+    )
+    top_entities = [
+        {
+            "source": row["source"],
+            "source_label": source_labels.get(row["source"], row["source"].title()),
+            "source_entity_type": row["source_entity_type"],
+            "source_entity_id": row["source_entity_id"],
+            "title": row["title"],
+            "event_count": row["event_count"],
+        }
+        for row in top_entities_rows
+    ]
+
+    connector_sync_rows = _build_connector_sync_rows(workspace, source_labels)
+    actor_activity = _build_actor_activity(workspace)
+
+    return {
+        "provider_totals": provider_totals,
+        "event_type_totals": event_type_totals,
+        "completion_series": completion_series,
+        "top_entities": top_entities,
+        "connector_sync_rows": connector_sync_rows,
+        "actor_activity": actor_activity,
+        "stats_cache_timeout_seconds": STATS_CACHE_TIMEOUT_SECONDS,
+    }
+
+
+def _build_completion_series(workspace) -> list[dict[str, object]]:
+    end_day = timezone.localdate()
+    start_day = end_day - timedelta(days=STATS_COMPLETION_WINDOW_DAYS - 1)
+    completion_rows = (
+        Event.objects.for_workspace(workspace)
+        .annotate(activity_time=Coalesce("start_time", "created_at"))
+        .filter(
+            activity_time__date__gte=start_day,
+            activity_time__date__lte=end_day,
+            event_type__iexact="task_completed",
+        )
+        .annotate(day=TruncDate("activity_time"))
+        .values("day")
+        .annotate(event_count=Count("id"))
+        .order_by("day")
+    )
+    completion_map = {
+        row["day"].isoformat(): row["event_count"]
+        for row in completion_rows
+        if row["day"] is not None
+    }
+
+    series: list[dict[str, object]] = []
+    for day_offset in range(STATS_COMPLETION_WINDOW_DAYS):
+        day_value = start_day + timedelta(days=day_offset)
+        day_iso = day_value.isoformat()
+        series.append(
+            {
+                "date": day_iso,
+                "day_number": f"{day_value.day:02d}",
+                "event_count": completion_map.get(day_iso, 0),
+            }
+        )
+    return series
+
+
+def _build_connector_sync_rows(workspace, source_labels: dict[str, str]) -> list[dict[str, object]]:
+    latest_sync_jobs = (
+        Job.objects.for_workspace(workspace)
+        .filter(
+            job_type="sync",
+            connector_account_id=OuterRef("pk"),
+        )
+        .order_by("-queued_at")
+    )
+    connector_accounts = (
+        ConnectorAccount.objects.for_workspace(workspace)
+        .annotate(
+            latest_job_status=Subquery(latest_sync_jobs.values("status")[:1]),
+            latest_job_queued_at=Subquery(latest_sync_jobs.values("queued_at")[:1]),
+            latest_job_started_at=Subquery(latest_sync_jobs.values("started_at")[:1]),
+            latest_job_finished_at=Subquery(latest_sync_jobs.values("finished_at")[:1]),
+        )
+        .order_by("source", "display_name")
+    )
+
+    connector_rows: list[dict[str, object]] = []
+    for account in connector_accounts:
+        sync_status_key = _resolve_sync_status(account)
+        sync_status_label = SYNC_STATUS_LABELS.get(sync_status_key, sync_status_key.title())
+        sync_time = (
+            account.last_sync_at
+            or account.latest_job_finished_at
+            or account.latest_job_started_at
+            or account.latest_job_queued_at
+        )
+        connector_rows.append(
+            {
+                "connector_id": account.id,
+                "source_label": source_labels.get(account.source, account.source.title()),
+                "display_name": account.display_name,
+                "connector_status": account.status,
+                "sync_status_key": sync_status_key,
+                "sync_status_label": sync_status_label,
+                "last_sync_at": sync_time,
+            }
+        )
+    return connector_rows
+
+
+def _resolve_sync_status(connector_account: ConnectorAccount) -> str:
+    latest_job_status = (connector_account.latest_job_status or "").strip().lower()
+    if latest_job_status in {
+        Job.STATUS_FAILED,
+        Job.STATUS_RUNNING,
+        Job.STATUS_QUEUED,
+        Job.STATUS_CANCELLED,
+        Job.STATUS_SUCCESS,
+    }:
+        return latest_job_status
+    if connector_account.last_sync_status == ConnectorAccount.SYNC_STATUS_FAILED:
+        return Job.STATUS_FAILED
+    if connector_account.last_sync_status == ConnectorAccount.SYNC_STATUS_SUCCESS:
+        return Job.STATUS_SUCCESS
+    return "never"
+
+
+def _build_actor_activity(workspace) -> list[dict[str, object]]:
+    actor_rows = (
+        Event.objects.for_workspace(workspace)
+        .exclude(external_actor_display_name__isnull=True)
+        .exclude(external_actor_display_name__exact="")
+        .values("external_actor_display_name")
+        .annotate(event_count=Count("id"))
+        .order_by("-event_count", "external_actor_display_name")[:5]
+    )
+    return [
+        {
+            "name": row["external_actor_display_name"],
+            "event_count": row["event_count"],
+        }
+        for row in actor_rows
+    ]

@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="hero">
+    <div>
+      <h1>Statistics</h1>
+      <p>Workspace-wide insights across all connector instances.</p>
+    </div>
+  </section>
+
+  <section class="glow">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Overview</h2>
+          <span class="panel-subtitle">
+            Last generated at
+            <span title="{{ last_generated_at|date:'Y-m-d H:i:s T' }}">{{ last_generated_at|date:"Y-m-d H:i:s" }} UTC</span>
+            {% if cache_bypassed %} · uncached{% endif %}
+          </span>
+        </div>
+        <div class="stats-header-actions">
+          <a class="btn ghost small" href="?nocache=1">Refresh</a>
+        </div>
+      </div>
+
+      <div class="stats-grid">
+        <article class="stats-card stats-card-chart">
+          <h3>Totals By Provider</h3>
+          <p class="stats-card-subtitle">Event volume by source.</p>
+          {% if provider_totals %}
+            <div class="stats-bar-chart chart" data-provider-bars>
+              {% for item in provider_totals %}
+                <div class="stats-bar-item" data-value="{{ item.event_count }}">
+                  <div class="stats-bar-track">
+                    <div class="stats-bar-fill"></div>
+                  </div>
+                  <div class="stats-bar-label">{{ item.source_label }}</div>
+                  <div class="stats-bar-value">{{ item.event_count }}</div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <p class="empty-note">No provider data yet.</p>
+          {% endif %}
+        </article>
+
+        <article class="stats-card stats-card-chart">
+          <h3>Completion Velocity (30 Days)</h3>
+          <p class="stats-card-subtitle">Daily count of task completed events.</p>
+          {% if completion_series %}
+            <div class="stats-line-chart chart" data-completion-chart>
+              <svg viewBox="0 0 100 32" preserveAspectRatio="none" aria-hidden="true">
+                <path class="stats-line-area" d=""></path>
+                <path class="stats-line-path" d=""></path>
+              </svg>
+            </div>
+            <div class="stats-line-axis">
+              <span>{{ completion_series.0.date }}</span>
+              <span>{{ completion_series|length }} days</span>
+              {% with completion_last=completion_series|last %}
+                <span>{{ completion_last.date }}</span>
+              {% endwith %}
+            </div>
+          {% else %}
+            <p class="empty-note">No completion activity yet.</p>
+          {% endif %}
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="glow">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Event Types</h2>
+          <span class="panel-subtitle">Canonical event totals across all connectors.</span>
+        </div>
+      </div>
+      {% if event_type_totals %}
+        <div class="stats-event-type-grid">
+          {% for item in event_type_totals %}
+            <article class="stat-card">
+              <div class="stat-card-label">{{ item.event_type_label }}</div>
+              <div class="stat-card-value">{{ item.event_count }}</div>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="empty-note">No event types available yet.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="glow">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Top Active Entities</h2>
+          <span class="panel-subtitle">Most active source entities by event count.</span>
+        </div>
+      </div>
+      <div class="table-shell">
+        <table class="data-table stats-entities-table" data-sort-table>
+          <thead>
+            <tr>
+              <th><button type="button" class="table-sort-btn" data-sort-key="source_label">Source</button></th>
+              <th><button type="button" class="table-sort-btn" data-sort-key="source_entity_type">Entity Type</button></th>
+              <th><button type="button" class="table-sort-btn" data-sort-key="title">Title</button></th>
+              <th><button type="button" class="table-sort-btn" data-sort-key="event_count">Events</button></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for entity in top_entities %}
+              <tr
+                data-source_label="{{ entity.source_label }}"
+                data-source_entity_type="{{ entity.source_entity_type }}"
+                data-title="{{ entity.title }}"
+                data-event_count="{{ entity.event_count }}"
+              >
+                <td>{{ entity.source_label }}</td>
+                <td>{{ entity.source_entity_type }}</td>
+                <td>{{ entity.title|default:entity.source_entity_id }}</td>
+                <td>{{ entity.event_count }}</td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="4">No entities available yet.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="glow">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Connector Sync Timeline</h2>
+          <span class="panel-subtitle">Latest sync status per connector instance.</span>
+        </div>
+      </div>
+      {% if connector_sync_rows %}
+        <ul class="stats-timeline">
+          {% for item in connector_sync_rows %}
+            <li class="stats-timeline-item">
+              <div class="stats-timeline-header">
+                <strong>{{ item.source_label }} · {{ item.display_name }}</strong>
+                <span class="status-badge {{ item.sync_status_key }}">{{ item.sync_status_label }}</span>
+              </div>
+              <div class="stats-timeline-meta">
+                {% if item.last_sync_at %}
+                  <span title="{{ item.last_sync_at|date:'Y-m-d H:i:s T' }}">{{ item.last_sync_at|date:"Y-m-d H:i:s" }} UTC</span>
+                {% else %}
+                  <span>Never synced</span>
+                {% endif %}
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="empty-note">No connectors configured yet.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  {% if actor_activity %}
+    <section class="glow">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Recent Actor Activity</h2>
+            <span class="panel-subtitle">Top actors by event count.</span>
+          </div>
+        </div>
+        <div class="stats-actor-list">
+          {% for actor in actor_activity %}
+            <div class="stats-actor-item">
+              <span>{{ actor.name }}</span>
+              <span>{{ actor.event_count }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+  {% endif %}
+
+  {{ provider_totals|json_script:"stats-provider-totals" }}
+  {{ completion_series|json_script:"stats-completion-series" }}
+
+  <script>
+    (function () {
+      const providerDataNode = document.getElementById("stats-provider-totals");
+      const completionDataNode = document.getElementById("stats-completion-series");
+      const providerData = providerDataNode ? JSON.parse(providerDataNode.textContent) : [];
+      const completionData = completionDataNode ? JSON.parse(completionDataNode.textContent) : [];
+
+      const barChart = document.querySelector("[data-provider-bars]");
+      if (barChart && providerData.length) {
+        const bars = Array.from(barChart.querySelectorAll(".stats-bar-item"));
+        const maxValue = Math.max(...providerData.map((row) => Number(row.event_count || 0)), 1);
+        requestAnimationFrame(() => {
+          bars.forEach((bar, index) => {
+            const value = Number(bar.dataset.value || 0);
+            const fill = bar.querySelector(".stats-bar-fill");
+            if (!fill) return;
+            const height = Math.max(4, Math.round((value / maxValue) * 100));
+            fill.style.height = "0%";
+            fill.style.transitionDelay = `${index * 50}ms`;
+            requestAnimationFrame(() => {
+              fill.style.height = `${height}%`;
+            });
+          });
+        });
+      }
+
+      const chartShell = document.querySelector("[data-completion-chart]");
+      if (chartShell && completionData.length) {
+        const svg = chartShell.querySelector("svg");
+        const linePath = chartShell.querySelector(".stats-line-path");
+        const areaPath = chartShell.querySelector(".stats-line-area");
+        if (svg && linePath && areaPath) {
+          const width = 100;
+          const height = 32;
+          const values = completionData.map((row) => Number(row.event_count || 0));
+          const maxValue = Math.max(...values, 1);
+          const xStep = completionData.length > 1 ? width / (completionData.length - 1) : width;
+          const points = completionData.map((row, index) => {
+            const x = index * xStep;
+            const y = height - (Number(row.event_count || 0) / maxValue) * (height - 4) - 2;
+            return { x, y };
+          });
+          const line = points
+            .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
+            .join(" ");
+          const area = `${line} L ${width} ${height} L 0 ${height} Z`;
+          linePath.setAttribute("d", line);
+          areaPath.setAttribute("d", area);
+          const lineLength = linePath.getTotalLength();
+          linePath.style.strokeDasharray = `${lineLength}`;
+          linePath.style.strokeDashoffset = `${lineLength}`;
+          requestAnimationFrame(() => {
+            linePath.style.strokeDashoffset = "0";
+          });
+        }
+      }
+
+      const table = document.querySelector("[data-sort-table]");
+      if (table) {
+        const body = table.querySelector("tbody");
+        const rows = Array.from(body.querySelectorAll("tr[data-event_count]"));
+        table.querySelectorAll("[data-sort-key]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const key = button.dataset.sortKey;
+            const isNumeric = key === "event_count";
+            const currentDirection = button.getAttribute("data-sort-direction") || "desc";
+            const nextDirection = currentDirection === "asc" ? "desc" : "asc";
+            table.querySelectorAll("[data-sort-key]").forEach((el) => el.removeAttribute("data-sort-direction"));
+            button.setAttribute("data-sort-direction", nextDirection);
+            rows.sort((left, right) => {
+              const leftValue = left.dataset[key] || "";
+              const rightValue = right.dataset[key] || "";
+              if (isNumeric) {
+                const diff = Number(leftValue) - Number(rightValue);
+                return nextDirection === "asc" ? diff : -diff;
+              }
+              const compare = leftValue.localeCompare(rightValue);
+              return nextDirection === "asc" ? compare : -compare;
+            });
+            rows.forEach((row) => body.appendChild(row));
+          });
+        });
+      }
+    })();
+  </script>
+{% endblock %}

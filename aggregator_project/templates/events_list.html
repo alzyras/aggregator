@@ -151,11 +151,11 @@
 
       <div class="pagination">
         {% if page_obj.has_previous %}
-          <a class="btn ghost small" href="{% if pagination_query %}?{{ pagination_query }}&page={{ page_obj.previous_page_number }}{% else %}?page={{ page_obj.previous_page_number }}{% endif %}">Previous</a>
+          <a class="btn ghost small" href="{% if pagination_query %}?{{ pagination_query }}&amp;page={{ page_obj.previous_page_number }}{% else %}?page={{ page_obj.previous_page_number }}{% endif %}">Previous</a>
         {% endif %}
         <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
         {% if page_obj.has_next %}
-          <a class="btn ghost small" href="{% if pagination_query %}?{{ pagination_query }}&page={{ page_obj.next_page_number }}{% else %}?page={{ page_obj.next_page_number }}{% endif %}">Next</a>
+          <a class="btn ghost small" href="{% if pagination_query %}?{{ pagination_query }}&amp;page={{ page_obj.next_page_number }}{% else %}?page={{ page_obj.next_page_number }}{% endif %}">Next</a>
         {% endif %}
       </div>
     </div>
