@@ -7,6 +7,7 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Count
 from django.shortcuts import redirect, render
 from django.utils import timezone
+import json
 
 from connectors.encryption import encrypt_value
 from connectors.models import ConnectorAccount
@@ -162,6 +163,7 @@ def update_connector_account(request, account_id: int):
         )
 
     credentials = form.cleaned_data
+    credentials = _resolve_masked_credentials(account, spec.source, credentials)
     ok, message = spec.validate_credentials(credentials)
     if not ok:
         form.add_error(None, message)
@@ -315,7 +317,20 @@ def _render_plugins_view(
     spec_map = {}
     for spec in get_provider_specs():
         enabled = True if not enabled_set else spec.source in enabled_set
-        form = overrides.get(spec.source) or spec.form_class()
+        form = overrides.get(spec.source)
+        if not form and edit_account and spec.source == edit_account.source:
+            if spec.source == "habitica":
+                from providers.habitica.settings import habitica_form_initial
+
+                form = spec.form_class(initial=habitica_form_initial(edit_account))
+            elif spec.source == "asana":
+                from providers.asana.settings import asana_form_initial
+
+                form = spec.form_class(initial=asana_form_initial(edit_account))
+            else:
+                form = spec.form_class()
+        if not form:
+            form = spec.form_class()
         provider_specs.append(
             {
                 "source": spec.source,
@@ -363,6 +378,30 @@ def _render_plugins_view(
                 status_key = ConnectorAccount.STATUS_CONNECTED
         status_label = STATUS_LABELS.get(status_key, status_key.title())
         last_sync_status = SYNC_RESULT_LABELS.get(account.last_sync_status, "—")
+        edit_settings = {}
+        edit_workspaces = ""
+        edit_user_id = ""
+        edit_token = ""
+        if account.source == "asana":
+            from providers.asana.settings import (
+                MASKED_TOKEN as ASANA_MASK,
+                get_asana_settings,
+                get_asana_workspace_gids,
+            )
+
+            edit_settings = get_asana_settings(account.scopes)
+            edit_workspaces = ",".join(get_asana_workspace_gids(account.scopes))
+            edit_token = ASANA_MASK
+        elif account.source == "habitica":
+            from providers.habitica.settings import (
+                MASKED_TOKEN as HABITICA_MASK,
+                get_habitica_settings,
+            )
+
+            edit_settings = get_habitica_settings(account.scopes)
+            edit_user_id = account.external_account_id or ""
+            edit_token = HABITICA_MASK
+
         connector_rows.append(
             {
                 "account": account,
@@ -371,6 +410,10 @@ def _render_plugins_view(
                 "status_label": status_label,
                 "last_sync_status": last_sync_status,
                 "event_count": event_counts.get(account.id, 0),
+                "edit_settings_json": json.dumps(edit_settings),
+                "edit_workspaces": edit_workspaces,
+                "edit_user_id": edit_user_id,
+                "edit_token": edit_token,
             }
         )
 
@@ -386,21 +429,30 @@ def _render_plugins_view(
 
 def _apply_credentials(account: ConnectorAccount, provider: str, credentials: dict) -> None:
     if provider in {"asana", "todoist"}:
+        if provider == "asana":
+            from providers.asana.settings import apply_asana_settings, is_masked_token
+
         token = credentials.get("access_token") or credentials.get("api_token")
-        if token:
+        if token and not (provider == "asana" and is_masked_token(token)):
             account.set_access_token(token)
         account.set_refresh_token(None)
-        account.external_account_id = credentials.get("workspace_gid")
-        account.scopes = []
+        workspace_gids = credentials.get("workspace_gids") or []
+        account.external_account_id = workspace_gids[0] if workspace_gids else None
+        if provider == "asana":
+            apply_asana_settings(account, credentials)
+        else:
+            account.scopes = []
         account.token_expires_at = None
         return
     if provider == "habitica":
+        from providers.habitica.settings import apply_habitica_settings, is_masked_token
+
         token = credentials.get("api_token")
-        if token:
+        if token and not is_masked_token(token):
             account.set_access_token(token)
         account.set_refresh_token(None)
         account.external_account_id = credentials.get("user_id")
-        account.scopes = []
+        apply_habitica_settings(account, credentials)
         account.token_expires_at = None
         return
     if provider == "google_fit":
@@ -419,3 +471,21 @@ def _apply_credentials(account: ConnectorAccount, provider: str, credentials: di
         }
         account.token_expires_at = None
         return
+
+
+def _resolve_masked_credentials(
+    account: ConnectorAccount, provider: str, credentials: dict
+) -> dict:
+    if provider == "habitica":
+        from providers.habitica.settings import is_masked_token
+
+        token = credentials.get("api_token")
+        if is_masked_token(token):
+            credentials = {**credentials, "api_token": account.get_access_token()}
+    if provider == "asana":
+        from providers.asana.settings import is_masked_token
+
+        token = credentials.get("access_token")
+        if is_masked_token(token):
+            credentials = {**credentials, "access_token": account.get_access_token()}
+    return credentials

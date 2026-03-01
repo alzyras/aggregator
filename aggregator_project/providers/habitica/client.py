@@ -6,6 +6,7 @@ from typing import Any
 import requests
 
 from connectors.models import ConnectorAccount
+from providers.habitica.settings import get_habitica_settings
 
 BASE_URL = "https://habitica.com/api/v3"
 
@@ -13,6 +14,7 @@ BASE_URL = "https://habitica.com/api/v3"
 class HabiticaClient:
     def __init__(self, account: ConnectorAccount) -> None:
         self.credentials = self._load_credentials(account)
+        self.settings = get_habitica_settings(account.scopes)
         self._user_profile: dict[str, Any] | None = None
 
     def _load_credentials(self, account: ConnectorAccount) -> dict[str, Any]:
@@ -27,11 +29,36 @@ class HabiticaClient:
         if not user_id or not api_token:
             return []
 
+        if not any(
+            (
+                self.settings.get("sync_habits"),
+                self.settings.get("sync_dailies"),
+                self.settings.get("sync_todos"),
+            )
+        ):
+            return []
+
         actor = self.get_user_actor_summary()
-        habits = self._fetch_tasks(user_id, api_token, "habits")
-        dailies = self._fetch_tasks(user_id, api_token, "dailys")
-        todos = self._fetch_tasks(user_id, api_token, "todos")
-        completed_todos = self._fetch_tasks(user_id, api_token, "completedTodos")
+        habits = (
+            self._fetch_tasks(user_id, api_token, "habits")
+            if self.settings.get("sync_habits")
+            else []
+        )
+        dailies = (
+            self._fetch_tasks(user_id, api_token, "dailys")
+            if self.settings.get("sync_dailies")
+            else []
+        )
+        todos = (
+            self._fetch_tasks(user_id, api_token, "todos")
+            if self.settings.get("sync_todos")
+            else []
+        )
+        completed_todos = (
+            self._fetch_tasks(user_id, api_token, "completedTodos")
+            if self.settings.get("sync_todos")
+            else []
+        )
 
         tasks = self._merge_tasks(todos, completed_todos)
         tasks.extend(habits)
@@ -40,6 +67,7 @@ class HabiticaClient:
         for task in tasks:
             if actor:
                 task["actor"] = actor
+            task["_habitica_settings"] = self.settings
         return tasks
 
     def get_user_profile(self) -> dict[str, Any]:

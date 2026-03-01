@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from django.apps import AppConfig
+from django.conf import settings
 
 from ingestion.providers import ProviderSpec
 
@@ -16,7 +19,12 @@ class HabiticaProviderConfig(AppConfig):
         from providers.habitica.client import HabiticaClient
         from providers.habitica.credentials import validate_credentials
         from providers.habitica.normalizer import normalize_habitica
-        from connectors.forms import HabiticaConnectForm
+        from providers.habitica.forms import HabiticaConnectForm
+
+        template_dir = Path(__file__).resolve().parent / "templates"
+        template_dirs = settings.TEMPLATES[0].setdefault("DIRS", [])
+        if template_dir not in template_dirs:
+            template_dirs.append(template_dir)
 
         self.provider_spec = ProviderSpec(
             source="habitica",

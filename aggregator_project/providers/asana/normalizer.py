@@ -6,11 +6,23 @@ from typing import Any
 from django.utils.dateparse import parse_date
 
 from ingestion.normalizers.utils import build_actor_fields, canonical_event_type, parse_timestamp
+from providers.asana.settings import get_asana_settings
 
 
 def normalize_asana(raw: dict[str, Any]) -> list[dict[str, Any]]:
     task = raw
     actor_default = task.get("last_modified_by") or task.get("created_by")
+    settings = get_asana_settings(task.get("__asana_settings"))
+
+    if not settings.get("sync_tasks"):
+        return []
+    if not settings.get("include_archived"):
+        if task.get("archived") or task.get("resource_subtype") == "archived":
+            return []
+    if not settings.get("include_completed") and task.get("completed") is True:
+        return []
+    if not settings.get("sync_subtasks") and task.get("resource_subtype") == "subtask":
+        return []
 
     events: list[dict[str, Any]] = []
     created_at = parse_timestamp(task.get("created_at"))
@@ -19,7 +31,7 @@ def normalize_asana(raw: dict[str, Any]) -> list[dict[str, Any]]:
     start_at = _parse_occurrence_timestamp(task.get("start_at"))
     due_at = _parse_occurrence_timestamp(task.get("due_at"))
 
-    if created_at:
+    if created_at and settings.get("emit_task_created"):
         events.append(
             _base_event(
                 task=task,
@@ -32,7 +44,11 @@ def normalize_asana(raw: dict[str, Any]) -> list[dict[str, Any]]:
             )
         )
 
-    if completed_at and task.get("completed") is True:
+    if (
+        completed_at
+        and task.get("completed") is True
+        and settings.get("emit_task_completed")
+    ):
         events.append(
             _base_event(
                 task=task,
@@ -45,7 +61,11 @@ def normalize_asana(raw: dict[str, Any]) -> list[dict[str, Any]]:
             )
         )
 
-    if task.get("completed") is False and task.get("completed_at"):
+    if (
+        task.get("completed") is False
+        and task.get("completed_at")
+        and settings.get("emit_task_reopened")
+    ):
         reopened_at = modified_at or created_at
         if reopened_at:
             events.append(
@@ -60,7 +80,10 @@ def normalize_asana(raw: dict[str, Any]) -> list[dict[str, Any]]:
                 )
             )
 
-    if task.get("archived") or task.get("resource_subtype") == "archived":
+    if (
+        (task.get("archived") or task.get("resource_subtype") == "archived")
+        and settings.get("emit_task_deleted")
+    ):
         archived_at = modified_at or created_at
         if archived_at:
             events.append(
@@ -75,7 +98,7 @@ def normalize_asana(raw: dict[str, Any]) -> list[dict[str, Any]]:
                 )
             )
 
-    if modified_at:
+    if modified_at and settings.get("emit_task_updated"):
         events.append(
             _base_event(
                 task=task,
@@ -88,19 +111,72 @@ def normalize_asana(raw: dict[str, Any]) -> list[dict[str, Any]]:
             )
         )
 
-    state_time = modified_at or created_at or start_at or due_at or datetime.now(timezone.utc)
-    events.append(
-        _base_event(
+    events.extend(
+        _task_state_events(
             task=task,
             actor=actor_default,
-            event_type=canonical_event_type("task_state"),
-            occurred_at=state_time,
-            external_status="completed" if task.get("completed") else "open",
-            source_event_version=state_time.isoformat(),
-            raw=task,
+            created_at=created_at,
+            modified_at=modified_at,
+            completed_at=completed_at,
+            start_at=start_at,
+            due_at=due_at,
+            settings=settings,
         )
     )
 
+    return events
+
+
+def _task_state_events(
+    *,
+    task: dict[str, Any],
+    actor: dict[str, Any] | None,
+    created_at: datetime | None,
+    modified_at: datetime | None,
+    completed_at: datetime | None,
+    start_at: datetime | None,
+    due_at: datetime | None,
+    settings: dict[str, bool],
+) -> list[dict[str, Any]]:
+    if not any(
+        (
+            settings.get("task_state_created"),
+            settings.get("task_state_updated"),
+            settings.get("task_state_completed"),
+        )
+    ):
+        return []
+
+    candidates: list[tuple[str, datetime | None]] = []
+    if settings.get("task_state_created"):
+        candidates.append(("created", created_at))
+    if settings.get("task_state_updated"):
+        candidates.append(("updated", modified_at))
+    if settings.get("task_state_completed"):
+        candidates.append(("completed", completed_at))
+
+    fallback = modified_at or created_at or start_at or due_at or datetime.now(timezone.utc)
+    status = "completed" if task.get("completed") else "open"
+    events: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for label, occurred_at in candidates:
+        if not occurred_at:
+            continue
+        source_version = occurred_at.isoformat()
+        if source_version in seen:
+            continue
+        seen.add(source_version)
+        events.append(
+            _base_event(
+                task=task,
+                actor=actor,
+                event_type=canonical_event_type("task_state"),
+                occurred_at=occurred_at or fallback,
+                external_status=status if label != "completed" else "completed",
+                source_event_version=source_version,
+                raw=task,
+            )
+        )
     return events
 
 

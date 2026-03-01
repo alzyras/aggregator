@@ -80,6 +80,10 @@
                       data-edit-source="{{ row.account.source }}"
                       data-edit-name="{{ row.account.display_name }}"
                       data-edit-action="{% url 'update_connector_account' row.account.id %}"
+                      data-edit-settings='{{ row.edit_settings_json|escapejs }}'
+                      data-edit-workspaces="{{ row.edit_workspaces }}"
+                      data-edit-user-id="{{ row.edit_user_id }}"
+                      data-edit-token="{{ row.edit_token }}"
                     >
                       Edit
                     </button>
@@ -175,17 +179,23 @@
                 {% endfor %}
               {% endif %}
 
-              {% for field in spec.form %}
-                <div class="form-section">
-                  <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-                  {{ field }}
-                  {% if field.errors %}
-                    {% for error in field.errors %}
-                      <div class="field-error">{{ error }}</div>
-                    {% endfor %}
-                  {% endif %}
-                </div>
-              {% endfor %}
+              {% if spec.source == "habitica" %}
+                {% include "providers/habitica/form_fields.html" %}
+              {% elif spec.source == "asana" %}
+                {% include "providers/asana/form_fields.html" %}
+              {% else %}
+                {% for field in spec.form %}
+                  <div class="form-section">
+                    <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    {% if field.errors %}
+                      {% for error in field.errors %}
+                        <div class="field-error">{{ error }}</div>
+                      {% endfor %}
+                    {% endif %}
+                  </div>
+                {% endfor %}
+              {% endif %}
 
               <div class="modal-actions">
                 <button class="btn ghost" type="button" data-wizard-back>Back</button>
@@ -292,9 +302,53 @@
           const source = btn.dataset.editSource;
           const displayName = btn.dataset.editName;
           const action = btn.dataset.editAction;
+          const settingsRaw = btn.dataset.editSettings || "";
+          let settings = {};
+          if (settingsRaw) {
+            try {
+              settings = JSON.parse(settingsRaw);
+            } catch (err) {
+              settings = {};
+            }
+          }
           openModal();
           showForm(source, { displayName, action });
           if (subtitle) subtitle.textContent = "Update instance details.";
+
+          const form = Array.from(forms).find((item) => item.dataset.provider === source);
+          if (!form) return;
+
+          const tokenValue = btn.dataset.editToken;
+          if (tokenValue) {
+            const tokenField = form.querySelector("[name='api_token'], [name='access_token']");
+            if (tokenField) tokenField.value = tokenValue;
+          }
+
+          const userId = btn.dataset.editUserId;
+          if (userId) {
+            const userField = form.querySelector("[name='user_id']");
+            if (userField) userField.value = userId;
+          }
+
+          const workspaces = btn.dataset.editWorkspaces;
+          if (workspaces) {
+            const hidden = form.querySelector("input[name='workspace_gids']");
+            if (hidden) hidden.value = workspaces;
+            const pillInput = form.querySelector("[data-pill-input]");
+            if (pillInput && typeof pillInput.pillInputUpdate === "function") {
+              pillInput.pillInputUpdate(workspaces.split(",").map((v) => v.trim()).filter(Boolean));
+            }
+          }
+
+          Object.entries(settings).forEach(([key, value]) => {
+            const field = form.querySelector(`[name='${key}']`);
+            if (!field) return;
+            if (field.type === "checkbox") {
+              field.checked = Boolean(value);
+            } else if (value !== null && value !== undefined) {
+              field.value = value;
+            }
+          });
         });
       });
 

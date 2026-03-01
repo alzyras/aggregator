@@ -5,16 +5,28 @@ from typing import Any
 
 from django.utils.dateparse import parse_date
 
-from ingestion.normalizers.utils import build_actor_fields, canonical_event_type, parse_timestamp
+from ingestion.normalizers.utils import (
+    build_actor_fields,
+    canonical_event_type,
+    parse_timestamp,
+)
+from providers.habitica.settings import get_habitica_settings
 
 
 def normalize_habitica(raw: dict[str, Any]) -> list[dict[str, Any]]:
     task = raw
     task_type = task.get("type") or "todo"
     actor = task.get("actor")
+    settings = get_habitica_settings(task.get("_habitica_settings"))
+
+    if task_type == "habit" and not settings.get("sync_habits"):
+        return []
+    if task_type == "daily" and not settings.get("sync_dailies"):
+        return []
+    if task_type == "todo" and not settings.get("sync_todos"):
+        return []
 
     events: list[dict[str, Any]] = []
-
     if task_type == "habit":
         events.extend(_habit_occurrences(task, actor))
     elif task_type == "daily":
@@ -22,7 +34,7 @@ def normalize_habitica(raw: dict[str, Any]) -> list[dict[str, Any]]:
     else:
         events.extend(_todo_occurrences(task, actor))
 
-    events.append(_task_state(task, actor, task_type))
+    events.extend(_task_state_events(task, actor, task_type, settings))
     return events
 
 
@@ -114,32 +126,62 @@ def _todo_occurrences(task: dict[str, Any], actor: dict[str, Any] | None) -> lis
     return events
 
 
-def _task_state(task: dict[str, Any], actor: dict[str, Any] | None, task_type: str) -> dict[str, Any]:
+def _task_state_events(
+    task: dict[str, Any],
+    actor: dict[str, Any] | None,
+    task_type: str,
+    settings: dict[str, bool],
+) -> list[dict[str, Any]]:
+    if not any(
+        (
+            settings.get("task_state_completed"),
+            settings.get("task_state_created"),
+            settings.get("task_state_updated"),
+        )
+    ):
+        return []
+
     updated_at = _parse_occurrence_timestamp(task.get("updatedAt"))
     created_at = _parse_occurrence_timestamp(task.get("dateCreated"))
-    occurred_at = updated_at or created_at or datetime.now(timezone.utc)
+    completed_at = _parse_occurrence_timestamp(task.get("dateCompleted"))
     status = "completed" if task.get("completed") else "open"
     metric_value = task.get("value")
     metric_type = "value" if metric_value is not None else None
-    source_version = (
-        updated_at.isoformat()
-        if updated_at
-        else created_at.isoformat()
-        if created_at
-        else occurred_at.isoformat()
-    )
-    return _base_event(
-        task=task,
-        actor=actor,
-        task_type=task_type,
-        event_type=canonical_event_type("task_state"),
-        occurred_at=occurred_at,
-        metric_value=metric_value,
-        metric_type=metric_type,
-        external_status=status,
-        source_event_version=source_version,
-        raw=task,
-    )
+
+    candidates: list[tuple[str, datetime | None]] = []
+    if settings.get("task_state_created"):
+        candidates.append(("created", created_at))
+    if settings.get("task_state_updated"):
+        candidates.append(("updated", updated_at))
+    if settings.get("task_state_completed"):
+        candidates.append(("completed", completed_at))
+
+    events: list[dict[str, Any]] = []
+    seen_versions: set[str] = set()
+    fallback_time = updated_at or created_at or datetime.now(timezone.utc)
+    for label, occurred_at in candidates:
+        if not occurred_at:
+            continue
+        source_version = occurred_at.isoformat()
+        if source_version in seen_versions:
+            continue
+        seen_versions.add(source_version)
+        events.append(
+            _base_event(
+                task=task,
+                actor=actor,
+                task_type=task_type,
+                event_type=canonical_event_type("task_state"),
+                occurred_at=occurred_at or fallback_time,
+                metric_value=metric_value,
+                metric_type=metric_type,
+                external_status=status if label != "completed" else "completed",
+                source_event_version=source_version,
+                raw=task,
+            )
+        )
+
+    return events
 
 
 def _base_event(
