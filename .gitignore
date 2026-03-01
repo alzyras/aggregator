@@ -24,6 +24,9 @@ coverage.xml
 # VS Code
 .vscode/
 
+# Codex local config
+.codex/
+
 # Jupyter NB Checkpoints
 .ipynb_checkpoints/
 
