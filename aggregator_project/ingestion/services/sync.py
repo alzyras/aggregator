@@ -5,13 +5,27 @@ from datetime import datetime
 import os
 
 from django.db import IntegrityError, transaction
+from django.db.models import Max
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from connectors.models import ConnectorAccount
 from events.models import Event
 from ingestion.normalizers.base import build_dedupe_hash
 from ingestion.normalizers.utils import serialize_raw
 from ingestion.providers import get_provider_spec
+
+
+def _latest_event_timestamp(connector_account: ConnectorAccount) -> datetime | None:
+    qs = Event.objects.filter(connector_account=connector_account)
+    max_start = qs.aggregate(Max("start_time"))["start_time__max"]
+    parsed_max = None
+    for value in qs.values_list("source_event_version", flat=True):
+        dt = parse_datetime(value) if value else None
+        if dt and (parsed_max is None or dt > parsed_max):
+            parsed_max = dt
+    candidates = [dt for dt in (max_start, parsed_max) if dt]
+    return max(candidates) if candidates else None
 
 
 @transaction.atomic
@@ -28,6 +42,9 @@ def sync_connector_account(
     spec = get_provider_spec(connector_account.source)
     if not spec:
         raise ValueError(f"Unknown provider source: {connector_account.source}")
+
+    if since is None:
+        since = _latest_event_timestamp(connector_account)
 
     client = spec.client_factory(connector_account)
     raw_items = client.fetch_since(since)

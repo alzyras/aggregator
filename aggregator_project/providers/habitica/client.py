@@ -7,6 +7,7 @@ import requests
 
 from connectors.models import ConnectorAccount
 from providers.habitica.settings import get_habitica_settings
+from ingestion.normalizers.utils import parse_timestamp
 
 BASE_URL = "https://habitica.com/api/v3"
 
@@ -68,6 +69,22 @@ class HabiticaClient:
             if actor:
                 task["actor"] = actor
             task["_habitica_settings"] = self.settings
+        if since:
+            filtered: list[dict[str, Any]] = []
+            for task in tasks:
+                timestamps = [
+                    parse_timestamp(task.get("updatedAt")),
+                    parse_timestamp(task.get("dateCreated")),
+                    parse_timestamp(task.get("dateCompleted")),
+                ]
+                # history entries
+                for entry in task.get("history") or []:
+                    ts = parse_timestamp(entry.get("date"))
+                    if ts:
+                        timestamps.append(ts)
+                if any(ts and ts > since for ts in timestamps):
+                    filtered.append(task)
+            return filtered
         return tasks
 
     def get_user_profile(self) -> dict[str, Any]:

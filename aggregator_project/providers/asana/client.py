@@ -7,6 +7,7 @@ import requests
 
 from connectors.models import ConnectorAccount
 from providers.asana.settings import get_asana_settings, get_asana_workspace_gids
+from ingestion.normalizers.utils import parse_timestamp
 
 BASE_URL = "https://app.asana.com/api/1.0"
 
@@ -52,6 +53,14 @@ class AsanaClient:
                 continue
             if not self.settings.get("sync_subtasks") and task.get("resource_subtype") == "subtask":
                 continue
+            if since:
+                ts_candidates = [
+                    parse_timestamp(task.get("modified_at")),
+                    parse_timestamp(task.get("completed_at")),
+                    parse_timestamp(task.get("created_at")),
+                ]
+                if not any(ts and ts > since for ts in ts_candidates):
+                    continue
             filtered.append(task)
 
         return filtered

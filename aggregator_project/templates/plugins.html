@@ -71,6 +71,10 @@
                   <div class="table-actions">
                     <form method="post" action="{% url 'sync_connector_account' row.account.id %}">
                       {% csrf_token %}
+                      <label class="field-inline-checkbox">
+                        <input type="checkbox" name="full_sync" value="1" />
+                        <span>Full sync</span>
+                      </label>
                       <button class="btn ghost small" type="submit" data-loading-text="Syncing…" {% if row.status_key != "connected" %}disabled{% endif %}>Sync now</button>
                     </form>
                     <button

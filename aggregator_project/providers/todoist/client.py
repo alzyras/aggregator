@@ -7,6 +7,7 @@ import requests
 
 from connectors.models import ConnectorAccount
 from providers.todoist.settings import get_todoist_settings
+from ingestion.normalizers.utils import parse_timestamp
 
 BASE_URL = "https://api.todoist.com/rest/v2"
 
@@ -38,5 +39,13 @@ class TodoistClient:
                 continue
             if not self.settings.get("include_completed") and task.get("completed"):
                 continue
+            if since:
+                ts_candidates = [
+                    parse_timestamp(task.get("added_at") or task.get("created_at")),
+                    parse_timestamp(task.get("updated_at") or task.get("sync_updated_at") or task.get("date_updated")),
+                    parse_timestamp(task.get("completed_at")),
+                ]
+                if not any(ts and ts > since for ts in ts_candidates):
+                    continue
             filtered.append(task)
         return filtered

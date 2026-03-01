@@ -113,7 +113,8 @@ def execute_job(job: Job):
 
 def _execute_sync_job(job: Job):
     since_raw = job.input_params.get("since")
-    since = parse_datetime(since_raw) if since_raw else None
+    full_sync = bool(job.input_params.get("full_sync"))
+    since = None if full_sync else parse_datetime(since_raw) if since_raw else None
     connector_account = job.connector_account
     if connector_account is None:
         raise ValueError("Sync jobs require a connector account.")
@@ -160,6 +161,7 @@ def queue_sync_jobs(
     sources: list[str] | None = None,
     since: str | None = None,
     connector_account_id: int | str | None = None,
+    full_sync: bool = False,
 ) -> list[Job]:
     accounts = ConnectorAccount.objects.for_workspace(workspace).filter(
         is_active=True,
@@ -174,7 +176,7 @@ def queue_sync_jobs(
 
     jobs: list[Job] = []
     for account in accounts:
-        input_params = {"source": account.source}
+        input_params = {"source": account.source, "full_sync": full_sync}
         if since:
             input_params["since"] = since
         job = Job(

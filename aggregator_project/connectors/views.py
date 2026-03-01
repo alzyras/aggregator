@@ -277,10 +277,12 @@ def sync_connector_account_view(request, account_id: int):
         messages.info(request, "No connector to sync.")
         return redirect("plugins_view")
 
+    full_sync = request.POST.get("full_sync") in {"1", "true", "on"}
     jobs = queue_sync_jobs(
         workspace=request.workspace,
         created_by=request.user,
         connector_account_id=account.id,
+        full_sync=full_sync,
     )
     if not jobs:
         messages.warning(request, "Connector is not active yet.")
