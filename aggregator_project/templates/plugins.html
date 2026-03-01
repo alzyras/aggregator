@@ -64,7 +64,13 @@
                 <td>
                   <span class="status-badge {{ row.status_key }}">{{ row.status_label }}</span>
                 </td>
-                <td>{{ row.account.last_sync_at|default:"—" }}</td>
+                <td>
+                  {% if row.account.last_sync_at %}
+                    <span title="{{ row.account.last_sync_at|date:'Y-m-d H:i:s T' }}">{{ row.account.last_sync_at|date:"Y-m-d" }}</span>
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
                 <td>{{ row.last_sync_status }}</td>
                 <td>{{ row.event_count }}</td>
                 <td>

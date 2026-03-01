@@ -53,9 +53,27 @@
                   {{ job.status|title }}
                 </span>
               </td>
-              <td>{{ job.queued_at }}</td>
-              <td>{{ job.started_at|default:"-" }}</td>
-              <td>{{ job.finished_at|default:"-" }}</td>
+              <td>
+                {% if job.queued_at %}
+                  <span title="{{ job.queued_at|date:'Y-m-d H:i:s T' }}">{{ job.queued_at|date:"Y-m-d" }}</span>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if job.started_at %}
+                  <span title="{{ job.started_at|date:'Y-m-d H:i:s T' }}">{{ job.started_at|date:"Y-m-d" }}</span>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if job.finished_at %}
+                  <span title="{{ job.finished_at|date:'Y-m-d H:i:s T' }}">{{ job.finished_at|date:"Y-m-d" }}</span>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
               <td>
                 {% if job.status == "failed" %}
                   <span class="inline-alert">{{ job.error_message|default:"Unknown error" }}</span>

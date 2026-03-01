@@ -75,9 +75,27 @@
                     {{ run.display_status|title }}
                   </span>
                 </td>
-                <td>{{ run.queued_at }}</td>
-                <td>{{ run.started_at|default:"—" }}</td>
-                <td>{{ run.finished_at|default:"—" }}</td>
+                <td>
+                  {% if run.queued_at %}
+                    <span title="{{ run.queued_at|date:'Y-m-d H:i:s T' }}">{{ run.queued_at|date:"Y-m-d" }}</span>
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <td>
+                  {% if run.started_at %}
+                    <span title="{{ run.started_at|date:'Y-m-d H:i:s T' }}">{{ run.started_at|date:"Y-m-d" }}</span>
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <td>
+                  {% if run.finished_at %}
+                    <span title="{{ run.finished_at|date:'Y-m-d H:i:s T' }}">{{ run.finished_at|date:"Y-m-d" }}</span>
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
                 <td>
                   <button
                     class="btn ghost small json-toggle-btn"

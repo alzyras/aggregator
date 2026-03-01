@@ -47,7 +47,13 @@
                 <td>{{ event.get_source_display }}</td>
                 <td>{{ event.source_entity_type }}</td>
                 <td><a class="table-link" href="{% url 'event_detail' event.id %}">{{ event.title|default:event.source_entity_id }}</a></td>
-                <td>{{ event.start_time|default:"—" }}</td>
+                <td>
+                  {% if event.start_time %}
+                    <span title="{{ event.start_time|date:'Y-m-d H:i:s T' }}">{{ event.start_time|date:"Y-m-d" }}</span>
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
               </tr>
             {% empty %}
               <tr>

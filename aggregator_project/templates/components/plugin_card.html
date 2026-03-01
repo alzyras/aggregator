@@ -23,10 +23,10 @@
         Connected. This plugin is locked.
       </div>
       {% if last_verified_at %}
-        <div class="plugin-meta">Last verified: {{ last_verified_at }}</div>
+        <div class="plugin-meta">Last verified: <span title="{{ last_verified_at|date:'Y-m-d H:i:s T' }}">{{ last_verified_at|date:"Y-m-d" }}</span></div>
       {% endif %}
       {% if account.last_sync_at %}
-        <div class="plugin-meta">Last sync: {{ account.last_sync_at }}</div>
+        <div class="plugin-meta">Last sync: <span title="{{ account.last_sync_at|date:'Y-m-d H:i:s T' }}">{{ account.last_sync_at|date:"Y-m-d" }}</span></div>
       {% endif %}
       <form method="post" action="{% url 'disconnect_provider' spec.source %}">
         {% csrf_token %}
