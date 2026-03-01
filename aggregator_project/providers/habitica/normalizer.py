@@ -174,6 +174,13 @@ def _task_state_events(
     for label, occurred_at in candidates:
         if not occurred_at:
             continue
+        if (
+            label == "completed"
+            and settings.get("emit_completion_occurrences")
+            and task.get("dateCompleted")
+        ):
+            # Avoid duplicate completed snapshot when a completion occurrence will be emitted at the same timestamp.
+            continue
         source_version = occurred_at.isoformat()
         if source_version in seen_versions:
             continue

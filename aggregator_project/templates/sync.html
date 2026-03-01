@@ -26,8 +26,8 @@
     <div class="panel">
       <div class="panel-header">
         <div>
-          <h2>Runs</h2>
-          <span class="panel-subtitle">Duration of recent grouped sync runs.</span>
+          <h2>Connector Run Overview</h2>
+          <span class="panel-subtitle">How each connector performed across recent runs.</span>
         </div>
         <form method="get" class="job-filter">
           <label class="field-label" for="job-status">Status</label>
@@ -38,47 +38,6 @@
             {% endfor %}
           </select>
         </form>
-      </div>
-
-      {% if duration_runs %}
-        <div class="runs-chart-shell">
-          {% if duration_threshold_height %}
-            <div
-              class="runs-threshold"
-              style="bottom: {{ duration_threshold_height }}%;"
-              title="p90 duration: {{ duration_threshold_label }}"
-            >
-              p90 {{ duration_threshold_label }}
-            </div>
-          {% endif %}
-          <div class="runs-bars">
-            {% for run in duration_runs %}
-              <div class="run-bar-item">
-                <div class="run-bar-track">
-                  <div
-                    class="run-bar run-bar-{{ run.status }}"
-                    style="height: {{ run.bar_height }}%;"
-                    title="Run {{ run.run_id }} • {{ run.status|title }} • {{ run.duration_label }}"
-                  ></div>
-                </div>
-                <div class="run-bar-label" title="{{ run.run_id }}">{{ run.short_run_id }}</div>
-              </div>
-            {% endfor %}
-          </div>
-        </div>
-      {% else %}
-        <div class="empty-note">No sync runs yet. Run sync to populate duration trends.</div>
-      {% endif %}
-    </div>
-  </section>
-
-  <section class="glow">
-    <div class="panel">
-      <div class="panel-header">
-        <div>
-          <h2>Connector Run Overview</h2>
-          <span class="panel-subtitle">How each connector performed across recent runs.</span>
-        </div>
       </div>
       {% if run_overview_runs and connector_run_rows %}
         <div class="run-overview-shell">
