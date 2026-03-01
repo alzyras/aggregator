@@ -405,7 +405,7 @@ def _build_run_bubble_cell(
 def _build_day_columns(*, run_overview_days: int) -> list[dict[str, object]]:
     today = timezone.localdate()
     columns: list[dict[str, object]] = []
-    for day_offset in range(run_overview_days - 1, -1, -1):
+    for day_offset in range(0, run_overview_days):
         day_value = today - timedelta(days=day_offset)
         columns.append(
             {

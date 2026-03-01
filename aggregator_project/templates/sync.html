@@ -103,9 +103,6 @@
                 <tr class="connector-run-row{% if not row.has_data %} connector-run-row-empty{% endif %}">
                   <th>
                     <span class="connector-run-name">{{ row.connector_label }}</span>
-                    {% if not row.has_data %}
-                      <span class="connector-run-meta">No recent data</span>
-                    {% endif %}
                   </th>
                   {% for cell in row.cells %}
                     <td class="run-bubble-cell">
