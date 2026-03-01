@@ -36,14 +36,25 @@
       <div class="panel-header stats-chart-header">
         <div class="panel-subtitle">Switch between daily and monthly completions.</div>
         <div class="chart-toggle" role="group" aria-label="Completion series granularity">
-          <button type="button" class="chart-toggle-btn is-active" data-chart-mode="daily" aria-pressed="true">
+          <button type="button" class="btn ghost small chart-toggle-btn is-active" data-chart-mode="daily" aria-pressed="true">
             Daily
           </button>
-          <button type="button" class="chart-toggle-btn" data-chart-mode="monthly" aria-pressed="false">
+          <button type="button" class="btn ghost small chart-toggle-btn" data-chart-mode="monthly" aria-pressed="false">
             Monthly
           </button>
         </div>
       </div>
+
+      {% if completion_source_totals %}
+        <div class="stats-completion-legend">
+          {% for item in completion_source_totals %}
+            <span class="stats-legend-item">
+              <span class="stats-legend-dot" style="--series-hue: {{ item.color_hue }}"></span>
+              {{ item.source_label }}: {{ item.completed_count }}
+            </span>
+          {% endfor %}
+        </div>
+      {% endif %}
 
       <div class="chart-shell">
         <div class="completion-bar-chart chart" data-completion-bars>
@@ -132,7 +143,7 @@
       const modeButtons = document.querySelectorAll("[data-chart-mode]");
 
       const svgNs = "http://www.w3.org/2000/svg";
-      const chartPadding = { top: 20, right: 20, bottom: 34, left: 30 };
+      const chartPadding = { top: 36, right: 20, bottom: 34, left: 30 };
       const chartHeight = 260;
 
       const formatLabel = (label, mode) => {
@@ -196,12 +207,14 @@
           completionSvg.appendChild(rect);
 
           const valueText = document.createElementNS(svgNs, "text");
-          valueText.setAttribute("x", String(x + barWidth / 2));
-          valueText.setAttribute("y", String(Math.max(chartPadding.top + 10, y - 4)));
-          valueText.setAttribute("text-anchor", "middle");
-          valueText.setAttribute("class", "completion-svg-value");
-          valueText.textContent = String(value);
-          completionSvg.appendChild(valueText);
+          if (value > 0) {
+            valueText.setAttribute("x", String(x + barWidth / 2));
+            valueText.setAttribute("y", String(Math.max(14, y - 8)));
+            valueText.setAttribute("text-anchor", "middle");
+            valueText.setAttribute("class", "completion-svg-value");
+            valueText.textContent = String(value);
+            completionSvg.appendChild(valueText);
+          }
 
           const shouldRenderLabel = mode === "monthly" || index % Math.ceil(series.length / 10) === 0;
           if (shouldRenderLabel) {

@@ -540,6 +540,22 @@ def _build_stats_context(
 
     completion_daily_series = _build_completion_daily_series(activity_events=activity_events)
     completion_monthly_series = _build_completion_monthly_series(activity_events=activity_events)
+    completion_source_rows = (
+        activity_events.filter(event_type__iexact="task_completed")
+        .values("source")
+        .annotate(completed_count=Count("id"))
+        .order_by("-completed_count", "source")
+    )
+    source_color_by_key = {item["source"]: item["color_hue"] for item in source_totals}
+    completion_source_totals = [
+        {
+            "source": row["source"],
+            "source_label": source_label_map.get(row["source"], row["source"].replace("_", " ").title()),
+            "completed_count": row["completed_count"],
+            "color_hue": source_color_by_key.get(row["source"], 230),
+        }
+        for row in completion_source_rows
+    ]
     sync_source_rows = _build_sync_source_rows(
         workspace=workspace,
         source_label_map=source_label_map,
@@ -550,6 +566,7 @@ def _build_stats_context(
         "source_totals": source_totals,
         "completion_daily_series": completion_daily_series["series"],
         "completion_monthly_series": completion_monthly_series["series"],
+        "completion_source_totals": completion_source_totals,
         "sync_source_rows": sync_source_rows,
         "stats_cache_timeout_seconds": STATS_CACHE_TIMEOUT_SECONDS,
     }

@@ -111,6 +111,7 @@ class StatsViewTests(TestCase):
         self.assertIn("source_totals", response.context)
         self.assertIn("completion_daily_series", response.context)
         self.assertIn("completion_monthly_series", response.context)
+        self.assertIn("completion_source_totals", response.context)
         self.assertIn("selected_source", response.context)
         self.assertIn("sync_source_rows", response.context)
         self.assertEqual(len(response.context["completion_daily_series"]), 30)
