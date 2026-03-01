@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from connectors.models import ConnectorAccount
+from ingestion import views as ingestion_views
 from ingestion.models import Job
 from ingestion.services import jobs as job_service
 from workspaces.models import Workspace, WorkspaceMember
@@ -193,6 +196,270 @@ class JobTests(TestCase):
         self.assertEqual(
             Job.objects.for_workspace(self.workspace_a).filter(job_name="sync_connector").count(),
             2,
+        )
+
+    def test_queue_sync_jobs_assigns_same_run_group_id_per_invocation(self):
+        ConnectorAccount.objects.create(
+            workspace=self.workspace_a,
+            source="asana",
+            display_name="Asana One",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+        ConnectorAccount.objects.create(
+            workspace=self.workspace_a,
+            source="todoist",
+            display_name="Todoist Main",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+
+        jobs = job_service.queue_sync_jobs(
+            workspace=self.workspace_a,
+            created_by=self.user_a,
+        )
+
+        self.assertEqual(len(jobs), 2)
+        run_group_ids = {job.input_params.get("run_group_id") for job in jobs}
+        self.assertEqual(len(run_group_ids), 1)
+        run_group_id = run_group_ids.pop()
+        self.assertTrue(run_group_id)
+
+        stored_jobs = Job.objects.filter(id__in=[job.id for job in jobs]).order_by("id")
+        self.assertEqual(
+            {job.input_params.get("run_group_id") for job in stored_jobs},
+            {run_group_id},
+        )
+
+    def test_sync_view_groups_runs_and_builds_connector_overview(self):
+        account_one = ConnectorAccount.objects.create(
+            workspace=self.workspace_a,
+            source="asana",
+            display_name="Asana One",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+        account_two = ConnectorAccount.objects.create(
+            workspace=self.workspace_a,
+            source="habitica",
+            display_name="Habitica Main",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+        now = timezone.now()
+        run_group_id = "run-group-123"
+        Job.objects.create(
+            workspace=self.workspace_a,
+            connector_account=account_one,
+            job_type="sync",
+            job_name="sync_connector",
+            status=Job.STATUS_SUCCESS,
+            started_at=now - timedelta(minutes=4),
+            finished_at=now - timedelta(minutes=3),
+            input_params={"source": "asana", "run_group_id": run_group_id},
+            created_by=self.user_a,
+        )
+        Job.objects.create(
+            workspace=self.workspace_a,
+            connector_account=account_two,
+            job_type="sync",
+            job_name="sync_connector",
+            status=Job.STATUS_RUNNING,
+            started_at=now - timedelta(minutes=3),
+            input_params={"source": "habitica", "run_group_id": run_group_id},
+            created_by=self.user_a,
+        )
+
+        self.client.force_login(self.user_a)
+        response = self.client.get(reverse("sync_view"))
+
+        self.assertEqual(response.status_code, 200)
+        run_groups = response.context["run_groups"]
+        self.assertEqual(len(run_groups), 1)
+        self.assertEqual(run_groups[0]["run_id"], run_group_id)
+        self.assertEqual(run_groups[0]["status"], Job.STATUS_RUNNING)
+
+        connector_rows = response.context["connector_run_rows"]
+        connector_labels = [row["connector_label"] for row in connector_rows]
+        self.assertIn("Asana (Asana One)", connector_labels)
+        self.assertIn("Habitica (Habitica Main)", connector_labels)
+        self.assertEqual(len(response.context["run_overview_runs"]), 30)
+        allowed_statuses = {"success", "failed", "running", "queued", "cancelled", "missing"}
+        for row in connector_rows:
+            self.assertEqual(len(row["cells"]), 30)
+            for cell in row["cells"]:
+                self.assertIn("status", cell)
+                self.assertIn("size_class", cell)
+                self.assertIn("title", cell)
+                self.assertIn("aria_label", cell)
+                self.assertIn("tooltip", cell)
+                self.assertIn(cell["status"], allowed_statuses)
+                self.assertIn(
+                    cell["size_class"],
+                    {
+                        "run-bubble-size-small",
+                        "run-bubble-size-medium",
+                        "run-bubble-size-large",
+                    },
+                )
+
+    def test_sync_view_uses_latest_connector_run_for_each_day(self):
+        account = ConnectorAccount.objects.create(
+            workspace=self.workspace_a,
+            source="asana",
+            display_name="Asana One",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+        now = timezone.now()
+        day_key = now.date().isoformat()
+        Job.objects.create(
+            workspace=self.workspace_a,
+            connector_account=account,
+            job_type="sync",
+            job_name="sync_connector",
+            status=Job.STATUS_QUEUED,
+            queued_at=now - timedelta(hours=2),
+            started_at=now - timedelta(hours=2),
+            input_params={"source": "asana", "run_group_id": "day-run-old"},
+            created_by=self.user_a,
+        )
+        Job.objects.create(
+            workspace=self.workspace_a,
+            connector_account=account,
+            job_type="sync",
+            job_name="sync_connector",
+            status=Job.STATUS_FAILED,
+            queued_at=now - timedelta(hours=1),
+            started_at=now - timedelta(hours=1),
+            finished_at=now - timedelta(minutes=50),
+            input_params={"source": "asana", "run_group_id": "day-run-new"},
+            created_by=self.user_a,
+        )
+
+        self.client.force_login(self.user_a)
+        response = self.client.get(reverse("sync_view"))
+
+        self.assertEqual(response.status_code, 200)
+        columns = response.context["run_overview_runs"]
+        column_index = next(
+            index for index, column in enumerate(columns) if column["day_key"] == day_key
+        )
+        connector_row = next(
+            row for row in response.context["connector_run_rows"]
+            if row["connector_label"] == "Asana (Asana One)"
+        )
+        self.assertEqual(connector_row["cells"][column_index]["status"], Job.STATUS_FAILED)
+
+    def test_sync_view_legacy_jobs_without_run_group_id_are_individual_runs(self):
+        account = ConnectorAccount.objects.create(
+            workspace=self.workspace_a,
+            source="asana",
+            display_name="Asana Legacy",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+        job_one = Job.objects.create(
+            workspace=self.workspace_a,
+            connector_account=account,
+            job_type="sync",
+            job_name="sync_connector",
+            status=Job.STATUS_SUCCESS,
+            input_params={"source": "asana"},
+            created_by=self.user_a,
+        )
+        job_two = Job.objects.create(
+            workspace=self.workspace_a,
+            connector_account=account,
+            job_type="sync",
+            job_name="sync_connector",
+            status=Job.STATUS_SUCCESS,
+            input_params={"source": "asana"},
+            created_by=self.user_a,
+        )
+
+        self.client.force_login(self.user_a)
+        response = self.client.get(reverse("sync_view"))
+
+        self.assertEqual(response.status_code, 200)
+        run_ids = {run["run_id"] for run in response.context["run_groups"]}
+        self.assertIn(str(job_one.id), run_ids)
+        self.assertIn(str(job_two.id), run_ids)
+
+    def test_sync_view_run_status_precedence_failed_over_running(self):
+        account_one = ConnectorAccount.objects.create(
+            workspace=self.workspace_a,
+            source="asana",
+            display_name="Asana One",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+        account_two = ConnectorAccount.objects.create(
+            workspace=self.workspace_a,
+            source="todoist",
+            display_name="Todoist Main",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+        now = timezone.now()
+        run_group_id = "run-group-precedence"
+        Job.objects.create(
+            workspace=self.workspace_a,
+            connector_account=account_one,
+            job_type="sync",
+            job_name="sync_connector",
+            status=Job.STATUS_RUNNING,
+            started_at=now - timedelta(minutes=2),
+            input_params={"source": "asana", "run_group_id": run_group_id},
+            created_by=self.user_a,
+        )
+        Job.objects.create(
+            workspace=self.workspace_a,
+            connector_account=account_two,
+            job_type="sync",
+            job_name="sync_connector",
+            status=Job.STATUS_FAILED,
+            started_at=now - timedelta(minutes=2),
+            finished_at=now - timedelta(minutes=1),
+            input_params={"source": "todoist", "run_group_id": run_group_id},
+            created_by=self.user_a,
+        )
+
+        self.client.force_login(self.user_a)
+        response = self.client.get(reverse("sync_view"))
+
+        self.assertEqual(response.status_code, 200)
+        run_groups = response.context["run_groups"]
+        self.assertEqual(run_groups[0]["status"], Job.STATUS_FAILED)
+
+    def test_sync_view_normalizes_unknown_status_to_missing(self):
+        self.assertEqual(
+            ingestion_views._normalize_bubble_status("unknown_status"),
+            "missing",
+        )
+        self.assertEqual(
+            ingestion_views._normalize_bubble_status(None),
+            "missing",
+        )
+        self.assertEqual(
+            ingestion_views._normalize_bubble_status(Job.STATUS_SUCCESS),
+            Job.STATUS_SUCCESS,
         )
 
     def test_job_rejects_mismatched_connector_account(self):

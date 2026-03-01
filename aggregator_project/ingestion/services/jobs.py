@@ -4,6 +4,7 @@ import logging
 import os
 import socket
 import traceback
+import uuid
 
 from django.conf import settings
 from django.db import transaction
@@ -163,6 +164,7 @@ def queue_sync_jobs(
     connector_account_id: int | str | None = None,
     full_sync: bool = False,
 ) -> list[Job]:
+    run_group_id = str(uuid.uuid4())
     accounts = ConnectorAccount.objects.for_workspace(workspace).filter(
         is_active=True,
         status=ConnectorAccount.STATUS_CONNECTED,
@@ -176,7 +178,11 @@ def queue_sync_jobs(
 
     jobs: list[Job] = []
     for account in accounts:
-        input_params = {"source": account.source, "full_sync": full_sync}
+        input_params = {
+            "source": account.source,
+            "full_sync": full_sync,
+            "run_group_id": run_group_id,
+        }
         if since:
             input_params["since"] = since
         job = Job(

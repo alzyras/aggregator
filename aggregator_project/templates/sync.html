@@ -4,13 +4,13 @@
   <section class="hero">
     <div>
       <h1>Sync</h1>
-      <p>Trigger ingestion runs and inspect recent jobs.</p>
+      <p>Trigger ingestion runs and inspect grouped sync runs.</p>
     </div>
   </section>
 
   <section class="glow">
     <div class="panel">
-      <form method="post">
+      <form method="post" class="sync-actions">
         {% csrf_token %}
         <button type="submit" class="btn primary" data-loading-text="Queued…">Run Sync All</button>
         {% if debug %}
@@ -26,8 +26,8 @@
     <div class="panel">
       <div class="panel-header">
         <div>
-          <h2>Recent Sync Jobs</h2>
-          <span class="panel-subtitle">Track queued, running, and completed syncs.</span>
+          <h2>Runs</h2>
+          <span class="panel-subtitle">Duration of recent grouped sync runs.</span>
         </div>
         <form method="get" class="job-filter">
           <label class="field-label" for="job-status">Status</label>
@@ -39,173 +39,166 @@
           </select>
         </form>
       </div>
+
+      {% if duration_runs %}
+        <div class="runs-chart-shell">
+          {% if duration_threshold_height %}
+            <div
+              class="runs-threshold"
+              style="bottom: {{ duration_threshold_height }}%;"
+              title="p90 duration: {{ duration_threshold_label }}"
+            >
+              p90 {{ duration_threshold_label }}
+            </div>
+          {% endif %}
+          <div class="runs-bars">
+            {% for run in duration_runs %}
+              <div class="run-bar-item">
+                <div class="run-bar-track">
+                  <div
+                    class="run-bar run-bar-{{ run.status }}"
+                    style="height: {{ run.bar_height }}%;"
+                    title="Run {{ run.run_id }} • {{ run.status|title }} • {{ run.duration_label }}"
+                  ></div>
+                </div>
+                <div class="run-bar-label" title="{{ run.run_id }}">{{ run.short_run_id }}</div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% else %}
+        <div class="empty-note">No sync runs yet. Run sync to populate duration trends.</div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="glow">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Connector Run Overview</h2>
+          <span class="panel-subtitle">How each connector performed across recent runs.</span>
+        </div>
+      </div>
+      {% if run_overview_runs and connector_run_rows %}
+        <div class="run-overview-shell">
+          <table class="connector-run-grid">
+            <thead>
+              <tr>
+                <th>
+                  <div class="run-overview-axis">
+                    <span class="run-overview-axis-title">Connector</span>
+                    <span class="run-overview-axis-subtitle">Last {{ run_overview_runs|length }} days</span>
+                  </div>
+                </th>
+                {% for run_day in run_overview_runs %}
+                  <th title="{{ run_day.day_title }}">
+                    <span class="run-overview-date">{{ run_day.day_number }}</span>
+                  </th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in connector_run_rows %}
+                <tr class="connector-run-row{% if not row.has_data %} connector-run-row-empty{% endif %}">
+                  <th>
+                    <span class="connector-run-name">{{ row.connector_label }}</span>
+                    {% if not row.has_data %}
+                      <span class="connector-run-meta">No recent data</span>
+                    {% endif %}
+                  </th>
+                  {% for cell in row.cells %}
+                    <td class="run-bubble-cell">
+                      <span
+                        class="run-bubble run-bubble-{{ cell.status }} {{ cell.size_class }}"
+                        title="{{ cell.title|default:cell.tooltip }}"
+                        aria-label="{{ cell.aria_label }}"
+                        tabindex="0"
+                      ><span class="run-bubble-fallback" aria-hidden="true">{% if cell.status == "success" %}🟢{% elif cell.status == "failed" %}🔴{% elif cell.status == "running" %}🔵{% elif cell.status == "queued" %}🟡{% elif cell.status == "cancelled" %}⚫{% else %}⚪{% endif %}</span></span>
+                    </td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="run-overview-legend">
+          <span class="run-overview-legend-item"><span class="run-bubble run-bubble-success run-bubble-size-small"><span class="run-bubble-fallback" aria-hidden="true">🟢</span></span> Success</span>
+          <span class="run-overview-legend-item"><span class="run-bubble run-bubble-failed run-bubble-size-small"><span class="run-bubble-fallback" aria-hidden="true">🔴</span></span> Failed</span>
+          <span class="run-overview-legend-item"><span class="run-bubble run-bubble-running run-bubble-size-small"><span class="run-bubble-fallback" aria-hidden="true">🔵</span></span> Running</span>
+          <span class="run-overview-legend-item"><span class="run-bubble run-bubble-queued run-bubble-size-small"><span class="run-bubble-fallback" aria-hidden="true">🟡</span></span> Queued</span>
+          <span class="run-overview-legend-item"><span class="run-bubble run-bubble-cancelled run-bubble-size-small"><span class="run-bubble-fallback" aria-hidden="true">⚫</span></span> Cancelled</span>
+          <span class="run-overview-legend-item"><span class="run-bubble run-bubble-missing run-bubble-size-small"><span class="run-bubble-fallback" aria-hidden="true">⚪</span></span> Missing</span>
+        </div>
+      {% else %}
+        <div class="empty-note">No connector run history yet. Trigger a run to see connector-level outcomes.</div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="glow">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Detailed Runs</h2>
+          <span class="panel-subtitle">Grouped run details with parameters and status summary.</span>
+        </div>
+      </div>
       <div class="table-shell">
-        <table class="data-table">
+        <table class="data-table run-groups-table">
           <thead>
             <tr>
-              <th>Job</th>
-              <th>Connector</th>
+              <th>Start Time</th>
+              <th>Run ID</th>
+              <th>Launched</th>
+              <th>Duration</th>
               <th>Status</th>
-              <th>Queued</th>
-              <th>Started</th>
-              <th>Finished</th>
-              <th>Params</th>
-              <th>Summary</th>
+              <th>Run Parameters</th>
             </tr>
           </thead>
           <tbody>
-            {% for run in recent_runs %}
+            {% for run in run_groups %}
               <tr>
                 <td>
-                  <strong>{{ run.display_name }}</strong>
-                  <div class="table-meta">{{ run.job_type }}</div>
-                </td>
-                <td>
-                  {% if run.connector_account %}
-                    {{ run.connector_account.get_source_display }} ({{ run.connector_account.display_name }})
+                  {% if run.start_time %}
+                    <span title="{{ run.start_time|date:'Y-m-d H:i:s T' }}">{{ run.start_time|date:"Y-m-d" }}</span>
                   {% else %}
                     —
                   {% endif %}
                 </td>
+                <td><code>{{ run.run_id }}</code></td>
+                <td>{{ run.launched_by }}</td>
+                <td>{{ run.duration_label }}</td>
                 <td>
-                  <span class="status-badge {{ run.display_status }}">
-                    {% if run.display_status == "running" %}
+                  <span class="status-badge {{ run.status }}">
+                    {% if run.status == "running" %}
                       <span class="spinner"></span>
                     {% endif %}
-                    {{ run.display_status|title }}
+                    {{ run.status|title }}
                   </span>
                 </td>
                 <td>
-                  {% if run.queued_at %}
-                    <span title="{{ run.queued_at|date:'Y-m-d H:i:s T' }}">{{ run.queued_at|date:"Y-m-d" }}</span>
-                  {% else %}
-                    —
-                  {% endif %}
-                </td>
-                <td>
-                  {% if run.started_at %}
-                    <span title="{{ run.started_at|date:'Y-m-d H:i:s T' }}">{{ run.started_at|date:"Y-m-d" }}</span>
-                  {% else %}
-                    —
-                  {% endif %}
-                </td>
-                <td>
-                  {% if run.finished_at %}
-                    <span title="{{ run.finished_at|date:'Y-m-d H:i:s T' }}">{{ run.finished_at|date:"Y-m-d" }}</span>
-                  {% else %}
-                    —
-                  {% endif %}
-                </td>
-                <td>
-                  <button
-                    class="btn ghost small json-toggle-btn"
-                    type="button"
-                    data-json-toggle
-                    data-job-id="{{ run.id }}"
-                    data-json-field="params"
-                    aria-expanded="false"
-                  >
-                    View JSON
-                  </button>
-                </td>
-                <td>
-                  <button
-                    class="btn ghost small json-toggle-btn"
-                    type="button"
-                    data-json-toggle
-                    data-job-id="{{ run.id }}"
-                    data-json-field="summary"
-                    aria-expanded="false"
-                  >
-                    View JSON
-                  </button>
-                </td>
-              </tr>
-              <tr class="expanded-row" data-expanded-row="{{ run.id }}" hidden>
-                <td colspan="8">
-                  <div class="json-expanded">
-                    <div class="json-block" data-json-block="params">
-                      <div class="json-block-header">Params</div>
-                      <pre class="json-pre" tabindex="0">
-{% if run.input_params %}{{ run.input_params }}{% else %}No data{% endif %}
-                      </pre>
-                    </div>
-                    <div class="json-block" data-json-block="summary">
-                      <div class="json-block-header">Summary</div>
-                      <pre class="json-pre" tabindex="0">
-{% if run.output_summary %}{{ run.output_summary }}{% else %}No data{% endif %}
-                      </pre>
-                    </div>
+                  <div class="run-params-meta">
+                    <div>{{ run.connector_count }} connector{{ run.connector_count|pluralize }}: {{ run.connector_names }}</div>
+                    <div>{{ run.summary_text }}</div>
                   </div>
+                  <details class="run-params-details">
+                    <summary>View parameters</summary>
+                    <pre class="json-pre" tabindex="0">{% if run.run_params %}{{ run.run_params }}{% else %}No data{% endif %}</pre>
+                  </details>
                 </td>
               </tr>
             {% empty %}
               <tr>
-                <td colspan="8">No sync jobs yet.</td>
+                <td colspan="6">No sync runs yet.</td>
               </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
+      <div class="run-groups-footer">
+        <a class="btn ghost small" href="{% url 'jobs_list' %}">View raw jobs</a>
+      </div>
     </div>
   </section>
-
-  <script>
-    (function () {
-      const toggleButtons = document.querySelectorAll("[data-json-toggle]");
-      const expandedRows = document.querySelectorAll("[data-expanded-row]");
-
-      function resetButtons(jobId) {
-        toggleButtons.forEach((btn) => {
-          if (btn.dataset.jobId === jobId) {
-            btn.setAttribute("aria-expanded", "false");
-            btn.textContent = "View JSON";
-          }
-        });
-      }
-
-      function closeAll() {
-        expandedRows.forEach((row) => {
-          row.classList.remove("is-open");
-          row.hidden = true;
-        });
-        toggleButtons.forEach((btn) => {
-          btn.setAttribute("aria-expanded", "false");
-          btn.textContent = "View JSON";
-        });
-      }
-
-      function showBlock(row, field) {
-        row.querySelectorAll("[data-json-block]").forEach((block) => {
-          block.classList.toggle(
-            "is-hidden",
-            block.dataset.jsonBlock !== field
-          );
-        });
-      }
-
-      toggleButtons.forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const jobId = btn.dataset.jobId;
-          const field = btn.dataset.jsonField;
-          const row = document.querySelector(`[data-expanded-row='${jobId}']`);
-          if (!row) return;
-
-          const isOpen = row.classList.contains("is-open");
-          const isExpanded = btn.getAttribute("aria-expanded") === "true";
-
-          closeAll();
-
-          if (!isOpen || !isExpanded) {
-            row.classList.add("is-open");
-            row.hidden = false;
-            showBlock(row, field);
-            resetButtons(jobId);
-            btn.setAttribute("aria-expanded", "true");
-            btn.textContent = "Hide JSON";
-          }
-        });
-      });
-    })();
-  </script>
 {% endblock %}
