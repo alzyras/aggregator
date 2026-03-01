@@ -16,7 +16,7 @@ class TodoistConnectForm(forms.Form):
     emit_task_deleted = forms.BooleanField(label="Deleted", required=False, initial=True)
 
     task_state_created = forms.BooleanField(label="Created", required=False, initial=False)
-    task_state_updated = forms.BooleanField(label="Updated", required=False, initial=True)
+    task_state_updated = forms.BooleanField(label="Updated", required=False, initial=False)
     task_state_completed = forms.BooleanField(label="Completed", required=False, initial=False)
 
     def __init__(self, *args, **kwargs):

@@ -29,6 +29,9 @@ Actor fields are provider-scoped and stored on each event.
 
 If a date-only value is provided (`due_at` without time), it is parsed as UTC midnight.
 
+## Arbitration rule
+- At a given timestamp per task: `task_completed` > `task_updated` > `task_created` > `task_state`; lower-priority events at that timestamp are dropped.
+
 ## Configurable options
 
 - `sync_tasks`, `sync_subtasks`: gate fetching/normalization for tasks and subtasks.

@@ -9,7 +9,7 @@ DEFAULT_SETTINGS: dict[str, bool] = {
     "emit_history_occurrences": True,
     "emit_completion_occurrences": True,
     "task_state_created": False,
-    "task_state_updated": True,
+    "task_state_updated": False,
     "task_state_completed": False,
 }
 MASKED_TOKEN = "*********************"

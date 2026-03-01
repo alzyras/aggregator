@@ -9,6 +9,8 @@ from ingestion.normalizers.utils import (
     build_actor_fields,
     canonical_event_type,
     parse_timestamp,
+    fingerprint_from_fields,
+    arbitrate_events,
 )
 from providers.habitica.settings import get_habitica_settings
 
@@ -18,6 +20,7 @@ def normalize_habitica(raw: dict[str, Any]) -> list[dict[str, Any]]:
     task_type = task.get("type") or "todo"
     actor = task.get("actor")
     settings = get_habitica_settings(task.get("_habitica_settings"))
+    prev_hash = task.get("__prev_change_hash")
 
     if task_type == "habit" and not settings.get("sync_habits"):
         return []
@@ -35,7 +38,15 @@ def normalize_habitica(raw: dict[str, Any]) -> list[dict[str, Any]]:
         events.extend(_todo_occurrences(task, actor, settings))
 
     events.extend(_task_state_events(task, actor, task_type, settings))
-    return events
+    seen = set()
+    deduped = []
+    for ev in events:
+        key = (ev["event_type"], ev.get("source_event_version"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(ev)
+    return arbitrate_events(deduped)
 
 
 def _habit_occurrences(
@@ -133,8 +144,8 @@ def _todo_occurrences(
                 external_status="completed",
                 source_event_version=occurred_at.isoformat(),
                 raw={"task": task, "occurrence": {"date": task.get("dateCompleted")}},
-            )
-            events.append(payload)
+        )
+        events.append(payload)
     return events
 
 
@@ -171,15 +182,26 @@ def _task_state_events(
     events: list[dict[str, Any]] = []
     seen_versions: set[str] = set()
     fallback_time = updated_at or created_at or datetime.now(timezone.utc)
+    completion_occurrence_ts = None
+    if settings.get("emit_completion_occurrences") and task.get("dateCompleted"):
+        completion_occurrence_ts = _parse_occurrence_timestamp(task.get("dateCompleted"))
+    # Also consider completion timestamps from history entries for dailies
+    if task_type == "daily" and settings.get("emit_completion_occurrences"):
+        for entry in task.get("history") or []:
+            if entry.get("completed") is False:
+                continue
+            ts = _parse_occurrence_timestamp(entry.get("date"))
+            if ts:
+                completion_occurrence_ts = ts
+                break
+    if task.get("completed") and completion_occurrence_ts:
+        return events
+
     for label, occurred_at in candidates:
         if not occurred_at:
             continue
-        if (
-            label == "completed"
-            and settings.get("emit_completion_occurrences")
-            and task.get("dateCompleted")
-        ):
-            # Avoid duplicate completed snapshot when a completion occurrence will be emitted at the same timestamp.
+        if label == "completed" and completion_occurrence_ts and occurred_at == completion_occurrence_ts:
+            # Avoid duplicate: skip completed snapshot when completion occurrence at same timestamp exists.
             continue
         source_version = occurred_at.isoformat()
         if source_version in seen_versions:

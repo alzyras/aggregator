@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from ingestion.normalizers.utils import canonical_event_type, parse_timestamp
+from ingestion.normalizers.utils import (
+    canonical_event_type,
+    parse_timestamp,
+    fingerprint_from_fields,
+    arbitrate_events,
+)
 from providers.todoist.settings import get_todoist_settings
 
 
@@ -25,6 +30,9 @@ def normalize_todoist(raw: dict[str, Any]) -> list[dict[str, Any]]:
 
     events: list[dict[str, Any]] = []
 
+    prev_hash = raw.get("__prev_change_hash")
+    new_hash = _change_fingerprint(raw)
+
     if created_at and settings.get("emit_task_created"):
         events.append(
             _base_event(
@@ -36,6 +44,7 @@ def normalize_todoist(raw: dict[str, Any]) -> list[dict[str, Any]]:
             )
         )
 
+    completion_emitted = False
     if completed_at and settings.get("emit_task_completed") and raw.get("completed"):
         events.append(
             _base_event(
@@ -46,6 +55,7 @@ def normalize_todoist(raw: dict[str, Any]) -> list[dict[str, Any]]:
                 source_event_version=completed_at.isoformat(),
             )
         )
+        completion_emitted = True
 
     if settings.get("emit_task_deleted") and raw.get("is_deleted"):
         ts = updated_at or completed_at or created_at
@@ -60,7 +70,12 @@ def normalize_todoist(raw: dict[str, Any]) -> list[dict[str, Any]]:
                 )
             )
 
-    if updated_at and settings.get("emit_task_updated"):
+    if (
+        updated_at
+        and settings.get("emit_task_updated")
+        and new_hash != prev_hash
+        and not (completion_emitted and completed_at and updated_at == completed_at)
+    ):
         events.append(
             _base_event(
                 raw=raw,
@@ -102,7 +117,15 @@ def normalize_todoist(raw: dict[str, Any]) -> list[dict[str, Any]]:
             )
         )
 
-    return events
+    seen = set()
+    deduped = []
+    for ev in events:
+        key = (ev["event_type"], ev.get("source_event_version"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(ev)
+    return arbitrate_events(deduped)
 
 
 def _base_event(*, raw: dict[str, Any], event_type: str, occurred_at: Any, external_status: str | None, source_event_version: str | None) -> dict[str, Any]:
@@ -119,5 +142,24 @@ def _base_event(*, raw: dict[str, Any], event_type: str, occurred_at: Any, exter
         "metric_value": None,
         "metric_unit": None,
         "external_status": external_status,
-        "source_event_version": source_event_version
+        "source_event_version": source_event_version,
     }
+
+
+def _change_fingerprint(task: dict[str, Any]) -> str:
+    due = task.get("due") or {}
+    return fingerprint_from_fields(
+        {
+            "content": task.get("content") or task.get("title"),
+            "description": task.get("description"),
+            "completed": task.get("completed"),
+            "due": due.get("date") or due.get("datetime") or task.get("due_date"),
+            "priority": task.get("priority"),
+            "labels": sorted(task.get("labels") or []),
+            "is_deleted": task.get("is_deleted"),
+            "is_archived": task.get("is_archived"),
+            "parent_id": task.get("parent_id"),
+            "project_id": task.get("project_id"),
+            "section_id": task.get("section_id"),
+        }
+    )

@@ -13,7 +13,7 @@ DEFAULT_SETTINGS: dict[str, bool] = {
     "emit_task_reopened": True,
     "emit_task_deleted": True,
     "task_state_created": False,
-    "task_state_updated": True,
+    "task_state_updated": False,
     "task_state_completed": False,
 }
 

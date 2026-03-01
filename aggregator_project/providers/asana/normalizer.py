@@ -5,7 +5,13 @@ from typing import Any
 
 from django.utils.dateparse import parse_date
 
-from ingestion.normalizers.utils import build_actor_fields, canonical_event_type, parse_timestamp
+from ingestion.normalizers.utils import (
+    build_actor_fields,
+    canonical_event_type,
+    parse_timestamp,
+    fingerprint_from_fields,
+    arbitrate_events,
+)
 from providers.asana.settings import get_asana_settings
 
 
@@ -13,6 +19,7 @@ def normalize_asana(raw: dict[str, Any]) -> list[dict[str, Any]]:
     task = raw
     actor_default = task.get("last_modified_by") or task.get("created_by")
     settings = get_asana_settings(task.get("__asana_settings"))
+    prev_hash = task.get("__prev_change_hash")
 
     if not settings.get("sync_tasks"):
         return []
@@ -44,6 +51,7 @@ def normalize_asana(raw: dict[str, Any]) -> list[dict[str, Any]]:
             )
         )
 
+    completion_emitted = False
     if (
         completed_at
         and task.get("completed") is True
@@ -60,6 +68,7 @@ def normalize_asana(raw: dict[str, Any]) -> list[dict[str, Any]]:
                 raw={"task": task, "occurrence": {"completed_at": task.get("completed_at")}},
             )
         )
+        completion_emitted = True
 
     if (
         task.get("completed") is False
@@ -99,32 +108,50 @@ def normalize_asana(raw: dict[str, Any]) -> list[dict[str, Any]]:
             )
 
     if modified_at and settings.get("emit_task_updated"):
-        events.append(
-            _base_event(
-                task=task,
-                actor=actor_default,
-                event_type=canonical_event_type("task_updated"),
-                occurred_at=modified_at,
-                external_status="completed" if task.get("completed") else "open",
-                source_event_version=modified_at.isoformat(),
-                raw={"task": task, "occurrence": {"modified_at": task.get("modified_at")}},
-            )
-        )
+        if not completion_emitted or modified_at != completed_at:
+            if not (created_at and modified_at == created_at):
+                new_hash = _change_fingerprint(task)
+                if new_hash != prev_hash:
+                    task["__change_hash"] = new_hash
+                    events.append(
+                        _base_event(
+                            task=task,
+                            actor=actor_default,
+                            event_type=canonical_event_type("task_updated"),
+                            occurred_at=modified_at,
+                            external_status="completed" if task.get("completed") else "open",
+                            source_event_version=modified_at.isoformat(),
+                            raw={"task": task, "occurrence": {"modified_at": task.get("modified_at")}},
+                        )
+                    )
 
-    events.extend(
-        _task_state_events(
-            task=task,
-            actor=actor_default,
-            created_at=created_at,
-            modified_at=modified_at,
-            completed_at=completed_at,
-            start_at=start_at,
-            due_at=due_at,
-            settings=settings,
-        )
+    # Skip task_state when a completion occurrence exists at the same timestamp to avoid triples.
+    state_events = _task_state_events(
+        task=task,
+        actor=actor_default,
+        created_at=created_at,
+        modified_at=modified_at,
+        completed_at=completed_at,
+        start_at=start_at,
+        due_at=due_at,
+        settings=settings,
     )
+    if completion_emitted and completed_at:
+        state_events = [
+            ev for ev in state_events if ev.get("source_event_version") != completed_at.isoformat()
+        ]
+    events.extend(state_events)
 
-    return events
+    seen_versions = set()
+    deduped = []
+    for ev in events:
+        key = (ev["event_type"], ev.get("source_event_version"))
+        if key in seen_versions:
+            continue
+        seen_versions.add(key)
+        deduped.append(ev)
+
+    return arbitrate_events(deduped)
 
 
 def _task_state_events(
@@ -208,6 +235,32 @@ def _base_event(
     }
     payload.update(build_actor_fields(actor, default_type="user"))
     return payload
+
+
+def _change_fingerprint(task: dict[str, Any]) -> str:
+    tags_raw = task.get("tags") or []
+    tags_normalized = []
+    for tag in tags_raw:
+        if isinstance(tag, dict):
+            val = tag.get("gid") or tag.get("id") or tag.get("name")
+        else:
+            val = tag
+        if val is not None:
+            tags_normalized.append(str(val))
+
+    return fingerprint_from_fields(
+        {
+            "name": task.get("name"),
+            "notes": task.get("notes"),
+            "completed": task.get("completed"),
+            "due_at": task.get("due_at"),
+            "start_at": task.get("start_at"),
+            "assignee": (task.get("assignee") or {}).get("gid"),
+            "priority": task.get("priority"),
+            "tags": sorted(tags_normalized),
+            "archived": task.get("archived"),
+        }
+    )
 
 
 def _parse_occurrence_timestamp(value: Any) -> datetime | None:

@@ -12,6 +12,7 @@ from events.models import Event
 from ingestion.providers import ProviderSpec
 from ingestion.services.sync import sync_connector_account
 from providers.asana.client import AsanaClient
+from providers.asana.settings import get_asana_settings
 from providers.asana.normalizer import normalize_asana
 from workspaces.models import Workspace
 
@@ -43,7 +44,7 @@ class AsanaEventTests(TestCase):
         )
 
     def _build_account(self, workspace: Workspace) -> ConnectorAccount:
-        return ConnectorAccount.objects.create(
+        account = ConnectorAccount.objects.create(
             workspace=workspace,
             source="asana",
             display_name="Asana",
@@ -53,6 +54,10 @@ class AsanaEventTests(TestCase):
             status=ConnectorAccount.STATUS_CONNECTED,
             is_active=True,
         )
+        # Enable task_state explicitly for tests (defaults are off).
+        account.scopes = {"asana": {**get_asana_settings(None), "task_state_updated": True}}
+        account.save(update_fields=["scopes"])
+        return account
 
     def test_occurrence_and_state_events(self):
         workspace = Workspace.objects.create(name="Workspace")

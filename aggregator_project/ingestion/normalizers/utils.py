@@ -3,6 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+import hashlib
+import json
+
 from django.utils.dateparse import parse_datetime
 
 
@@ -20,6 +23,54 @@ def parse_timestamp(value: Any) -> datetime | None:
         if parsed:
             return parsed
     return None
+
+
+def fingerprint_from_fields(fields: dict[str, Any]) -> str:
+    """Deterministic hash for change detection."""
+    serialized = json.dumps(fields, sort_keys=True, default=str)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+PRIORITY_ORDER = {
+    "task_completed": 1,
+    "task_updated": 2,
+    "task_created": 3,
+    "task_state": 4,
+}
+
+
+def arbitrate_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Keep at most one lifecycle event per (entity, timestamp) by priority.
+
+    We normalise the timestamp key aggressively to collapse cases where
+    providers give slightly different microsecond values or when only the
+    source_event_version carries the timestamp.
+    """
+
+    def _timestamp_key(ev: dict[str, Any]) -> Any:
+        # Prefer start_time; fall back to source_event_version.
+        ts = ev.get("start_time")
+        parsed = parse_timestamp(ts)
+        if not parsed:
+            parsed = parse_timestamp(ev.get("source_event_version"))
+        if isinstance(parsed, datetime):
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            # Collapse to whole-second precision to avoid microsecond drift.
+            parsed = parsed.replace(microsecond=0)
+            return ("dt", parsed)
+        raw = ts or ev.get("source_event_version")
+        return ("raw", raw)
+
+    chosen: dict[tuple[str, Any], dict[str, Any]] = {}
+    for ev in events:
+        key = (ev.get("source_entity_id"), _timestamp_key(ev))
+        prio = PRIORITY_ORDER.get(ev.get("event_type"), 99)
+        current = chosen.get(key)
+        if current is None or PRIORITY_ORDER.get(current.get("event_type"), 99) > prio:
+            chosen[key] = ev
+    return list(chosen.values())
 
 
 def serialize_raw(value: Any) -> Any:
