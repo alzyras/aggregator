@@ -466,6 +466,15 @@ a {
   color: #0e7490;
 }
 
+.row-highlight {
+  animation: flash 1s ease;
+}
+
+@keyframes flash {
+  0% { background-color: #fff7d6; }
+  100% { background-color: transparent; }
+}
+
 .status-badge.revoked {
   background: rgba(71, 85, 105, 0.18);
   color: #475569;

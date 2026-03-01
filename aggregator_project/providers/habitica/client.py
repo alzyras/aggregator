@@ -78,10 +78,14 @@ class HabiticaClient:
                     parse_timestamp(task.get("dateCompleted")),
                 ]
                 # history entries
+                new_history = []
                 for entry in task.get("history") or []:
                     ts = parse_timestamp(entry.get("date"))
-                    if ts:
+                    if ts and ts > since:
                         timestamps.append(ts)
+                        new_history.append(entry)
+                if new_history:
+                    task["history"] = new_history
                 if any(ts and ts > since for ts in timestamps):
                     filtered.append(task)
             return filtered

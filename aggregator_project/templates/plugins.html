@@ -60,7 +60,7 @@
                     </div>
                   </div>
                 </td>
-                <td>{{ row.account.display_name }}</td>
+                <td id="row-{{ row.account.id }}">{{ row.account.display_name }}</td>
                 <td>
                   <span class="status-badge {{ row.status_key }}">{{ row.status_label }}</span>
                 </td>
@@ -302,6 +302,34 @@
           setStep(steps.validating);
         });
       });
+
+      // Sync button UX: set status to syncing locally and prevent scroll loss by highlighting on redirect
+      document.querySelectorAll("form[action*='sync_connector_account']").forEach((form) => {
+        form.addEventListener("submit", (e) => {
+          const status = form.closest("tr")?.querySelector(".status-badge");
+          if (status) {
+            status.textContent = "Syncing";
+            status.classList.add("syncing");
+          }
+          const btn = form.querySelector("button[type='submit']");
+          if (btn) {
+            btn.disabled = true;
+            btn.textContent = btn.dataset.loadingText || "Syncing…";
+          }
+        });
+      });
+
+      // Highlight and scroll to row if highlight query present
+      const params = new URLSearchParams(window.location.search);
+      const highlightId = params.get("highlight");
+      if (highlightId) {
+        const row = document.getElementById(`row-${highlightId}`);
+        if (row) {
+          row.classList.add("row-highlight");
+          row.scrollIntoView({ behavior: "smooth", block: "center" });
+          setTimeout(() => row.classList.remove("row-highlight"), 1500);
+        }
+      }
 
       document.querySelectorAll("[data-edit-account]").forEach((btn) => {
         btn.addEventListener("click", () => {

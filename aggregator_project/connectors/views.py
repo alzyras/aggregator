@@ -5,6 +5,7 @@ import os
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count
+from django.urls import reverse
 from django.shortcuts import redirect, render
 from django.utils import timezone
 import json
@@ -288,7 +289,7 @@ def sync_connector_account_view(request, account_id: int):
         messages.warning(request, "Connector is not active yet.")
         return redirect("plugins_view")
     messages.success(request, "Sync job queued.")
-    return redirect("plugins_view")
+    return redirect(f"{reverse('plugins_view')}?highlight={account.id}")
 
 
 def _enabled_plugins() -> set[str]:
@@ -379,6 +380,8 @@ def _render_plugins_view(
             if latest_job.status == Job.STATUS_FAILED:
                 status_key = ConnectorAccount.STATUS_ERROR
             elif latest_job.status == Job.STATUS_RUNNING:
+                status_key = "syncing"
+            elif latest_job.status == Job.STATUS_QUEUED:
                 status_key = "syncing"
             elif latest_job.finished_at and account.status == ConnectorAccount.STATUS_CONNECTED:
                 status_key = ConnectorAccount.STATUS_CONNECTED
