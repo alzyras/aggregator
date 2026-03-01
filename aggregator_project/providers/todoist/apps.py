@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from django.apps import AppConfig
+from django.conf import settings
 
 from ingestion.providers import ProviderSpec
 
@@ -16,7 +19,12 @@ class TodoistProviderConfig(AppConfig):
         from providers.todoist.client import TodoistClient
         from providers.todoist.credentials import validate_credentials
         from providers.todoist.normalizer import normalize_todoist
-        from connectors.forms import TodoistConnectForm
+        from providers.todoist.forms import TodoistConnectForm
+
+        template_dir = Path(__file__).resolve().parent / "templates"
+        template_dirs = settings.TEMPLATES[0].setdefault("DIRS", [])
+        if template_dir not in template_dirs:
+            template_dirs.append(template_dir)
 
         self.provider_spec = ProviderSpec(
             source="todoist",

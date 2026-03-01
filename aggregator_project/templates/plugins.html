@@ -183,6 +183,8 @@
                 {% include "providers/habitica/form_fields.html" %}
               {% elif spec.source == "asana" %}
                 {% include "providers/asana/form_fields.html" %}
+              {% elif spec.source == "todoist" %}
+                {% include "providers/todoist/form_fields.html" %}
               {% else %}
                 {% for field in spec.form %}
                   <div class="form-section">

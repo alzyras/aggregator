@@ -327,6 +327,10 @@ def _render_plugins_view(
                 from providers.asana.settings import asana_form_initial
 
                 form = spec.form_class(initial=asana_form_initial(edit_account))
+            elif spec.source == "todoist":
+                from providers.todoist.settings import todoist_form_initial
+
+                form = spec.form_class(initial=todoist_form_initial(edit_account))
             else:
                 form = spec.form_class()
         if not form:
@@ -432,18 +436,27 @@ def _apply_credentials(account: ConnectorAccount, provider: str, credentials: di
         if provider == "asana":
             from providers.asana.settings import apply_asana_settings, is_masked_token
 
-        token = credentials.get("access_token") or credentials.get("api_token")
-        if token and not (provider == "asana" and is_masked_token(token)):
-            account.set_access_token(token)
-        account.set_refresh_token(None)
-        workspace_gids = credentials.get("workspace_gids") or []
-        account.external_account_id = workspace_gids[0] if workspace_gids else None
-        if provider == "asana":
+            token = credentials.get("access_token") or credentials.get("api_token")
+            if token and not is_masked_token(token):
+                account.set_access_token(token)
+            account.set_refresh_token(None)
+            workspace_gids = credentials.get("workspace_gids") or []
+            account.external_account_id = workspace_gids[0] if workspace_gids else None
             apply_asana_settings(account, credentials)
-        else:
-            account.scopes = []
-        account.token_expires_at = None
-        return
+            account.token_expires_at = None
+            return
+
+        if provider == "todoist":
+            from providers.todoist.settings import apply_todoist_settings, is_masked_token
+
+            token = credentials.get("api_token") or credentials.get("access_token")
+            if token and not is_masked_token(token):
+                account.set_access_token(token)
+            account.set_refresh_token(None)
+            account.external_account_id = None
+            apply_todoist_settings(account, credentials)
+            account.token_expires_at = None
+            return
     if provider == "habitica":
         from providers.habitica.settings import apply_habitica_settings, is_masked_token
 
@@ -488,4 +501,10 @@ def _resolve_masked_credentials(
         token = credentials.get("access_token")
         if is_masked_token(token):
             credentials = {**credentials, "access_token": account.get_access_token()}
+    if provider == "todoist":
+        from providers.todoist.settings import is_masked_token
+
+        token = credentials.get("api_token")
+        if is_masked_token(token):
+            credentials = {**credentials, "api_token": account.get_access_token()}
     return credentials

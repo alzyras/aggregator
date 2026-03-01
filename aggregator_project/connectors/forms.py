@@ -15,17 +15,6 @@ class AsanaConnectForm(forms.Form):
             field.widget.attrs.update({"class": "field-input"})
 
 
-class TodoistConnectForm(forms.Form):
-    api_token = forms.CharField(
-        label="API Token", max_length=255, widget=forms.PasswordInput
-    )
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        for field in self.fields.values():
-            field.widget.attrs.update({"class": "field-input"})
-
-
 class HabiticaConnectForm(forms.Form):
     user_id = forms.CharField(label="User ID", max_length=255)
     api_token = forms.CharField(
