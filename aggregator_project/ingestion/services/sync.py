@@ -33,6 +33,7 @@ def sync_connector_account(
     workspace,
     connector_account: ConnectorAccount,
     since: datetime | None = None,
+    full_sync: bool = False,
 ) -> dict[str, int]:
     if connector_account.workspace_id != workspace.id:
         raise ValueError("Connector account does not belong to workspace.")
@@ -43,7 +44,7 @@ def sync_connector_account(
     if not spec:
         raise ValueError(f"Unknown provider source: {connector_account.source}")
 
-    if since is None:
+    if since is None and not full_sync:
         since = _latest_event_timestamp(connector_account)
 
     client = spec.client_factory(connector_account)

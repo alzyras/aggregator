@@ -88,6 +88,7 @@ def connect_provider(request, source: str):
     account.save(
         update_fields=[
             "display_name",
+            "auth_type",
             "status",
             "is_active",
             "last_error",
@@ -95,6 +96,7 @@ def connect_provider(request, source: str):
             "encrypted_refresh_token",
             "token_expires_at",
             "scopes",
+            "config",
             "external_account_id",
             "revoked_at",
             "updated_at",
@@ -184,6 +186,7 @@ def update_connector_account(request, account_id: int):
     account.save(
         update_fields=[
             "display_name",
+            "auth_type",
             "status",
             "is_active",
             "last_error",
@@ -191,6 +194,7 @@ def update_connector_account(request, account_id: int):
             "encrypted_refresh_token",
             "token_expires_at",
             "scopes",
+            "config",
             "external_account_id",
             "updated_at",
         ]
@@ -246,6 +250,7 @@ def remove_connector_account(request, account_id: int):
     account.last_verified_at = None
     account.is_active = False
     account.revoked_at = timezone.now()
+    account.config = {}
     account.clear_tokens()
     account.save(
         update_fields=[
@@ -257,6 +262,7 @@ def remove_connector_account(request, account_id: int):
             "encrypted_refresh_token",
             "token_expires_at",
             "scopes",
+            "config",
             "external_account_id",
             "revoked_at",
             "updated_at",
@@ -334,6 +340,10 @@ def _render_plugins_view(
                 from providers.todoist.settings import todoist_form_initial
 
                 form = spec.form_class(initial=todoist_form_initial(edit_account))
+            elif spec.source == "jira":
+                from providers.jira.settings import jira_form_initial
+
+                form = spec.form_class(initial=jira_form_initial(edit_account))
             else:
                 form = spec.form_class()
         if not form:
@@ -391,6 +401,7 @@ def _render_plugins_view(
         edit_workspaces = ""
         edit_user_id = ""
         edit_token = ""
+        edit_credentials = {}
         if account.source == "asana":
             from providers.asana.settings import (
                 MASKED_TOKEN as ASANA_MASK,
@@ -410,6 +421,17 @@ def _render_plugins_view(
             edit_settings = get_habitica_settings(account.scopes)
             edit_user_id = account.external_account_id or ""
             edit_token = HABITICA_MASK
+        elif account.source == "jira":
+            from providers.jira.settings import jira_form_initial
+
+            initial = jira_form_initial(account)
+            secret_fields = {"api_token", "pat_token", "client_secret", "refresh_token"}
+            edit_settings = {k: v for k, v in initial.items() if k not in secret_fields}
+            edit_credentials = {
+                field: initial[field]
+                for field in secret_fields
+                if initial.get(field)
+            }
 
         connector_rows.append(
             {
@@ -423,6 +445,7 @@ def _render_plugins_view(
                 "edit_workspaces": edit_workspaces,
                 "edit_user_id": edit_user_id,
                 "edit_token": edit_token,
+                "edit_credentials_json": json.dumps(edit_credentials),
             }
         )
 
@@ -462,6 +485,30 @@ def _apply_credentials(account: ConnectorAccount, provider: str, credentials: di
             apply_todoist_settings(account, credentials)
             account.token_expires_at = None
             return
+    if provider == "jira":
+        from providers.jira.settings import apply_jira_settings
+
+        auth_method = credentials.get("auth_method")
+        if auth_method == "cloud_api_token":
+            token = credentials.get("api_token")
+            if token:
+                account.set_access_token(token)
+            account.set_refresh_token(None)
+        elif auth_method == "personal_access_token":
+            token = credentials.get("pat_token")
+            if token:
+                account.set_access_token(token)
+            account.set_refresh_token(None)
+        elif auth_method == "oauth2":
+            client_secret = credentials.get("client_secret")
+            refresh_token = credentials.get("refresh_token")
+            if client_secret:
+                account.set_access_token(client_secret)
+            account.set_refresh_token(refresh_token or None)
+
+        apply_jira_settings(account, credentials)
+        account.token_expires_at = None
+        return
     if provider == "habitica":
         from providers.habitica.settings import apply_habitica_settings, is_masked_token
 
@@ -512,4 +559,19 @@ def _resolve_masked_credentials(
         token = credentials.get("api_token")
         if is_masked_token(token):
             credentials = {**credentials, "api_token": account.get_access_token()}
+    if provider == "jira":
+        from providers.jira.settings import get_jira_config, is_masked_secret
+
+        stored_auth_method = get_jira_config(account.config).get("auth_method")
+        auth_method = credentials.get("auth_method") or stored_auth_method
+
+        if auth_method == "cloud_api_token" and is_masked_secret(credentials.get("api_token")):
+            credentials = {**credentials, "api_token": account.get_access_token()}
+        if auth_method == "personal_access_token" and is_masked_secret(credentials.get("pat_token")):
+            credentials = {**credentials, "pat_token": account.get_access_token()}
+        if auth_method == "oauth2":
+            if is_masked_secret(credentials.get("client_secret")):
+                credentials = {**credentials, "client_secret": account.get_access_token()}
+            if is_masked_secret(credentials.get("refresh_token")):
+                credentials = {**credentials, "refresh_token": account.get_refresh_token()}
     return credentials

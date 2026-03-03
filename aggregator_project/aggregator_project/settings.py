@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     "providers.todoist.apps.TodoistProviderConfig",
     "providers.google_fit.apps.GoogleFitProviderConfig",
     "providers.habitica.apps.HabiticaProviderConfig",
+    "providers.jira.apps.JiraProviderConfig",
 ]
 
 MIDDLEWARE = [

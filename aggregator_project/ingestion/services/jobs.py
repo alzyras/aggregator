@@ -126,6 +126,7 @@ def _execute_sync_job(job: Job):
         workspace=job.workspace,
         connector_account=connector_account,
         since=since,
+        full_sync=full_sync,
     )
     return {"results": [stats]}
 

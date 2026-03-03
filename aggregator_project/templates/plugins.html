@@ -94,6 +94,7 @@
                       data-edit-workspaces="{{ row.edit_workspaces }}"
                       data-edit-user-id="{{ row.edit_user_id }}"
                       data-edit-token="{{ row.edit_token }}"
+                      data-edit-credentials='{{ row.edit_credentials_json|escapejs }}'
                     >
                       Edit
                     </button>
@@ -195,6 +196,8 @@
                 {% include "providers/asana/form_fields.html" %}
               {% elif spec.source == "todoist" %}
                 {% include "providers/todoist/form_fields.html" %}
+              {% elif spec.source == "jira" %}
+                {% include "providers/jira/form_fields.html" %}
               {% else %}
                 {% for field in spec.form %}
                   <div class="form-section">
@@ -343,12 +346,21 @@
           const displayName = btn.dataset.editName;
           const action = btn.dataset.editAction;
           const settingsRaw = btn.dataset.editSettings || "";
+          const credentialsRaw = btn.dataset.editCredentials || "";
           let settings = {};
+          let editCredentials = {};
           if (settingsRaw) {
             try {
               settings = JSON.parse(settingsRaw);
             } catch (err) {
               settings = {};
+            }
+          }
+          if (credentialsRaw) {
+            try {
+              editCredentials = JSON.parse(credentialsRaw);
+            } catch (err) {
+              editCredentials = {};
             }
           }
           openModal();
@@ -363,6 +375,10 @@
             const tokenField = form.querySelector("[name='api_token'], [name='access_token']");
             if (tokenField) tokenField.value = tokenValue;
           }
+          Object.entries(editCredentials).forEach(([key, value]) => {
+            const tokenField = form.querySelector(`[name='${key}']`);
+            if (tokenField && value) tokenField.value = value;
+          });
 
           const userId = btn.dataset.editUserId;
           if (userId) {
@@ -385,6 +401,10 @@
             if (!field) return;
             if (field.type === "checkbox") {
               field.checked = Boolean(value);
+            } else if (field.multiple && Array.isArray(value)) {
+              Array.from(field.options).forEach((option) => {
+                option.selected = value.includes(option.value);
+              });
             } else if (value !== null && value !== undefined) {
               field.value = value;
             }

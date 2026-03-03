@@ -22,3 +22,13 @@ Occurrence dedupe key: `source + source_entity_id + event_type + occurred_at` (s
 - Dedupe key: `source + source_entity_id + task_state + updatedAt` (or `dateCreated`).
 
 Date-only timestamps are parsed as UTC midnight.
+
+## Jira ingestion
+
+Jira connector stores non-secret options in `ConnectorAccount.config["jira"]` and secrets in encrypted token fields.
+
+- Incremental by default, with configurable lookback (`incremental_lookback_minutes`).
+- Full/backfill supported through full sync mode and `initial_backfill_days`.
+- Lifecycle mapping: `task_created`, `task_updated`, `task_completed`, `task_reopened`, `task_deleted`, optional `task_state`.
+- Worklogs can emit `metric_recorded` (`time_spent`, `seconds`).
+- Changelog is the preferred source for precise completion/reopen transition timestamps.

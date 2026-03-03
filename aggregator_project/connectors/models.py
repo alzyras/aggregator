@@ -46,6 +46,7 @@ class ConnectorAccount(TimestampedModel):
     encrypted_refresh_token = models.BinaryField(null=True, blank=True)
     token_expires_at = models.DateTimeField(null=True, blank=True)
     scopes = models.JSONField(default=list, blank=True)
+    config = models.JSONField(default=dict, blank=True)
     external_account_id = models.CharField(max_length=255, null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(

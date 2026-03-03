@@ -6,6 +6,7 @@ from connectors.services import sanitize_error
 from providers.asana.verify import verify_asana
 from providers.google_fit.verify import verify_google_fit
 from providers.habitica.verify import verify_habitica
+from providers.jira.verify import verify_jira
 from providers.todoist.verify import verify_todoist
 
 Verifier = Callable[[dict[str, Any]], tuple[bool, str]]
@@ -16,6 +17,7 @@ VERIFY_MAP: dict[str, Verifier] = {
     "todoist": verify_todoist,
     "habitica": verify_habitica,
     "google_fit": verify_google_fit,
+    "jira": verify_jira,
 }
 
 
