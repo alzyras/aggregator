@@ -43,17 +43,7 @@ def main() -> None:
         print("Missing ASANA_WORKSPACE_GID")
         sys.exit(1)
 
-    # Legacy plugin entrypoint
-    from aggregator.plugins.asana.get_done_tasks_df import get_asana_completed_tasks_df
-
-    print("[legacy] fetching completed tasks...")
-    legacy_df = get_asana_completed_tasks_df(access_token, workspace_gid, 7)
-    if legacy_df is None:
-        print("[legacy] no data returned")
-    else:
-        print(f"[legacy] rows: {len(legacy_df)}")
-
-    # New adapter path via Django
+    # Adapter path via Django
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "aggregator_project.settings")
     if not os.environ.get("ENCRYPTION_KEY"):
         # Development-only fallback for local testing

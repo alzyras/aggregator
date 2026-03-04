@@ -8,6 +8,7 @@ from ingestion.normalizers.utils import CANONICAL_EVENT_TYPES
 from providers.asana.normalizer import normalize_asana
 from providers.google_fit.normalizer import normalize_google_fit
 from providers.habitica.normalizer import normalize_habitica
+from providers.jira.normalizer import normalize_jira
 from providers.todoist.normalizer import normalize_todoist
 
 
@@ -49,8 +50,39 @@ class CanonicalEventTypeTests(TestCase):
             "completed": False,
             "created_at": "2025-01-01T12:00:00Z",
         }
-        event = normalize_todoist(task)
-        self.assertIn(event["event_type"], CANONICAL_EVENT_TYPES)
+        events = normalize_todoist(task)
+        for event in events:
+            self.assertIn(event["event_type"], CANONICAL_EVENT_TYPES)
+
+    def test_jira_event_types_are_canonical(self):
+        issue = {
+            "id": "10001",
+            "key": "ENG-10",
+            "fields": {
+                "summary": "Ship Jira connector",
+                "description": "Implement connector",
+                "created": "2026-02-01T09:00:00.000+0000",
+                "updated": "2026-02-04T13:00:00.000+0000",
+                "status": {
+                    "name": "In Progress",
+                    "statusCategory": {"key": "indeterminate", "name": "In Progress"},
+                },
+            },
+            "__jira_config": {
+                "include_changelog": False,
+                "include_worklogs": False,
+                "emit_worklog_metrics": False,
+                "emit_task_created": True,
+                "emit_task_updated": True,
+                "emit_task_completed": True,
+                "emit_task_reopened": False,
+                "emit_task_deleted": False,
+                "emit_task_state": True,
+            },
+        }
+        events = normalize_jira(issue)
+        for event in events:
+            self.assertIn(event["event_type"], CANONICAL_EVENT_TYPES)
 
     def test_google_fit_event_types_are_canonical(self):
         record = {

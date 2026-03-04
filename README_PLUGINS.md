@@ -133,7 +133,7 @@ The plugin uses the Google Fit REST API to access health and fitness data direct
    - The plugin will automatically start the OAuth flow when run for the first time
    - The plugin will open your browser and ask you to authorize access to your Google Fit data
    - After authorization, the plugin will automatically obtain both access and refresh tokens
-   - Tokens will be stored in `aggregator/plugins/google_fit/data/google_fit_tokens.json`
+   - Tokens will be stored in `aggregator_project/providers/google_fit/data/google_fit_tokens.json`
 
 ### Data Types Collected
 - **Steps**: Daily step counts
@@ -184,4 +184,3 @@ CLI:
 - Optional `--period last_month|last_90_days|last_12_months`
 
 Privacy: only the query text is sent to the LLM for intent interpretation; activity data stays local and only summarized context is shared with the local LLM endpoint.
-

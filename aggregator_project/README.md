@@ -6,9 +6,9 @@ Habitica ingestion emits two classes of events into `events.Event`:
 
 ### Occurrence events
 
-- Habits: `habit_scored` per history entry.
-- Dailies: `daily_completed` per history entry (completed only), or `dateCompleted` fallback.
-- Todos: `todo_completed` when `dateCompleted` is present.
+- Habits: `metric_recorded` per history entry.
+- Dailies: `task_completed` per history entry (completed only), or `dateCompleted` fallback.
+- Todos: `task_completed` when `dateCompleted` is present.
 
 Occurrence dedupe key: `source + source_entity_id + event_type + occurred_at` (stored in `source_event_version`).
 

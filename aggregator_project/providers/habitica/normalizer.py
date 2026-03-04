@@ -242,7 +242,7 @@ def _base_event(
         "source": "habitica",
         "source_entity_type": task_type,
         "source_entity_id": str(task.get("id") or task.get("_id") or ""),
-        "event_type": event_type,
+        "event_type": canonical_event_type(event_type),
         "title": task.get("text") or task.get("name"),
         "description": task.get("notes"),
         "start_time": occurred_at,

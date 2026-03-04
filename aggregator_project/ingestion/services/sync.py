@@ -12,7 +12,11 @@ from django.utils.dateparse import parse_datetime
 from connectors.models import ConnectorAccount
 from events.models import Event
 from ingestion.normalizers.base import build_dedupe_hash
-from ingestion.normalizers.utils import serialize_raw
+from ingestion.normalizers.utils import (
+    CANONICAL_EVENT_TYPES,
+    canonical_event_type,
+    serialize_raw,
+)
 from ingestion.providers import get_provider_spec
 
 
@@ -59,11 +63,19 @@ def sync_connector_account(
         if isinstance(normalized_items, dict):
             normalized_items = [normalized_items]
         for normalized in normalized_items:
+            raw_event_type = normalized.get("event_type")
+            if not raw_event_type:
+                skipped += 1
+                continue
+            normalized["event_type"] = canonical_event_type(raw_event_type)
+            if normalized["event_type"] not in CANONICAL_EVENT_TYPES:
+                skipped += 1
+                continue
             if "raw" not in normalized:
                 normalized["raw"] = raw
             normalized["raw"] = serialize_raw(normalized["raw"])
             normalized["dedupe_hash"] = build_dedupe_hash(normalized)
-            if not normalized.get("source_entity_id") or not normalized.get("event_type"):
+            if not normalized.get("source_entity_id"):
                 skipped += 1
                 continue
             try:
