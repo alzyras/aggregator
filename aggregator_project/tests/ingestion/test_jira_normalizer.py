@@ -17,8 +17,16 @@ def _base_issue() -> dict:
                 "name": "In Progress",
                 "statusCategory": {"key": "indeterminate", "name": "In Progress"},
             },
-            "reporter": {"accountId": "u1", "displayName": "Reporter"},
-            "assignee": {"accountId": "u2", "displayName": "Assignee"},
+            "reporter": {
+                "accountId": "u1",
+                "displayName": "Reporter",
+                "accountType": "atlassian",
+            },
+            "assignee": {
+                "accountId": "u2",
+                "displayName": "Assignee",
+                "accountType": "atlassian",
+            },
             "labels": ["backend"],
         },
         "__jira_config": {
@@ -106,3 +114,12 @@ def test_source_event_version_stable():
         event["source_event_version"] for event in second
     )
 
+
+def test_actor_mapping_uses_account_id_and_display_name():
+    issue = _base_issue()
+    issue["changelog"] = {"histories": []}
+    events = normalize_jira(issue)
+    created = next(event for event in events if event["event_type"] == "task_created")
+    assert created["external_actor_id"] == "u1"
+    assert created["external_actor_display_name"] == "Reporter"
+    assert created["external_actor_type"] == "atlassian"

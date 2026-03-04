@@ -145,18 +145,21 @@ def build_actor_fields(
         }
 
     actor_id = (
-        actor.get("id")
+        actor.get("accountId")
+        or actor.get("id")
         or actor.get("_id")
         or actor.get("userId")
         or actor.get("gid")
     )
     display_name = (
-        actor.get("display_name")
+        actor.get("displayName")
+        or actor.get("publicName")
+        or actor.get("display_name")
         or actor.get("name")
         or actor.get("profile", {}).get("name")
         or actor.get("auth", {}).get("local", {}).get("username")
     )
-    actor_type = actor.get("type") or default_type
+    actor_type = actor.get("accountType") or actor.get("type") or default_type
 
     return {
         "external_actor_id": str(actor_id) if actor_id is not None else None,
