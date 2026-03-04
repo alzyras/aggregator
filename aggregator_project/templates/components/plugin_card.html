@@ -1,0 +1,60 @@
+<div class="plugin-card {{ display_status }}{% if enabled %} enabled{% else %} disabled{% endif %}" data-card="{{ spec.source }}">
+  <div class="plugin-header">
+    <div class="plugin-title">
+      <span class="plugin-icon">{{ spec.label|slice:":1" }}</span>
+      <span class="plugin-name">{{ spec.label }}</span>
+    </div>
+    <button class="card-toggle" type="button" data-card-toggle="{{ spec.source }}">
+      Details
+    </button>
+    {% include "components/status_badge.html" with status=display_status enabled=enabled %}
+  </div>
+
+  <div class="plugin-body">
+    {% if not enabled %}
+      <div class="inline-alert">Disabled in configuration. Add this source to `ENABLED_PLUGINS` to activate.</div>
+    {% elif status == "connecting" %}
+      <div class="status-row warning">
+        <span class="spinner"></span>
+        <span>Verifying credentials...</span>
+      </div>
+    {% elif status == "connected" %}
+      <div class="plugin-locked">
+        Connected. This plugin is locked.
+      </div>
+      {% if last_verified_at %}
+        <div class="plugin-meta">Last verified: <span title="{{ last_verified_at|date:'Y-m-d H:i:s T' }}">{{ last_verified_at|date:"Y-m-d" }}</span></div>
+      {% endif %}
+      {% if account.last_sync_at %}
+        <div class="plugin-meta">Last sync: <span title="{{ account.last_sync_at|date:'Y-m-d H:i:s T' }}">{{ account.last_sync_at|date:"Y-m-d" }}</span></div>
+      {% endif %}
+      <form method="post" action="{% url 'disconnect_provider' spec.source %}">
+        {% csrf_token %}
+        <button
+          type="submit"
+          class="btn ghost danger small"
+          onclick="return confirm('Disconnect {{ spec.label }}? This will clear stored credentials.');"
+        >
+          Disconnect
+        </button>
+      </form>
+    {% else %}
+      {% if status == "error" and last_error %}
+        <div class="inline-alert">{{ last_error }}</div>
+      {% endif %}
+      <form method="post" action="{% url 'connect_provider' spec.source %}" class="plugin-form">
+        {% csrf_token %}
+        {% for field in form %}
+          <div>
+            <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% if field.errors %}
+              <div class="field-error">{{ field.errors|striptags }}</div>
+            {% endif %}
+          </div>
+        {% endfor %}
+        <button type="submit" class="btn primary">Connect</button>
+      </form>
+    {% endif %}
+  </div>
+</div>

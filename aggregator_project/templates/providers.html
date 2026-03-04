@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="card">
+    <h1>Providers</h1>
+    <p>Activate providers by adding credentials. Connected providers show in green.</p>
+  </section>
+
+  <section class="card">
+    <div class="provider-grid">
+      {% for card in provider_cards %}
+        <div class="provider-card {% if card.connected %}connected{% endif %}">
+          <div class="provider-header">
+            <h2>{{ card.spec.label }}</h2>
+            {% if card.connected %}
+              <span class="status-pill success">Connected</span>
+            {% else %}
+              <span class="status-pill warn">Not connected</span>
+            {% endif %}
+          </div>
+
+          <p class="muted">{{ card.message }}</p>
+          {% if card.source %}
+            <p class="muted">Source: {{ card.source }}</p>
+          {% endif %}
+
+          {% if card.connected %}
+            <div class="connected-banner">Connected and locked.</div>
+          {% else %}
+            <form method="post" action="{% url 'connect_provider' %}" class="provider-form">
+              {% csrf_token %}
+              <input type="hidden" name="source" value="{{ card.spec.source }}" />
+              {% for key, label, env_var in card.fields %}
+                <label>
+                  {{ label }}
+                  <input type="text" name="{{ key }}" placeholder="{{ env_var }}" />
+                </label>
+              {% endfor %}
+              <button type="submit">Connect</button>
+            </form>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

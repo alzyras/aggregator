@@ -1,0 +1,175 @@
+{% if spec.source == "asana" %}
+  <div class="form-section">
+    <label class="field-label" for="{{ spec.form.access_token.id_for_label }}">{{ spec.form.access_token.label }}</label>
+    {{ spec.form.access_token }}
+    {% for error in spec.form.access_token.errors %}
+      <div class="field-error">{{ error }}</div>
+    {% endfor %}
+  </div>
+  <div class="form-section">
+    <label class="field-label" for="asana-workspace-input">Workspace GIDs</label>
+    {{ spec.form.workspace_gids }}
+    <div class="pill-input" data-pill-input>
+      <div class="pill-list" data-pill-list></div>
+      <input
+        class="pill-field field-input"
+        id="asana-workspace-input"
+        type="text"
+        inputmode="numeric"
+        pattern="[0-9]*"
+        placeholder="Type a workspace GID and press Enter"
+        autocomplete="off"
+        data-pill-text
+      />
+    </div>
+    <div class="pill-error" data-pill-error></div>
+    <div class="field-help">Press Enter to add a workspace. Click × to remove.</div>
+    {% for error in spec.form.workspace_gids.errors %}
+      <div class="field-error">{{ error }}</div>
+    {% endfor %}
+  </div>
+
+  <div class="form-section">
+    <div class="form-group-title">Sync scope</div>
+    <div class="checkbox-grid">
+      <label class="checkbox-card">
+        {{ spec.form.sync_tasks }}
+        <span>Sync tasks</span>
+      </label>
+      <label class="checkbox-card">
+        {{ spec.form.sync_subtasks }}
+        <span>Sync subtasks</span>
+      </label>
+      <label class="checkbox-card">
+        {{ spec.form.include_completed }}
+        <span>Include completed</span>
+      </label>
+      <label class="checkbox-card">
+        {{ spec.form.include_archived }}
+        <span>Include archived</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-group-title">Task events</div>
+    <div class="checkbox-grid">
+      <label class="checkbox-card">
+        {{ spec.form.emit_task_created }}
+        <span>Created</span>
+      </label>
+      <label class="checkbox-card">
+        {{ spec.form.emit_task_updated }}
+        <span>Updated</span>
+      </label>
+      <label class="checkbox-card">
+        {{ spec.form.emit_task_completed }}
+        <span>Completed</span>
+      </label>
+      <label class="checkbox-card">
+        {{ spec.form.emit_task_reopened }}
+        <span>Reopened</span>
+      </label>
+      <label class="checkbox-card">
+        {{ spec.form.emit_task_deleted }}
+        <span>Deleted</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-group-title">Task states</div>
+    <div class="checkbox-grid">
+      <label class="checkbox-card">
+        {{ spec.form.task_state_created }}
+        <span>Created</span>
+      </label>
+      <label class="checkbox-card">
+        {{ spec.form.task_state_updated }}
+        <span>Updated</span>
+      </label>
+      <label class="checkbox-card">
+        {{ spec.form.task_state_completed }}
+        <span>Completed</span>
+      </label>
+    </div>
+  </div>
+{% endif %}
+
+<script>
+  (function () {
+    const container = document.currentScript?.previousElementSibling?.closest("form") || document;
+    const input = container.querySelector("[data-pill-text]");
+    const list = container.querySelector("[data-pill-list]");
+    const hidden = container.querySelector("input[name='workspace_gids']");
+    const pillRoot = container.querySelector("[data-pill-input]");
+    const error = container.querySelector("[data-pill-error]");
+    if (!input || !list || !hidden || !pillRoot || !error) return;
+
+    const values = [];
+
+    function render() {
+      list.innerHTML = "";
+      values.forEach((value, index) => {
+        const pill = document.createElement("span");
+        pill.className = "pill";
+        pill.textContent = value;
+        const close = document.createElement("button");
+        close.type = "button";
+        close.className = "pill-close";
+        close.textContent = "×";
+        close.addEventListener("click", () => {
+          values.splice(index, 1);
+          sync();
+        });
+        pill.appendChild(close);
+        list.appendChild(pill);
+      });
+      hidden.value = values.join(",");
+    }
+
+    function setError(message) {
+      error.textContent = message || "";
+    }
+
+    function sync() {
+      render();
+      input.value = "";
+    }
+
+    function setValues(nextValues) {
+      values.splice(0, values.length, ...nextValues);
+      render();
+    }
+
+    pillRoot.pillInputUpdate = setValues;
+
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      const value = input.value.trim();
+      if (!value) {
+        return;
+      }
+      if (!/^[0-9]+$/.test(value)) {
+        setError("Workspace GIDs must be numeric.");
+        input.value = "";
+        return;
+      }
+      if (values.includes(value)) {
+        setError("");
+        input.value = "";
+        return;
+      }
+      values.push(value);
+      setError("");
+      sync();
+    });
+
+    const seed = (hidden.value || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    setValues(seed);
+  })();
+</script>

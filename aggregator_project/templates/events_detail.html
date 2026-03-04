@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% load json_extras %}
+
+{% block content %}
+  <section class="hero">
+    <div>
+      <h1>{{ event.title|default:event.source_entity_id }}</h1>
+      <p>Detailed normalized view.</p>
+    </div>
+  </section>
+
+  <section class="glow">
+    <div class="panel">
+      <div class="detail-grid">
+        <div><strong>Source:</strong> {{ event.get_source_display }}</div>
+        <div><strong>Entity Type:</strong> {{ event.source_entity_type }}</div>
+        <div><strong>Entity ID:</strong> {{ event.source_entity_id }}</div>
+        <div><strong>Event Type:</strong> {{ event.event_type }}</div>
+        <div><strong>External Status:</strong> {{ event.external_status|default:"—" }}</div>
+        <div><strong>Actor:</strong> {{ event.external_actor_display_name|default:event.external_actor_id|default:"—" }}</div>
+        <div><strong>Actor Type:</strong> {{ event.external_actor_type|default:"—" }}</div>
+        <div><strong>Source Version:</strong> {{ event.source_event_version|default:"—" }}</div>
+        <div>
+          <strong>Start:</strong>
+          {% if event.start_time %}
+            <span title="{{ event.start_time|date:'Y-m-d H:i:s T' }}">{{ event.start_time|date:"Y-m-d" }}</span>
+          {% else %}
+            —
+          {% endif %}
+        </div>
+        <div>
+          <strong>End:</strong>
+          {% if event.end_time %}
+            <span title="{{ event.end_time|date:'Y-m-d H:i:s T' }}">{{ event.end_time|date:"Y-m-d" }}</span>
+          {% else %}
+            —
+          {% endif %}
+        </div>
+        <div><strong>Metric:</strong> {{ event.metric_type }} {{ event.metric_value }} {{ event.metric_unit }}</div>
+      </div>
+      <p class="detail-note">{{ event.description }}</p>
+    </div>
+  </section>
+
+  <section class="glow">
+    <div class="panel">
+      <h2 class="section-title">Raw Payload</h2>
+      <pre class="raw-json">{{ event.raw|pretty_json }}</pre>
+    </div>
+  </section>
+{% endblock %}

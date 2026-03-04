@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_ROOT"
+
+if ! command -v uv >/dev/null 2>&1; then
+  echo "uv is required but not installed. Install uv first: https://docs.astral.sh/uv/"
+  exit 1
+fi
+
+if [ ! -d ".venv" ]; then
+  uv venv .venv
+fi
+
+# shellcheck disable=SC1091
+source .venv/bin/activate
+
+uv pip install -r requirements.txt
+
+if [ ! -f ".env" ]; then
+  cp .env.example .env
+fi
+
+set -a
+# shellcheck disable=SC1091
+source .env
+set +a
+
+if [ -z "${ENCRYPTION_KEY:-}" ]; then
+  ENCRYPTION_KEY="$(
+    .venv/bin/python - <<'PY'
+from cryptography.fernet import Fernet
+print(Fernet.generate_key().decode("utf-8"))
+PY
+  )"
+  if grep -q "^ENCRYPTION_KEY=" .env; then
+    sed -i '' "s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=${ENCRYPTION_KEY}|" .env
+  else
+    echo "ENCRYPTION_KEY=${ENCRYPTION_KEY}" >> .env
+  fi
+  export ENCRYPTION_KEY
+fi
+
+if [ "${RESET_DB:-0}" = "1" ]; then
+  .venv/bin/python aggregator_project/manage.py reset_db
+else
+  .venv/bin/python aggregator_project/manage.py ensure_db
+fi
+.venv/bin/python aggregator_project/manage.py migrate
+
+if [ -n "${DJANGO_SUPERUSER_USERNAME:-}" ] && [ -n "${DJANGO_SUPERUSER_PASSWORD:-}" ] && [ -n "${DJANGO_SUPERUSER_EMAIL:-}" ]; then
+  .venv/bin/python aggregator_project/manage.py createsuperuser --noinput || true
+fi
+
+.venv/bin/python aggregator_project/manage.py runserver 0.0.0.0:8000

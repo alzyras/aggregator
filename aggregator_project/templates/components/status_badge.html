@@ -1,0 +1,21 @@
+{% if status == "connected" %}
+  <span class="status-badge connected">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Connected
+  </span>
+{% elif status == "connecting" %}
+  <span class="status-badge connecting">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h12M6 22h12M8 2c0 4 4 4 4 8s-4 4-4 8m8-16c0 4-4 4-4 8s4 4 4 8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Verifying
+  </span>
+{% elif status == "error" %}
+  <span class="status-badge error">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4m0 4h.01M10 3h4l7 13H3L10 3z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Error
+  </span>
+{% else %}
+  <span class="status-badge inactive">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3v6m6-6v6m-8 2h10v3a5 5 0 0 1-10 0v-3z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    {% if enabled %}Not connected{% else %}Disabled{% endif %}
+  </span>
+{% endif %}

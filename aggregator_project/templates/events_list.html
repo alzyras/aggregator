@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="hero">
+    <div>
+      <h1>Events</h1>
+      <p>Browse normalized events across all connected sources.</p>
+    </div>
+  </section>
+
+  <section class="glow">
+    <div class="panel">
+      <form method="get" class="filter-bar" data-filter-bar data-advanced-open="{{ has_advanced_filters|yesno:'1,0' }}">
+        <div class="filter-row primary-row">
+          <div class="filter-field filter-field-search">
+            <label class="field-label" for="filter-search">Search</label>
+            <input id="filter-search" type="search" name="q" value="{{ filters.q }}" class="field-input" placeholder="Search events…" />
+          </div>
+          <div class="filter-field">
+            <label class="field-label" for="filter-start">Start</label>
+            <input id="filter-start" type="date" name="start" value="{{ filters.start }}" class="field-input" />
+          </div>
+          <div class="filter-field">
+            <label class="field-label" for="filter-end">End</label>
+            <input id="filter-end" type="date" name="end" value="{{ filters.end }}" class="field-input" />
+          </div>
+          <div class="filter-field filter-actions">
+            <button type="submit" class="btn primary">Filter</button>
+            <a class="btn ghost" href="?">Reset all</a>
+            <button type="button" class="btn ghost" data-advanced-toggle aria-expanded="false">More filters</button>
+          </div>
+        </div>
+
+        <div class="filter-row presets-row">
+          <span class="field-label">Quick dates</span>
+          <div class="preset-group">
+            <button type="button" class="preset-btn" data-date-preset="today">Today</button>
+            <button type="button" class="preset-btn" data-date-preset="last-7">Last 7 days</button>
+            <button type="button" class="preset-btn" data-date-preset="last-30">Last 30 days</button>
+            <button type="button" class="preset-btn" data-date-preset="all">All time</button>
+          </div>
+        </div>
+
+        <div class="filter-row secondary-row" data-advanced-row hidden>
+          <div class="filter-field filter-field-advanced filter-field-span-3">
+            <label class="field-label" for="filter-source">Source</label>
+            <select id="filter-source" name="source" class="field-input">
+              <option value="">All sources</option>
+              {% for value, label in source_choices %}
+                <option value="{{ value }}" {% if filters.source == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="filter-field filter-field-advanced filter-field-span-3">
+            <label class="field-label" for="filter-connector-account">Source instance</label>
+            <select id="filter-connector-account" name="connector_account" class="field-input">
+              <option value="">All instances</option>
+              {% for connector_account in connector_accounts %}
+                <option value="{{ connector_account.id }}" {% if connector_account.id|stringformat:'s' in filters.connector_account %}selected{% endif %}>
+                  {{ connector_account.get_source_display }} · {{ connector_account.display_name }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="filter-field filter-field-advanced filter-field-span-3">
+            <label class="field-label" for="filter-external-status">State</label>
+            <select id="filter-external-status" name="external_status" class="field-input">
+              <option value="">All states</option>
+              {% for pill in status_pills %}
+                {% if pill.value %}
+                  <option value="{{ pill.value }}" {% if pill.value in filters.external_status %}selected{% endif %}>{{ pill.label }}</option>
+                {% endif %}
+              {% endfor %}
+            </select>
+          </div>
+          <div class="filter-field filter-field-advanced filter-field-span-3">
+            <label class="field-label" for="filter-event-type">Lifecycle event type</label>
+            <select id="filter-event-type" name="event_type" class="field-input">
+              <option value="">All lifecycle events</option>
+              {% for group_label, options in event_type_groups %}
+                {% if options %}
+                  {% for value, label in options %}
+                    <option value="{{ value }}" {% if value in filters.event_type %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                {% endif %}
+              {% endfor %}
+            </select>
+          </div>
+          <div class="filter-field filter-field-advanced filter-field-span-12">
+            <p class="field-help">Lifecycle and state options are generic and provider-agnostic.</p>
+          </div>
+        </div>
+      </form>
+
+      {% if active_filters %}
+        <div class="filter-pill-row">
+          {% for item in active_filters %}
+            <a class="filter-pill" href="{{ item.remove }}">{{ item.label }} <span aria-hidden="true">×</span></a>
+          {% endfor %}
+          <a class="filter-pill filter-pill-reset" href="?">Reset all</a>
+        </div>
+      {% endif %}
+
+      <div class="table-shell events-table-shell">
+        <table class="data-table events-table">
+          <colgroup>
+            <col class="col-source">
+            <col class="col-type">
+            <col class="col-title">
+            <col class="col-date">
+            <col class="col-event-type">
+            <col class="col-status">
+            <col class="col-actor">
+          </colgroup>
+          <thead>
+            <tr>
+              <th class="table-cell-source">Source</th>
+              <th class="table-cell-type">Entity</th>
+              <th class="table-cell-title">Title</th>
+              <th class="table-cell-date">Start</th>
+              <th class="table-cell-event-type">Event Type</th>
+              <th class="table-cell-status">State</th>
+              <th class="table-cell-actor">Actor</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for event in page_obj %}
+              <tr>
+                <td class="table-cell-source">{{ event.get_source_display }}</td>
+                <td class="table-cell-type"><span class="table-token">{{ event.source_entity_type }}</span></td>
+                <td class="table-cell-title"><a class="table-link" href="{% url 'event_detail' event.id %}">{{ event.title|default:event.source_entity_id }}</a></td>
+                <td class="table-cell-date">
+                  {% if event.start_time %}
+                    <span title="{{ event.start_time|date:'Y-m-d H:i:s T' }}">{{ event.start_time|date:"Y-m-d" }}</span>
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <td class="table-cell-event-type"><span class="table-token">{{ event.event_type }}</span></td>
+                <td class="table-cell-status">{{ event.external_status|default:"—" }}</td>
+                <td class="table-cell-actor">{{ event.external_actor_display_name|default:event.external_actor_id|default:"—" }}</td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="7">No events match these filters. Reset filters to see everything again.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pagination">
+        {% if page_obj.has_previous %}
+          <a class="btn ghost small" href="{% if pagination_query %}?{{ pagination_query }}&amp;page={{ page_obj.previous_page_number }}{% else %}?page={{ page_obj.previous_page_number }}{% endif %}">Previous</a>
+        {% endif %}
+        <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+        {% if page_obj.has_next %}
+          <a class="btn ghost small" href="{% if pagination_query %}?{{ pagination_query }}&amp;page={{ page_obj.next_page_number }}{% else %}?page={{ page_obj.next_page_number }}{% endif %}">Next</a>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  <script>
+    (function () {
+      const bar = document.querySelector("[data-filter-bar]");
+      if (!bar) return;
+      const advancedRow = bar.querySelector("[data-advanced-row]");
+      const toggle = bar.querySelector("[data-advanced-toggle]");
+      const startInput = bar.querySelector("#filter-start");
+      const endInput = bar.querySelector("#filter-end");
+
+      function setAdvanced(open) {
+        bar.classList.toggle("is-advanced-open", open);
+        if (advancedRow) advancedRow.hidden = !open;
+        if (toggle) toggle.setAttribute("aria-expanded", open ? "true" : "false");
+        if (toggle) toggle.textContent = open ? "Less filters" : "More filters";
+      }
+
+      const hasAdvancedValues = bar.dataset.advancedOpen === "1";
+
+      setAdvanced(hasAdvancedValues);
+
+      toggle?.addEventListener("click", () => {
+        setAdvanced(!bar.classList.contains("is-advanced-open"));
+      });
+
+      bar.querySelectorAll("[data-date-preset]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const now = new Date();
+          const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          let start = null;
+          const preset = btn.dataset.datePreset;
+          if (preset === "today") {
+            start = end;
+          } else if (preset === "last-7") {
+            start = new Date(end);
+            start.setDate(start.getDate() - 6);
+          } else if (preset === "last-30") {
+            start = new Date(end);
+            start.setDate(start.getDate() - 29);
+          } else if (preset === "all") {
+            startInput.value = "";
+            endInput.value = "";
+            return;
+          }
+          const toValue = (date) => date.toISOString().slice(0, 10);
+          startInput.value = toValue(start);
+          endInput.value = toValue(end);
+        });
+      });
+    })();
+  </script>
+{% endblock %}

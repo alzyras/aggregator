@@ -1,0 +1,87 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aggregator</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Onest:wght@300;400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}" />
+  </head>
+  <body>
+    <div class="page">
+      <div class="bg-orb"></div>
+      <div class="bg-orb secondary"></div>
+      <div class="top-bar">
+        <div class="top-bar-inner">
+          <span class="top-pill">Join now</span>
+          <span>Subscribe to get full access to Aggregator. Cancel anytime.</span>
+        </div>
+      </div>
+      <header class="nav-shell">
+        <div class="nav-inner">
+          <a class="brand" href="{% url 'plugins_view' %}">
+            <span class="brand-mark">
+              <span class="brand-dot"></span>
+            </span>
+            <span class="brand-name">Aggregator</span>
+          </a>
+          <nav class="nav-center">
+            <a class="nav-link {% if request.resolver_match.url_name == 'plugins_view' %}active{% endif %}" href="{% url 'plugins_view' %}">Plugins</a>
+            <a class="nav-link {% if request.resolver_match.url_name == 'event_list' or request.resolver_match.url_name == 'event_detail' %}active{% endif %}" href="{% url 'event_list' %}">Events</a>
+            {% if user.is_authenticated %}
+              <a class="nav-link {% if request.resolver_match.url_name == 'stats_view' %}active{% endif %}" href="{% url 'stats_view' %}">Statistics</a>
+            {% endif %}
+            <a class="nav-link {% if request.resolver_match.url_name == 'sync_view' or request.resolver_match.url_name == 'jobs_list' %}active{% endif %}" href="{% url 'sync_view' %}">Sync</a>
+          </nav>
+          <div class="nav-actions">
+            {% if user.is_authenticated %}
+              <span class="nav-user">{{ user.get_username }}</span>
+              <a class="btn ghost" href="{% url 'account_logout' %}">Log out</a>
+              <a class="btn primary" href="{% url 'sync_view' %}">Sync now</a>
+            {% else %}
+              <a class="btn ghost" href="{% url 'account_login' %}">Log in</a>
+              <a class="btn primary" href="{% url 'account_signup' %}">Create account</a>
+            {% endif %}
+          </div>
+        </div>
+      </header>
+
+      <main class="page-shell">
+        {% if messages %}
+          <div class="messages">
+            {% for message in messages %}
+              <div class="message {{ message.tags }}">{{ message }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+    <script>
+      (function () {
+        document.addEventListener("submit", (event) => {
+          const form = event.target;
+          if (!(form instanceof HTMLFormElement)) return;
+          if (form.dataset.skipFeedback) return;
+          const method = (form.getAttribute("method") || "get").toLowerCase();
+          if (method !== "post") return;
+          form.setAttribute("aria-busy", "true");
+          const buttons = form.querySelectorAll("button[type='submit'], input[type='submit']");
+          buttons.forEach((btn) => {
+            btn.disabled = true;
+            btn.classList.add("is-loading");
+            const loadingText = btn.getAttribute("data-loading-text");
+            if (loadingText && btn.textContent.trim() !== loadingText) {
+              btn.textContent = loadingText;
+            }
+          });
+        });
+      })();
+    </script>
+  </body>
+</html>

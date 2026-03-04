@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="hero">
+    <div>
+      <h1>Sync</h1>
+      <p>Trigger ingestion runs and inspect grouped sync runs.</p>
+    </div>
+  </section>
+
+  <section class="glow">
+    <div class="panel">
+      <form method="post" class="sync-actions">
+        {% csrf_token %}
+        <button type="submit" class="btn primary" data-loading-text="Queued…">Run Sync All</button>
+        {% if debug %}
+          <button type="submit" name="run_immediately" value="1" class="btn ghost">
+            Sync now (run immediately)
+          </button>
+        {% endif %}
+      </form>
+    </div>
+  </section>
+
+  <section class="glow">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Connector Run Overview</h2>
+          <span class="panel-subtitle">How each connector performed across recent runs.</span>
+        </div>
+        <form method="get" class="job-filter">
+          <label class="field-label" for="job-status">Status</label>
+          <select id="job-status" name="status" class="field-input" onchange="this.form.submit()">
+            <option value="">All</option>
+            {% for value, label in status_choices %}
+              <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label|title }}</option>
+            {% endfor %}
+          </select>
+        </form>
+      </div>
+      {% if run_overview_runs and connector_run_rows %}
+        <div class="run-overview-shell">
+          <table class="connector-run-grid">
+            <thead>
+              <tr>
+                <th>
+                  <div class="run-overview-axis">
+                    <span class="run-overview-axis-title">Connector</span>
+                    <span class="run-overview-axis-subtitle">Last {{ run_overview_runs|length }} days</span>
+                  </div>
+                </th>
+                {% for run_day in run_overview_runs %}
+                  <th title="{{ run_day.day_title }}">
+                    <span class="run-overview-date">{{ run_day.day_number }}</span>
+                  </th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in connector_run_rows %}
+                <tr class="connector-run-row{% if not row.has_data %} connector-run-row-empty{% endif %}">
+                  <th>
+                    <span class="connector-run-name">{{ row.connector_label }}</span>
+                  </th>
+                  {% for cell in row.cells %}
+                    <td class="run-bubble-cell">
+                      <span
+                        class="run-bubble run-bubble-{{ cell.status }} {{ cell.size_class }}"
+                        title="{{ cell.title|default:cell.tooltip }}"
+                        aria-label="{{ cell.aria_label }}"
+                        tabindex="0"
+                      ><span class="run-bubble-fallback" aria-hidden="true">{% if cell.status == "success" %}🟢{% elif cell.status == "failed" %}🔴{% elif cell.status == "running" %}🔵{% elif cell.status == "queued" %}🟡{% elif cell.status == "cancelled" %}⚫{% else %}⚪{% endif %}</span></span>
+                    </td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="run-overview-legend">
+          <span class="run-overview-legend-item"><span class="run-bubble run-bubble-success run-bubble-size-small"><span class="run-bubble-fallback" aria-hidden="true">🟢</span></span> Success</span>
+          <span class="run-overview-legend-item"><span class="run-bubble run-bubble-failed run-bubble-size-small"><span class="run-bubble-fallback" aria-hidden="true">🔴</span></span> Failed</span>
+          <span class="run-overview-legend-item"><span class="run-bubble run-bubble-running run-bubble-size-small"><span class="run-bubble-fallback" aria-hidden="true">🔵</span></span> Running</span>
+          <span class="run-overview-legend-item"><span class="run-bubble run-bubble-queued run-bubble-size-small"><span class="run-bubble-fallback" aria-hidden="true">🟡</span></span> Queued</span>
+          <span class="run-overview-legend-item"><span class="run-bubble run-bubble-cancelled run-bubble-size-small"><span class="run-bubble-fallback" aria-hidden="true">⚫</span></span> Cancelled</span>
+          <span class="run-overview-legend-item"><span class="run-bubble run-bubble-missing run-bubble-size-small"><span class="run-bubble-fallback" aria-hidden="true">⚪</span></span> Missing</span>
+        </div>
+      {% else %}
+        <div class="empty-note">No connector run history yet. Trigger a run to see connector-level outcomes.</div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="glow">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Detailed Runs</h2>
+          <span class="panel-subtitle">Grouped run details with parameters and status summary.</span>
+        </div>
+      </div>
+      <div class="table-shell">
+        <table class="data-table run-groups-table">
+          <thead>
+            <tr>
+              <th>Start Time</th>
+              <th>Run ID</th>
+              <th>Launched</th>
+              <th>Duration</th>
+              <th>Status</th>
+              <th>Run Parameters</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for run in run_groups %}
+              <tr>
+                <td>
+                  {% if run.start_time %}
+                    <span title="{{ run.start_time|date:'Y-m-d H:i:s T' }}">{{ run.start_time|date:"Y-m-d" }}</span>
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <td><code>{{ run.run_id }}</code></td>
+                <td>{{ run.launched_by }}</td>
+                <td>{{ run.duration_label }}</td>
+                <td>
+                  <span class="status-badge {{ run.status }}">
+                    {% if run.status == "running" %}
+                      <span class="spinner"></span>
+                    {% endif %}
+                    {{ run.status|title }}
+                  </span>
+                </td>
+                <td>
+                  <div class="run-params-meta">
+                    <div>{{ run.connector_count }} connector{{ run.connector_count|pluralize }}: {{ run.connector_names }}</div>
+                    <div>{{ run.summary_text }}</div>
+                  </div>
+                  <details class="run-params-details">
+                    <summary>View parameters</summary>
+                    <pre class="json-pre" tabindex="0">{% if run.run_params %}{{ run.run_params }}{% else %}No data{% endif %}</pre>
+                  </details>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="6">No sync runs yet.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="run-groups-footer">
+        <a class="btn ghost small" href="{% url 'jobs_list' %}">View raw jobs</a>
+      </div>
+    </div>
+  </section>
+{% endblock %}

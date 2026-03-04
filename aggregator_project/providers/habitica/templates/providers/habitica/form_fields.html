@@ -1,0 +1,66 @@
+{% if spec.source == "habitica" %}
+  <div class="form-section">
+    <label class="field-label" for="{{ spec.form.user_id.id_for_label }}">{{ spec.form.user_id.label }}</label>
+    {{ spec.form.user_id }}
+    {% for error in spec.form.user_id.errors %}
+      <div class="field-error">{{ error }}</div>
+    {% endfor %}
+  </div>
+  <div class="form-section">
+    <label class="field-label" for="{{ spec.form.api_token.id_for_label }}">{{ spec.form.api_token.label }}</label>
+    {{ spec.form.api_token }}
+    {% for error in spec.form.api_token.errors %}
+      <div class="field-error">{{ error }}</div>
+    {% endfor %}
+  </div>
+
+  <div class="form-section">
+    <div class="form-group-title">Sync scope</div>
+    <div class="checkbox-grid">
+      <label class="checkbox-card">
+        {{ spec.form.sync_habits }}
+        <span>Sync habits</span>
+      </label>
+      <label class="checkbox-card">
+        {{ spec.form.sync_todos }}
+        <span>Sync todos</span>
+      </label>
+      <label class="checkbox-card">
+        {{ spec.form.sync_dailies }}
+        <span>Sync dailies</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-group-title">Occurrence events</div>
+    <div class="checkbox-grid">
+      <label class="checkbox-card">
+        {{ spec.form.emit_history_occurrences }}
+        <span>Habit history events</span>
+      </label>
+      <label class="checkbox-card">
+        {{ spec.form.emit_completion_occurrences }}
+        <span>Completion events (daily/todo)</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-group-title">Task states</div>
+    <div class="checkbox-grid">
+      <label class="checkbox-card">
+        {{ spec.form.task_state_completed }}
+        <span>Completed</span>
+      </label>
+      <label class="checkbox-card">
+        {{ spec.form.task_state_created }}
+        <span>Created</span>
+      </label>
+      <label class="checkbox-card">
+        {{ spec.form.task_state_updated }}
+        <span>Updated</span>
+      </label>
+    </div>
+  </div>
+{% endif %}

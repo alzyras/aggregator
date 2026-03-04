@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h1>Jobs</h1>
+        <p class="panel-subtitle">Workspace job history and status.</p>
+      </div>
+      <form method="get" class="job-filter">
+        <label class="field-label" for="jobs-status">Status</label>
+        <select id="jobs-status" name="status" class="field-input" onchange="this.form.submit()">
+          <option value="">All</option>
+          {% for value, label in status_choices %}
+            <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label|title }}</option>
+          {% endfor %}
+        </select>
+      </form>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Job</th>
+            <th>Connector</th>
+            <th>Status</th>
+            <th>Queued</th>
+            <th>Started</th>
+            <th>Finished</th>
+            <th>Error</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for job in jobs %}
+            <tr>
+              <td>
+                <strong>{{ job.display_name }}</strong>
+                <div class="table-meta">{{ job.job_type }}</div>
+              </td>
+              <td>
+                {% if job.connector_account %}
+                  {{ job.connector_account.get_source_display }} ({{ job.connector_account.display_name }})
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                <span class="status-badge {{ job.status }}">
+                  {% if job.status == "running" %}
+                    <span class="spinner"></span>
+                  {% endif %}
+                  {{ job.status|title }}
+                </span>
+              </td>
+              <td>
+                {% if job.queued_at %}
+                  <span title="{{ job.queued_at|date:'Y-m-d H:i:s T' }}">{{ job.queued_at|date:"Y-m-d" }}</span>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if job.started_at %}
+                  <span title="{{ job.started_at|date:'Y-m-d H:i:s T' }}">{{ job.started_at|date:"Y-m-d" }}</span>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if job.finished_at %}
+                  <span title="{{ job.finished_at|date:'Y-m-d H:i:s T' }}">{{ job.finished_at|date:"Y-m-d" }}</span>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if job.status == "failed" %}
+                  <span class="inline-alert">{{ job.error_message|default:"Unknown error" }}</span>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="7">No jobs yet.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

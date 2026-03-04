@@ -201,9 +201,8 @@ class LlmSummaryService(PluginService):
     def chat(self, question: str, period: str = "last_12_months") -> str:
         start_date, end_date = self._date_range(period)
         context_text, payload = self.build_context(start_date, end_date)
-        prompt = question
         try:
-            return self._ask_llm(context_text, prompt)
+            return self._multi_pass_summary(question, context_text, payload)
         except Exception as exc:
             logger.error("LLM call failed: %s", exc, exc_info=True)
             return self._fallback_summary(payload)
@@ -523,6 +522,99 @@ class LlmSummaryService(PluginService):
 
         context_text = json.dumps(context, ensure_ascii=False, default=_encode)
         return clamp(context_text)
+
+    # --- Orchestrated summary for llm_summary ---
+    def _multi_pass_summary(self, question: str, context_text: str, payload: ContextPayload) -> str:
+        """Run a few short LLM passes and return a concise synthesis."""
+        passes = {
+            "platforms": (
+                "Scan all sources (Asana tasks/projects, Toggl time, Habitica completions, Google Fit activity). "
+                "Use only items semantically linked to the question; ignore platform-wide or unrelated metrics. "
+                "Extract only strong, explicit signals; cite sources and concrete values."
+            ),
+            "themes": (
+                "Cluster recurring projects/categories/clients/habits only within the question-aligned subset. "
+                "Note concentration vs spread and whether effort is sustained or episodic; keep to facts."
+            ),
+            "momentum": (
+                "Assess momentum on the question-aligned subset only: rising/stable/fading based on last-30 vs prior windows and gaps. "
+                "Mention coverage/consistency and obvious blockers; avoid hypotheticals; do not mention streaks unless start/end dates are provided."
+            ),
+            "gaps": (
+                "State if no question-aligned items exist; otherwise skip gaps."
+            ),
+        }
+
+        pass_outputs: Dict[str, str] = {}
+        for name, instruction in passes.items():
+            try:
+                pass_outputs[name] = self._call_llm_general(context_text, instruction, label=f"pass_{name}", max_tokens=320)
+            except Exception as exc:
+                logger.warning("Pass %s failed: %s", name, exc)
+
+        final_instruction = (
+            "Synthesize the pass outputs into a maximum of 3 bullets. "
+            "Use only metrics from the question-related subset; ignore platform-wide/unrelated data. "
+            "Each bullet must be one concrete fact tied to a single source/metric. "
+            "If no question-related items exist, return one bullet: 'No query-related items found' and stop. "
+            "If something is absent in the subset, say 'no recorded X' as its own bullet and stop. "
+            "Do not mix platforms or multiple metrics in one bullet. "
+            "Do not mention streaks unless you have exact start and end dates and specify what was measured; otherwise omit streaks. "
+            "No speculation, no advice, no trajectories, no gaps/risks, no meta commentary. "
+            "Tone: factual, decisive, analyst-style."
+        )
+        return self._call_llm_general(
+            context_text,
+            final_instruction + f"\nQuestion: {question}",
+            label="final_summary",
+            max_tokens=self.max_tokens,
+            prior_passes=pass_outputs,
+        )
+
+    def _call_llm_general(
+        self,
+        context_text: str,
+        instruction: str,
+        label: str,
+        max_tokens: int,
+        prior_passes: Dict[str, str] | None = None,
+    ) -> str:
+        messages = [
+            ChatMessage(
+                role="system",
+                content=(
+                    "You are the Aggregator analyst LLM. "
+                    "Use only the provided JSON context from Asana/Toggl/Habitica/Google Fit rollups. "
+                    "Do not invent data or speculate. "
+                    "Use only metrics that map to the user question; ignore platform-wide or unrelated data. "
+                    "State only observed facts and explicit gaps. "
+                    "Be concise and high-signal."
+                ),
+            ),
+            ChatMessage(
+                role="user",
+                content=(
+                    f"Context:\n{context_text}\n\n"
+                    f"Prior passes (may be empty):\n{json.dumps(prior_passes or {}, ensure_ascii=False)}\n\n"
+                    f"Instruction:\n{instruction}"
+                ),
+            ),
+        ]
+        payload = {
+            "model": self.model,
+            "messages": [m.__dict__ for m in messages],
+            "temperature": self.temperature,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        start = time.time()
+        resp = requests.post(self.base_url, json=payload, timeout=self.timeout)
+        elapsed = time.time() - start
+        resp.raise_for_status()
+        data = resp.json()
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        logger.info("LLM %s call complete (%.2fs)", label, elapsed)
+        return content
 
     def _ask_llm(self, context_text: str, prompt: str) -> str:
         messages = [

@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="hero">
+    <div>
+      <h1>Statistics</h1>
+      <p>Tasks completed and sync summary by source.</p>
+    </div>
+  </section>
+
+  <section class="glow">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Tasks Completed</h2>
+          <span class="panel-subtitle">
+            Last generated at
+            <span title="{{ last_generated_at|date:'Y-m-d H:i:s T' }}">{{ last_generated_at|date:"Y-m-d H:i:s" }} UTC</span>
+            {% if cache_bypassed %} · uncached{% endif %}
+          </span>
+        </div>
+        <div class="stats-header-actions">
+          <a class="btn ghost small" href="?nocache=1{% if selected_source %}&amp;source={{ selected_source }}{% endif %}">Refresh</a>
+        </div>
+      </div>
+
+      <div class="stats-filter-section">
+        <span class="stats-filter-label">Source</span>
+        <div class="stats-pill-group">
+          {% for pill in source_filter_pills %}
+            <a class="stats-pill {% if pill.active %}active{% endif %}" href="{{ pill.url }}">{{ pill.label }}</a>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="panel-header stats-chart-header">
+        <div class="panel-subtitle">Switch between daily and monthly completions.</div>
+        <div class="chart-toggle" role="group" aria-label="Completion series granularity">
+          <button type="button" class="btn ghost small chart-toggle-btn is-active" data-chart-mode="daily" aria-pressed="true">
+            Daily
+          </button>
+          <button type="button" class="btn ghost small chart-toggle-btn" data-chart-mode="monthly" aria-pressed="false">
+            Monthly
+          </button>
+        </div>
+      </div>
+
+      {% if completion_source_totals %}
+        <div class="stats-completion-legend">
+          {% for item in completion_source_totals %}
+            <span class="stats-legend-item">
+              <span class="stats-legend-dot" style="--series-hue: {{ item.color_hue }}"></span>
+              {{ item.source_label }}: {{ item.completed_count }}
+            </span>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="chart-shell">
+        <div class="completion-bar-chart chart" data-completion-bars>
+          <svg
+            class="completion-svg"
+            data-completion-svg
+            viewBox="0 0 960 260"
+            preserveAspectRatio="none"
+            role="img"
+            aria-label="Tasks completed bar chart"
+          ></svg>
+        </div>
+      </div>
+      <div class="completion-axis-row">
+        <span id="completion-axis-start">-</span>
+        <span id="completion-axis-mid">-</span>
+        <span id="completion-axis-end">-</span>
+      </div>
+      <p class="completion-detail" id="completion-detail">Click a bar to inspect exact value.</p>
+    </div>
+  </section>
+
+  <section class="glow">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Last Sync By Source</h2>
+          <span class="panel-subtitle">Latest finished sync and events ingested in that run.</span>
+        </div>
+      </div>
+
+      <div class="table-shell">
+        <table class="data-table stats-summary-table">
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th>Last sync</th>
+              <th class="stats-number-col">Events in last sync</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in sync_source_rows %}
+              <tr>
+                <td>{{ row.source_label }}</td>
+                <td>
+                  {% if row.last_sync_at %}
+                    <span title="{{ row.last_sync_at|date:'Y-m-d H:i:s T' }}">{{ row.last_sync_at|date:"Y-m-d H:i" }}</span>
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <td class="stats-number-col">
+                  {% if row.last_sync_event_count is not None %}
+                    {{ row.last_sync_event_count }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="3">No sync runs yet for this workspace.</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  {{ completion_daily_series|json_script:"stats-completion-daily-series" }}
+  {{ completion_monthly_series|json_script:"stats-completion-monthly-series" }}
+
+  <script>
+    (function () {
+      const dailyNode = document.getElementById("stats-completion-daily-series");
+      const monthlyNode = document.getElementById("stats-completion-monthly-series");
+      const dailySeries = dailyNode ? JSON.parse(dailyNode.textContent) : [];
+      const monthlySeries = monthlyNode ? JSON.parse(monthlyNode.textContent) : [];
+
+      const completionSvg = document.querySelector("[data-completion-svg]");
+      const axisStart = document.getElementById("completion-axis-start");
+      const axisMid = document.getElementById("completion-axis-mid");
+      const axisEnd = document.getElementById("completion-axis-end");
+      const completionDetail = document.getElementById("completion-detail");
+      const modeButtons = document.querySelectorAll("[data-chart-mode]");
+
+      const svgNs = "http://www.w3.org/2000/svg";
+      const chartPadding = { top: 36, right: 20, bottom: 34, left: 30 };
+      const chartHeight = 260;
+
+      const formatLabel = (label, mode) => {
+        if (mode === "monthly") return label.slice(2);
+        return label.slice(5);
+      };
+
+      const renderCompletionSeries = (series, mode) => {
+        if (!completionSvg) return;
+        completionSvg.innerHTML = "";
+        if (!series.length) {
+          if (completionDetail) completionDetail.textContent = "No task completed data.";
+          if (axisStart) axisStart.textContent = "-";
+          if (axisMid) axisMid.textContent = "-";
+          if (axisEnd) axisEnd.textContent = "-";
+          return;
+        }
+
+        const maxValue = Math.max(...series.map((item) => Number(item.value || 0)), 1);
+        const chartWidth = Math.max(960, series.length * 32);
+        completionSvg.setAttribute("viewBox", `0 0 ${chartWidth} ${chartHeight}`);
+
+        const plotHeight = chartHeight - chartPadding.top - chartPadding.bottom;
+        const plotWidth = chartWidth - chartPadding.left - chartPadding.right;
+        const barGap = 4;
+        const rawBarWidth = plotWidth / series.length;
+        const barWidth = Math.max(6, rawBarWidth - barGap);
+
+        for (let line = 0; line <= 4; line += 1) {
+          const y = chartPadding.top + (plotHeight / 4) * line;
+          const gridLine = document.createElementNS(svgNs, "line");
+          gridLine.setAttribute("x1", String(chartPadding.left));
+          gridLine.setAttribute("x2", String(chartWidth - chartPadding.right));
+          gridLine.setAttribute("y1", String(y));
+          gridLine.setAttribute("y2", String(y));
+          gridLine.setAttribute("class", "completion-svg-grid");
+          completionSvg.appendChild(gridLine);
+        }
+
+        let selectedPoint = null;
+        series.forEach((item, index) => {
+          const value = Number(item.value || 0);
+          const barHeight = maxValue > 0 ? (value / maxValue) * plotHeight : 0;
+          const x = chartPadding.left + index * rawBarWidth + barGap / 2;
+          const y = chartPadding.top + (plotHeight - barHeight);
+
+          const rect = document.createElementNS(svgNs, "rect");
+          rect.setAttribute("x", String(x));
+          rect.setAttribute("y", String(y));
+          rect.setAttribute("width", String(barWidth));
+          rect.setAttribute("height", String(Math.max(2, barHeight)));
+          rect.setAttribute("rx", "3");
+          rect.setAttribute("class", "completion-svg-bar");
+          rect.setAttribute("tabindex", "0");
+          rect.setAttribute("role", "button");
+          rect.setAttribute("aria-label", `${item.label}: ${value} completed tasks`);
+          rect.style.transform = "scaleY(0.001)";
+          const title = document.createElementNS(svgNs, "title");
+          title.textContent = `${item.label}: ${value}`;
+          rect.appendChild(title);
+          completionSvg.appendChild(rect);
+
+          const valueText = document.createElementNS(svgNs, "text");
+          if (value > 0) {
+            valueText.setAttribute("x", String(x + barWidth / 2));
+            valueText.setAttribute("y", String(Math.max(14, y - 8)));
+            valueText.setAttribute("text-anchor", "middle");
+            valueText.setAttribute("class", "completion-svg-value");
+            valueText.textContent = String(value);
+            completionSvg.appendChild(valueText);
+          }
+
+          const shouldRenderLabel = mode === "monthly" || index % Math.ceil(series.length / 10) === 0;
+          if (shouldRenderLabel) {
+            const text = document.createElementNS(svgNs, "text");
+            text.setAttribute("x", String(x + barWidth / 2));
+            text.setAttribute("y", String(chartHeight - 8));
+            text.setAttribute("text-anchor", "middle");
+            text.setAttribute("class", "completion-svg-label");
+            text.textContent = formatLabel(item.label, mode);
+            completionSvg.appendChild(text);
+          }
+
+          const setSelected = () => {
+            completionSvg.querySelectorAll(".completion-svg-bar.is-selected").forEach((node) => {
+              node.classList.remove("is-selected");
+            });
+            rect.classList.add("is-selected");
+            selectedPoint = item;
+            if (completionDetail) {
+              completionDetail.textContent = `${item.label}: ${value} completed task${value === 1 ? "" : "s"}.`;
+            }
+          };
+
+          rect.addEventListener("click", setSelected);
+          rect.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              setSelected();
+            }
+          });
+
+          window.setTimeout(() => {
+            rect.style.transform = "scaleY(1)";
+          }, index * 16);
+
+          if (!selectedPoint) {
+            setSelected();
+          }
+        });
+
+        if (axisStart) axisStart.textContent = series[0].label;
+        if (axisMid) axisMid.textContent = `${series.length} points`;
+        if (axisEnd) axisEnd.textContent = series[series.length - 1].label;
+      };
+
+      const setMode = (mode) => {
+        modeButtons.forEach((button) => {
+          const isActive = button.dataset.chartMode === mode;
+          button.classList.toggle("is-active", isActive);
+          button.setAttribute("aria-pressed", isActive ? "true" : "false");
+        });
+        if (mode === "monthly") {
+          renderCompletionSeries(monthlySeries, "monthly");
+          return;
+        }
+        renderCompletionSeries(dailySeries, "daily");
+      };
+
+      modeButtons.forEach((button) => {
+        button.addEventListener("click", () => setMode(button.dataset.chartMode || "daily"));
+      });
+
+      setMode("daily");
+    })();
+  </script>
+{% endblock %}

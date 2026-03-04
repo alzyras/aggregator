@@ -1,0 +1,182 @@
+{% if spec.source == "jira" %}
+  <div class="form-section">
+    <div class="form-group-title">Connection</div>
+    <div class="form-grid two-col">
+      <div>
+        <label class="field-label" for="{{ spec.form.deployment_type.id_for_label }}">{{ spec.form.deployment_type.label }}</label>
+        {{ spec.form.deployment_type }}
+        {% for error in spec.form.deployment_type.errors %}
+          <div class="field-error">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div>
+        <label class="field-label" for="{{ spec.form.auth_method.id_for_label }}">{{ spec.form.auth_method.label }}</label>
+        {{ spec.form.auth_method }}
+        {% for error in spec.form.auth_method.errors %}
+          <div class="field-error">{{ error }}</div>
+        {% endfor %}
+      </div>
+    </div>
+    <label class="field-label" for="{{ spec.form.base_url.id_for_label }}">{{ spec.form.base_url.label }}</label>
+    {{ spec.form.base_url }}
+    {% for error in spec.form.base_url.errors %}
+      <div class="field-error">{{ error }}</div>
+    {% endfor %}
+  </div>
+
+  <div class="form-section" data-jira-auth-group>
+    <div class="form-group-title">Credentials</div>
+    <div class="form-grid two-col" data-jira-auth="cloud_api_token">
+      <div>
+        <label class="field-label" for="{{ spec.form.email.id_for_label }}">{{ spec.form.email.label }}</label>
+        {{ spec.form.email }}
+        {% for error in spec.form.email.errors %}
+          <div class="field-error">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div>
+        <label class="field-label" for="{{ spec.form.api_token.id_for_label }}">{{ spec.form.api_token.label }}</label>
+        {{ spec.form.api_token }}
+        {% for error in spec.form.api_token.errors %}
+          <div class="field-error">{{ error }}</div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="form-grid two-col" data-jira-auth="personal_access_token">
+      <div>
+        <label class="field-label" for="{{ spec.form.pat_token.id_for_label }}">{{ spec.form.pat_token.label }}</label>
+        {{ spec.form.pat_token }}
+        {% for error in spec.form.pat_token.errors %}
+          <div class="field-error">{{ error }}</div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="form-grid two-col" data-jira-auth="oauth2">
+      <div>
+        <label class="field-label" for="{{ spec.form.client_id.id_for_label }}">{{ spec.form.client_id.label }}</label>
+        {{ spec.form.client_id }}
+        {% for error in spec.form.client_id.errors %}
+          <div class="field-error">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div>
+        <label class="field-label" for="{{ spec.form.client_secret.id_for_label }}">{{ spec.form.client_secret.label }}</label>
+        {{ spec.form.client_secret }}
+        {% for error in spec.form.client_secret.errors %}
+          <div class="field-error">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div>
+        <label class="field-label" for="{{ spec.form.refresh_token.id_for_label }}">{{ spec.form.refresh_token.label }}</label>
+        {{ spec.form.refresh_token }}
+        {% for error in spec.form.refresh_token.errors %}
+          <div class="field-error">{{ error }}</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-group-title">Scope</div>
+    <label class="field-label" for="{{ spec.form.project_keys.id_for_label }}">{{ spec.form.project_keys.label }}</label>
+    {{ spec.form.project_keys }}
+    {% for error in spec.form.project_keys.errors %}
+      <div class="field-error">{{ error }}</div>
+    {% endfor %}
+
+    <label class="field-label" for="{{ spec.form.jql_filter.id_for_label }}">{{ spec.form.jql_filter.label }}</label>
+    {{ spec.form.jql_filter }}
+    {% for error in spec.form.jql_filter.errors %}
+      <div class="field-error">{{ error }}</div>
+    {% endfor %}
+
+    <div class="form-grid two-col">
+      <div>
+        <label class="field-label" for="{{ spec.form.issue_types.id_for_label }}">{{ spec.form.issue_types.label }}</label>
+        {{ spec.form.issue_types }}
+      </div>
+      <div>
+        <label class="field-label" for="{{ spec.form.include_status_categories.id_for_label }}">{{ spec.form.include_status_categories.label }}</label>
+        {{ spec.form.include_status_categories }}
+      </div>
+      <div>
+        <label class="field-label" for="{{ spec.form.exclude_done_before_days.id_for_label }}">{{ spec.form.exclude_done_before_days.label }}</label>
+        {{ spec.form.exclude_done_before_days }}
+      </div>
+      <div>
+        <label class="field-label" for="{{ spec.form.timezone.id_for_label }}">{{ spec.form.timezone.label }}</label>
+        {{ spec.form.timezone }}
+      </div>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-group-title">Data detail</div>
+    <div class="checkbox-grid">
+      <label class="checkbox-card">{{ spec.form.include_comments }}<span>Comments</span></label>
+      <label class="checkbox-card">{{ spec.form.include_worklogs }}<span>Worklogs</span></label>
+      <label class="checkbox-card">{{ spec.form.include_changelog }}<span>Changelog</span></label>
+      <label class="checkbox-card">{{ spec.form.include_sprints }}<span>Sprints</span></label>
+      <label class="checkbox-card">{{ spec.form.include_attachments_metadata }}<span>Attachment metadata</span></label>
+      <label class="checkbox-card">{{ spec.form.include_linked_issues }}<span>Linked issues</span></label>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-group-title">Event scope</div>
+    <div class="checkbox-grid">
+      <label class="checkbox-card">{{ spec.form.emit_task_created }}<span>Created</span></label>
+      <label class="checkbox-card">{{ spec.form.emit_task_updated }}<span>Updated</span></label>
+      <label class="checkbox-card">{{ spec.form.emit_task_completed }}<span>Completed</span></label>
+      <label class="checkbox-card">{{ spec.form.emit_task_reopened }}<span>Reopened</span></label>
+      <label class="checkbox-card">{{ spec.form.emit_task_deleted }}<span>Deleted</span></label>
+      <label class="checkbox-card">{{ spec.form.emit_task_state }}<span>Task state</span></label>
+      <label class="checkbox-card">{{ spec.form.emit_worklog_metrics }}<span>Worklog metric</span></label>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-group-title">Sync behavior</div>
+    <div class="checkbox-grid">
+      <label class="checkbox-card">{{ spec.form.full_sync }}<span>Full sync</span></label>
+    </div>
+    <div class="form-grid three-col">
+      <div>
+        <label class="field-label" for="{{ spec.form.initial_backfill_days.id_for_label }}">{{ spec.form.initial_backfill_days.label }}</label>
+        {{ spec.form.initial_backfill_days }}
+      </div>
+      <div>
+        <label class="field-label" for="{{ spec.form.incremental_lookback_minutes.id_for_label }}">{{ spec.form.incremental_lookback_minutes.label }}</label>
+        {{ spec.form.incremental_lookback_minutes }}
+      </div>
+      <div>
+        <label class="field-label" for="{{ spec.form.page_size.id_for_label }}">{{ spec.form.page_size.label }}</label>
+        {{ spec.form.page_size }}
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const form = document.currentScript?.closest("form");
+      if (!form) return;
+      const authField = form.querySelector("[name='auth_method']");
+      const groups = form.querySelectorAll("[data-jira-auth]");
+      if (!authField || !groups.length) return;
+
+      function syncGroups() {
+        const mode = authField.value;
+        groups.forEach((group) => {
+          const visible = group.getAttribute("data-jira-auth") === mode;
+          group.style.display = visible ? "" : "none";
+        });
+      }
+
+      authField.addEventListener("change", syncGroups);
+      syncGroups();
+    })();
+  </script>
+{% endif %}
+

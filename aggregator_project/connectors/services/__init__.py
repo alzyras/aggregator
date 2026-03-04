@@ -1,0 +1,52 @@
+from __future__ import annotations
+
+from connectors.models import ConnectorAccount
+from workspaces.models import Workspace
+
+
+def get_active_account(source: str, workspace: Workspace) -> ConnectorAccount | None:
+    return (
+        ConnectorAccount.objects.for_workspace(workspace)
+        .filter(
+            source=source,
+            is_active=True,
+            status=ConnectorAccount.STATUS_CONNECTED,
+            revoked_at__isnull=True,
+        )
+        .order_by("-updated_at")
+        .first()
+    )
+
+
+def get_active_accounts(source: str, workspace: Workspace):
+    return (
+        ConnectorAccount.objects.for_workspace(workspace)
+        .filter(
+            source=source,
+            is_active=True,
+            status=ConnectorAccount.STATUS_CONNECTED,
+            revoked_at__isnull=True,
+        )
+        .order_by("created_at")
+    )
+
+
+def get_account_by_id(account_id: str, workspace: Workspace) -> ConnectorAccount | None:
+    return (
+        ConnectorAccount.objects.for_workspace(workspace)
+        .filter(id=account_id)
+        .first()
+    )
+
+
+def get_required_account(source: str, workspace: Workspace) -> ConnectorAccount:
+    account = get_active_account(source, workspace)
+    if not account:
+        raise ValueError("No active connector account found.")
+    return account
+
+
+def sanitize_error(message: str) -> str:
+    if not message:
+        return "Verification failed."
+    return message.splitlines()[0][:300]
