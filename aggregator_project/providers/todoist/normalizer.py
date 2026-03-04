@@ -133,7 +133,7 @@ def _base_event(*, raw: dict[str, Any], event_type: str, occurred_at: Any, exter
         "source": "todoist",
         "source_entity_type": raw.get("resource_type") or raw.get("type") or "task",
         "source_entity_id": str(raw.get("id") or raw.get("gid") or ""),
-        "event_type": event_type,
+        "event_type": canonical_event_type(event_type),
         "title": raw.get("content") or raw.get("title"),
         "description": raw.get("description"),
         "start_time": occurred_at,
