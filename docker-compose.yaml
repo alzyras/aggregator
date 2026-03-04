@@ -24,7 +24,7 @@ services:
       COLLECT_STATIC: ${COLLECT_STATIC:-1}
       AUTO_CREATE_DB: ${AUTO_CREATE_DB:-0}
     ports:
-      - "8000:8000"
+      - "${WEB_PORT:-8000}:${APP_PORT:-8000}"
     restart: unless-stopped
     healthcheck:
       test:

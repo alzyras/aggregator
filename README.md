@@ -52,6 +52,8 @@ Portainer stack deployment:
 - `DJANGO_ALLOWED_HOSTS`
 - `ENCRYPTION_KEY` (required and must stay stable)
 - `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`
+- `WEB_PORT` (host port, example `8000`)
+- `APP_PORT` (container app port, default `8000`)
 4. Expose port `8000` from the `web` service.
 
 Optional startup flags:
@@ -59,6 +61,7 @@ Optional startup flags:
 - `AUTO_CREATE_DB=1` to run `ensure_db` on container start (only if DB user can create databases)
 - `RUN_MIGRATIONS=1` to apply migrations at startup (default on `web`)
 - `COLLECT_STATIC=1` to build static assets (default on `web`)
+- Application URL is `http://<your-hostname>:<WEB_PORT>/`
 
 ## Database
 
