@@ -30,6 +30,36 @@ cp .env.example .env
 - `http://localhost:8000/jobs/` to inspect job status
 - `http://localhost:8000/admin/` for admin
 
+## Docker / Portainer
+
+The repository is now dockerized for a production-style deployment with two services:
+
+- `web`: Django + Gunicorn
+- `worker`: background job runner (`run_worker`)
+
+Start locally with Docker Compose:
+
+```bash
+docker compose --env-file .env up -d --build
+```
+
+Portainer stack deployment:
+
+1. Use this repository as the stack source.
+2. Use [`/Users/tomas/Documents/projects/aggregator/docker-compose.yml`](/Users/tomas/Documents/projects/aggregator/docker-compose.yml) (Portainer default filename).
+3. Set environment variables in Portainer stack settings:
+- `DJANGO_SECRET_KEY`
+- `DJANGO_ALLOWED_HOSTS`
+- `ENCRYPTION_KEY` (required and must stay stable)
+- `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`
+4. Expose port `8000` from the `web` service.
+
+Optional startup flags:
+
+- `AUTO_CREATE_DB=1` to run `ensure_db` on container start (only if DB user can create databases)
+- `RUN_MIGRATIONS=1` to apply migrations at startup (default on `web`)
+- `COLLECT_STATIC=1` to build static assets (default on `web`)
+
 ## Database
 
 The management command `ensure_db` connects to the maintenance database (default `postgres`) and creates the target database (default `aggregator`) if missing. It uses these environment variables:

@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Script to start the aggregator using docker-compose
-# This script reads environment variables from .env file and uses them with docker-compose
-
 set -e
 
 echo "Starting aggregator..."
@@ -14,9 +11,9 @@ if [ ! -f ".env" ]; then
     exit 1
 fi
 
-# Run docker-compose up with environment variables from .env
+# Run Docker Compose stack with environment variables from .env
 echo "Starting docker containers..."
-docker-compose --env-file .env up -d
+docker compose --env-file .env up -d --build
 
 echo "Aggregator started successfully!"
-echo "Check logs with: docker-compose logs -f"
+echo "Check logs with: docker compose logs -f"

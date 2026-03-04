@@ -1,43 +1,19 @@
 FROM python:3.12-slim
 
-# Python environment variables
-ENV PYTHONFAULTHANDLER=1 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONHASHSEED=random \
-    PIP_NO_CACHE_DIR=off \
-    PIP_DISABLE_PIP_VERSION_CHECK=on \
-    PIP_DEFAULT_TIMEOUT=100
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
 
-# Set your custom environment variable
-ENV YOUR_ENV=aggregator
-
-# Install dependencies
-RUN apt-get update && apt-get install -y curl git && rm -rf /var/lib/apt/lists/*
-
-# Set the working directory for the application
 WORKDIR /app
 
-# Copy the README file first (needed for metadata)
-COPY README.md /app/
+COPY requirements.txt /app/requirements.txt
+RUN pip install --upgrade pip && pip install -r /app/requirements.txt
 
-# Copy only the necessary files first (for better caching)
-COPY pyproject.toml /app/
-COPY requirements.txt /app/
+COPY . /app
+RUN chmod +x /app/scripts/docker_start.sh
 
-# Install dependencies using pip
-RUN pip install --no-cache-dir -r requirements.txt
+ENV PYTHONPATH=/app:/app/aggregator_project
 
-# Copy the rest of the application
-COPY . /app/
+EXPOSE 8000
 
-# Install python-dotenv for .env file support
-RUN pip install python-dotenv
-
-# Set the PYTHONPATH environment variable
-ENV PYTHONPATH=/app:$PYTHONPATH
-
-# Set the working directory to ensure the app runs in the right path
-WORKDIR /app
-
-# Run the application
-CMD ["python", "aggregator/run_all.py"]
+CMD ["/app/scripts/docker_start.sh"]

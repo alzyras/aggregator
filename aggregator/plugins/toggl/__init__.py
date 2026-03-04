@@ -1,1 +1,0 @@
-"""Toggl plugin package."""
