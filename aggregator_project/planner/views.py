@@ -5,12 +5,13 @@ from datetime import timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.db.models import Q
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.views.decorators.csrf import ensure_csrf_cookie
 
 from events.models import Event
 from planner.models import PlannerItem, PlannerItemState, PlannerPlan
@@ -21,6 +22,7 @@ PLANNER_EVENT_TYPES = ["task_created", "task_updated", "task_state", "task_compl
 
 
 @login_required
+@ensure_csrf_cookie
 def planner_list(request: HttpRequest) -> HttpResponse:
     plan = _get_or_create_plan(request)
 
@@ -138,22 +140,85 @@ def reorder_items(request: HttpRequest) -> JsonResponse:
     if response:
         return response
     payload = _parse_json(request)
-    order = payload.get("order")
-    if not isinstance(order, list):
-        return JsonResponse({"error": "Invalid order payload."}, status=400)
+    moved_id = payload.get("moved_id")
+    before_id = payload.get("before_id")
+    after_id = payload.get("after_id")
+
+    if moved_id is None:
+        return JsonResponse({"error": "moved_id is required."}, status=400)
+    if before_id and after_id:
+        return JsonResponse({"error": "Provide only one of before_id or after_id."}, status=400)
+
+    try:
+        moved_id = int(moved_id)
+        before_id = int(before_id) if before_id is not None else None
+        after_id = int(after_id) if after_id is not None else None
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "Ids must be integers."}, status=400)
 
     plan = _get_or_create_plan(request)
-    ids = [str(value) for value in order]
-    states = PlannerItemState.objects.filter(plan=plan, id__in=ids)
-    if states.count() != len(ids):
-        return JsonResponse({"error": "Unknown item in order list."}, status=400)
+    now = timezone.now()
 
-    with transaction.atomic():
-        for index, state_id in enumerate(ids):
-            PlannerItemState.objects.filter(plan=plan, id=state_id).update(
-                planned_order=index + 1,
-                last_planned_at=timezone.now(),
+    try:
+        with transaction.atomic():
+            try:
+                moved_state = PlannerItemState.objects.select_for_update(nowait=True).get(
+                    plan=plan,
+                    id=moved_id,
+                    item__is_active=True,
+                )
+            except PlannerItemState.DoesNotExist:
+                return JsonResponse({"error": "Unknown moved_id."}, status=400)
+
+            neighbor_state = None
+            neighbor_id = before_id if before_id is not None else after_id
+            if neighbor_id is not None:
+                try:
+                    neighbor_state = PlannerItemState.objects.select_for_update(nowait=True).get(
+                        plan=plan,
+                        id=neighbor_id,
+                        item__is_active=True,
+                    )
+                except PlannerItemState.DoesNotExist:
+                    return JsonResponse({"error": "Unknown neighbor id."}, status=400)
+
+            if neighbor_state and neighbor_state.pinned != moved_state.pinned:
+                return JsonResponse({"error": "Cannot move items across pinned boundary."}, status=400)
+
+            block_states = list(
+                PlannerItemState.objects
+                .select_for_update(nowait=True)
+                .filter(plan=plan, pinned=moved_state.pinned, item__is_active=True)
+                .order_by("planned_order", "id")
             )
+            block_lookup = {state.id: state for state in block_states}
+            if moved_state.id not in block_lookup:
+                return JsonResponse({"error": "Moved item not in reorderable block."}, status=400)
+            if neighbor_state and neighbor_state.id not in block_lookup:
+                return JsonResponse({"error": "Neighbor not in reorderable block."}, status=400)
+
+            block_states = [state for state in block_states if state.id != moved_state.id]
+            insert_index = len(block_states)
+            if neighbor_state:
+                neighbor_index = next(
+                    (idx for idx, state in enumerate(block_states) if state.id == neighbor_state.id),
+                    None,
+                )
+                if neighbor_index is None:
+                    return JsonResponse({"error": "Neighbor not in reorderable block."}, status=400)
+                insert_index = neighbor_index if before_id is not None else neighbor_index + 1
+            block_states.insert(insert_index, moved_state)
+
+            updated = []
+            for index, state in enumerate(block_states, start=1):
+                if state.planned_order != index or state.last_planned_at != now:
+                    state.planned_order = index
+                    state.last_planned_at = now
+                    updated.append(state)
+            if updated:
+                PlannerItemState.objects.bulk_update(updated, ["planned_order", "last_planned_at"])
+    except DatabaseError:
+        return JsonResponse({"error": "Planner is busy, please retry."}, status=409)
 
     return JsonResponse({"status": "ok"})
 

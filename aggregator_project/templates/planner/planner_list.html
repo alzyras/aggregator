@@ -40,6 +40,8 @@
     </div>
   </div>
 
+  <div class="planner-error" id="planner-error" role="alert" aria-live="polite"></div>
+
   <div class="planner-list" id="planner-list">
     {% for state in states %}
       <div class="planner-row" draggable="true" data-state-id="{{ state.id }}">
@@ -83,13 +85,15 @@
 <script>
   const csrfToken = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1];
 
-  function postJson(url, payload) {
+  function postJson(url, payload, signal) {
     return fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-CSRFToken": csrfToken,
       },
+      credentials: "same-origin",
+      signal,
       body: JSON.stringify(payload || {}),
     });
   }
@@ -120,6 +124,22 @@
 
   const list = document.getElementById("planner-list");
   let dragItem = null;
+  let reorderController = null;
+  let reorderTimeoutId = null;
+
+  function showPlannerError(message) {
+    const errorBox = document.getElementById("planner-error");
+    if (!errorBox) return;
+    errorBox.textContent = message;
+    errorBox.classList.add("is-visible");
+  }
+
+  function clearPlannerError() {
+    const errorBox = document.getElementById("planner-error");
+    if (!errorBox) return;
+    errorBox.textContent = "";
+    errorBox.classList.remove("is-visible");
+  }
 
   list?.addEventListener("dragstart", (event) => {
     const target = event.target.closest(".planner-row");
@@ -127,6 +147,56 @@
     dragItem = target;
     target.classList.add("dragging");
   });
+
+  async function persistOrder() {
+    if (!dragItem) return;
+    const movedId = dragItem.dataset.stateId;
+    const prev = dragItem.previousElementSibling?.dataset?.stateId || null;
+    const next = dragItem.nextElementSibling?.dataset?.stateId || null;
+    const payload = { moved_id: movedId };
+    if (next) {
+      payload.before_id = next;
+    } else if (prev) {
+      payload.after_id = prev;
+    } else {
+      return;
+    }
+    clearPlannerError();
+    if (reorderController) {
+      reorderController.abort();
+    }
+    reorderController = new AbortController();
+    if (reorderTimeoutId) {
+      clearTimeout(reorderTimeoutId);
+    }
+    reorderTimeoutId = setTimeout(() => {
+      reorderController?.abort();
+    }, 8000);
+    try {
+      const response = await postJson("/planner/reorder", payload, reorderController.signal);
+      if (!response.ok) {
+        const message = await response.text();
+        const trimmed = message.trim();
+        if (trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html")) {
+          showPlannerError("Reorder failed: server error. Check logs.");
+        } else {
+          showPlannerError(`Reorder failed: ${message}`);
+        }
+      }
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        showPlannerError("Reorder timed out. Please try again.");
+      } else {
+        showPlannerError("Reorder failed due to a network error.");
+      }
+    } finally {
+      if (reorderTimeoutId) {
+        clearTimeout(reorderTimeoutId);
+      }
+      reorderTimeoutId = null;
+      reorderController = null;
+    }
+  }
 
   list?.addEventListener("dragend", () => {
     if (dragItem) {
@@ -145,8 +215,7 @@
   });
 
   list?.addEventListener("drop", async () => {
-    const order = Array.from(document.querySelectorAll(".planner-row")).map((row) => row.dataset.stateId);
-    await postJson("/planner/reorder", { order });
+    await persistOrder();
   });
 </script>
 {% endblock %}
