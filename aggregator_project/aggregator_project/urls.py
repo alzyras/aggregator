@@ -5,11 +5,11 @@ from django.urls import include, path
 
 from events import views as event_views
 from ingestion import views as ingestion_views
-
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("accounts/", include("allauth.urls")),
     path("", include("connectors.urls")),
+    path("planner/", include("planner.urls")),
     path("events/", event_views.event_list, name="event_list"),
     path("events/<uuid:pk>/", event_views.event_detail, name="event_detail"),
     path("stats/", event_views.stats_view, name="stats_view"),

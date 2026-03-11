@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<section class="hero">
+  <div class="hero-pill">Planner</div>
+  <h1>Plan across sources</h1>
+  <p>Combine external status with your local plan. Drag to reorder and update intent without waiting for sync.</p>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <div>
+      <h2>{{ plan.name }}</h2>
+      <span class="panel-subtitle">Local plan, external truth.</span>
+    </div>
+    <div class="panel-actions">
+      <button class="btn ghost" type="button" id="add-from-sources-btn">Add from sources</button>
+      <a class="btn primary" href="{% url 'planner_calendar' %}">Calendar</a>
+    </div>
+  </div>
+
+  <div class="planner-banner">
+    <div>
+      <strong>Last synced</strong>
+      {% if last_synced_at %}
+        <span title="{{ last_synced_at|date:'Y-m-d H:i:s T' }}">{{ last_synced_at|timesince }} ago</span>
+      {% else %}
+        <span>Never</span>
+      {% endif %}
+    </div>
+    <div class="planner-stale">
+      {% if stale_warning %}
+        <span class="badge warning">Data stale &gt; 24h</span>
+      {% elif last_synced_at %}
+        <span class="badge">Fresh</span>
+      {% else %}
+        <span class="badge warning">No sync yet</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="planner-list" id="planner-list">
+    {% for state in states %}
+      <div class="planner-row" draggable="true" data-state-id="{{ state.id }}">
+        <div class="planner-handle">⋮⋮</div>
+        <div class="planner-content">
+          <div class="planner-title">{{ state.item.title }}</div>
+          <div class="planner-meta">
+            <span class="badge source">{{ state.item.get_source_display }}</span>
+            {% if state.item.connector_account %}
+              <span class="badge">{{ state.item.connector_account.display_name }}</span>
+            {% endif %}
+            <span class="badge">External: {{ state.item.source_status|default:"unknown" }}</span>
+            {% if state.item.external_completed %}
+              <span class="badge success">Completed externally</span>
+            {% endif %}
+            {% if state.item.last_synced_at %}
+              <span class="badge">Synced {{ state.item.last_synced_at|timesince }} ago</span>
+            {% else %}
+              <span class="badge warning">Never synced</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="planner-actions">
+          <select class="status-select" data-status-id="{{ state.item.id }}">
+            {% for value,label in status_choices %}
+              <option value="{{ value }}" {% if value == state.planned_status %}selected{% endif %}>{{ label|title }}</option>
+            {% endfor %}
+          </select>
+          <button class="btn ghost small" data-pin-id="{{ state.item.id }}">{% if state.pinned %}Unpin{% else %}Pin{% endif %}</button>
+        </div>
+      </div>
+    {% empty %}
+      <div class="empty-state">
+        <strong>No planner items yet.</strong>
+        <span>Click “Add from sources” to pull in open tasks.</span>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+
+<script>
+  const csrfToken = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1];
+
+  function postJson(url, payload) {
+    return fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": csrfToken,
+      },
+      body: JSON.stringify(payload || {}),
+    });
+  }
+
+  const addBtn = document.getElementById("add-from-sources-btn");
+  addBtn?.addEventListener("click", async () => {
+    addBtn.disabled = true;
+    addBtn.classList.add("is-loading");
+    await postJson("/planner/add-from-sources", {});
+    window.location.reload();
+  });
+
+  document.querySelectorAll(".status-select").forEach((select) => {
+    select.addEventListener("change", async (event) => {
+      const itemId = event.target.dataset.statusId;
+      await postJson(`/planner/item/${itemId}/status`, { planned_status: event.target.value });
+    });
+  });
+
+  document.querySelectorAll("[data-pin-id]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const itemId = event.target.dataset.pinId;
+      await postJson(`/planner/item/${itemId}/pin`, {});
+      window.location.reload();
+    });
+  });
+
+  const list = document.getElementById("planner-list");
+  let dragItem = null;
+
+  list?.addEventListener("dragstart", (event) => {
+    const target = event.target.closest(".planner-row");
+    if (!target) return;
+    dragItem = target;
+    target.classList.add("dragging");
+  });
+
+  list?.addEventListener("dragend", () => {
+    if (dragItem) {
+      dragItem.classList.remove("dragging");
+    }
+    dragItem = null;
+  });
+
+  list?.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    const target = event.target.closest(".planner-row");
+    if (!target || target === dragItem) return;
+    const rect = target.getBoundingClientRect();
+    const after = event.clientY > rect.top + rect.height / 2;
+    target.parentNode.insertBefore(dragItem, after ? target.nextSibling : target);
+  });
+
+  list?.addEventListener("drop", async () => {
+    const order = Array.from(document.querySelectorAll(".planner-row")).map((row) => row.dataset.stateId);
+    await postJson("/planner/reorder", { order });
+  });
+</script>
+{% endblock %}
