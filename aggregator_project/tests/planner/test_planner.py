@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import json
-import threading
-import time
 
 from django.contrib.auth import get_user_model
-from django.db import connections, transaction
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -331,6 +328,71 @@ class PlannerTests(TestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_reorder_block_order_updates_order(self):
+        plan = PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        items = []
+        for index in range(3):
+            item = PlannerItem.objects.create(
+                workspace=self.workspace,
+                user=self.user,
+                connector_account=self.account,
+                source="asana",
+                source_entity_id=f"task-block-{index}",
+                title=f"Task {index}",
+            )
+            state = PlannerItemState.objects.create(plan=plan, item=item, planned_order=index + 1)
+            items.append(state)
+
+        payload = {"block_order": [items[2].id, items[0].id, items[1].id]}
+        response = self.client.post(
+            reverse("planner_item_reorder"),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        items[2].refresh_from_db()
+        self.assertEqual(items[2].planned_order, 1)
+
+    def test_reorder_rapid_requests_end_with_last_order(self):
+        plan = PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        items = []
+        for index in range(3):
+            item = PlannerItem.objects.create(
+                workspace=self.workspace,
+                user=self.user,
+                connector_account=self.account,
+                source="asana",
+                source_entity_id=f"task-rapid-{index}",
+                title=f"Task {index}",
+            )
+            state = PlannerItemState.objects.create(plan=plan, item=item, planned_order=index + 1)
+            items.append(state)
+
+        response_one = self.client.post(
+            reverse("planner_item_reorder"),
+            data=json.dumps({"block_order": [items[1].id, items[0].id, items[2].id]}),
+            content_type="application/json",
+        )
+        response_two = self.client.post(
+            reverse("planner_item_reorder"),
+            data=json.dumps({"block_order": [items[2].id, items[1].id, items[0].id]}),
+            content_type="application/json",
+        )
+        self.assertEqual(response_one.status_code, 200)
+        self.assertEqual(response_two.status_code, 200)
+        items[2].refresh_from_db()
+        self.assertEqual(items[2].planned_order, 1)
+
     def test_add_from_sources_creates_items(self):
         Event.objects.create(
             workspace=self.workspace,
@@ -372,101 +434,3 @@ class PlannerTests(TestCase):
             email=f"{username}@example.com",
             password="password123",
         )
-
-
-class PlannerReorderLockTests(TransactionTestCase):
-    reset_sequences = True
-
-    def setUp(self) -> None:
-        self.user = get_user_model().objects.create_user(
-            username="lock-user",
-            email="lock@example.com",
-            password="password123",
-        )
-        self.workspace = Workspace.objects.create(name="Lock Workspace")
-        WorkspaceMember.objects.create(
-            workspace=self.workspace,
-            user=self.user,
-            role=WorkspaceMember.ROLE_OWNER,
-        )
-        self.client.force_login(self.user)
-
-        self.account = ConnectorAccount.objects.create(
-            workspace=self.workspace,
-            source="asana",
-            display_name="Lock",
-            auth_type=ConnectorAccount.AUTH_API_TOKEN,
-            encrypted_access_token=b"token",
-            status=ConnectorAccount.STATUS_CONNECTED,
-        )
-        self.plan = PlannerPlan.objects.create(
-            workspace=self.workspace,
-            user=self.user,
-            name="My Plan",
-            timezone="UTC",
-        )
-        self.states = []
-        for index in range(3):
-            item = PlannerItem.objects.create(
-                workspace=self.workspace,
-                user=self.user,
-                connector_account=self.account,
-                source="asana",
-                source_entity_id=f"lock-task-{index}",
-                title=f"Task {index}",
-            )
-            self.states.append(
-                PlannerItemState.objects.create(plan=self.plan, item=item, planned_order=index + 1)
-            )
-
-    def _lock_block(self, plan_id: int, pinned: bool, ready_event: threading.Event, release_event: threading.Event):
-        conn = connections["default"]
-        try:
-            with transaction.atomic():
-                list(
-                    PlannerItemState.objects
-                    .select_for_update()
-                    .filter(plan_id=plan_id, pinned=pinned)
-                    .order_by("planned_order")
-                )
-                ready_event.set()
-                release_event.wait(5)
-        finally:
-            conn.close()
-
-    def test_reorder_returns_busy_when_locked(self):
-        ready_event = threading.Event()
-        release_event = threading.Event()
-        thread = threading.Thread(
-            target=self._lock_block,
-            args=(self.plan.id, False, ready_event, release_event),
-        )
-        thread.start()
-        self.assertTrue(ready_event.wait(2))
-
-        start_time = time.monotonic()
-        response = self.client.post(
-            reverse("planner_item_reorder"),
-            data=json.dumps({"moved_id": self.states[2].id, "before_id": self.states[0].id}),
-            content_type="application/json",
-        )
-        duration = time.monotonic() - start_time
-        release_event.set()
-        thread.join(timeout=2)
-
-        self.assertEqual(response.status_code, 409)
-        self.assertLess(duration, 2.0)
-
-    def test_reorder_two_quick_requests_succeed(self):
-        response_one = self.client.post(
-            reverse("planner_item_reorder"),
-            data=json.dumps({"moved_id": self.states[2].id, "before_id": self.states[0].id}),
-            content_type="application/json",
-        )
-        response_two = self.client.post(
-            reverse("planner_item_reorder"),
-            data=json.dumps({"moved_id": self.states[1].id, "before_id": self.states[2].id}),
-            content_type="application/json",
-        )
-        self.assertEqual(response_one.status_code, 200)
-        self.assertEqual(response_two.status_code, 200)

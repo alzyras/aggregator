@@ -44,7 +44,7 @@
 
   <div class="planner-list" id="planner-list">
     {% for state in states %}
-      <div class="planner-row" draggable="true" data-state-id="{{ state.id }}">
+      <div class="planner-row" draggable="true" data-state-id="{{ state.id }}" data-pinned="{{ state.pinned|yesno:'true,false' }}">
         <div class="planner-handle">⋮⋮</div>
         <div class="planner-content">
           <div class="planner-title">{{ state.item.title }}</div>
@@ -85,7 +85,7 @@
 <script>
   const csrfToken = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1];
 
-  function postJson(url, payload, signal) {
+  function postJson(url, payload) {
     return fetch(url, {
       method: "POST",
       headers: {
@@ -93,7 +93,6 @@
         "X-CSRFToken": csrfToken,
       },
       credentials: "same-origin",
-      signal,
       body: JSON.stringify(payload || {}),
     });
   }
@@ -124,8 +123,10 @@
 
   const list = document.getElementById("planner-list");
   let dragItem = null;
-  let reorderController = null;
-  let reorderTimeoutId = null;
+  let reorderTimer = null;
+  let reorderInFlight = false;
+  let reorderDirty = false;
+  let pendingPayload = null;
 
   function showPlannerError(message) {
     const errorBox = document.getElementById("planner-error");
@@ -148,32 +149,39 @@
     target.classList.add("dragging");
   });
 
-  async function persistOrder() {
-    if (!dragItem) return;
-    const movedId = dragItem.dataset.stateId;
-    const prev = dragItem.previousElementSibling?.dataset?.stateId || null;
-    const next = dragItem.nextElementSibling?.dataset?.stateId || null;
-    const payload = { moved_id: movedId };
-    if (next) {
-      payload.before_id = next;
-    } else if (prev) {
-      payload.after_id = prev;
-    } else {
+  function buildBlockPayload(targetItem) {
+    if (!targetItem) return null;
+    const blockPinned = targetItem.dataset.pinned === "true";
+    const blockIds = Array.from(document.querySelectorAll(".planner-row"))
+      .filter((row) => (row.dataset.pinned === "true") === blockPinned)
+      .map((row) => row.dataset.stateId);
+    return { block_order: blockIds };
+  }
+
+  function scheduleReorder(payload) {
+    pendingPayload = payload;
+    if (reorderTimer) {
+      clearTimeout(reorderTimer);
+    }
+    reorderTimer = setTimeout(() => {
+      reorderTimer = null;
+      void sendReorder();
+    }, 400);
+  }
+
+  async function sendReorder() {
+    if (!pendingPayload) return;
+    if (reorderInFlight) {
+      reorderDirty = true;
       return;
     }
+    reorderInFlight = true;
+    reorderDirty = false;
     clearPlannerError();
-    if (reorderController) {
-      reorderController.abort();
-    }
-    reorderController = new AbortController();
-    if (reorderTimeoutId) {
-      clearTimeout(reorderTimeoutId);
-    }
-    reorderTimeoutId = setTimeout(() => {
-      reorderController?.abort();
-    }, 8000);
+    const payload = pendingPayload;
+    pendingPayload = null;
     try {
-      const response = await postJson("/planner/reorder", payload, reorderController.signal);
+      const response = await postJson("/planner/reorder", payload);
       if (!response.ok) {
         const message = await response.text();
         const trimmed = message.trim();
@@ -184,17 +192,13 @@
         }
       }
     } catch (error) {
-      if (error?.name === "AbortError") {
-        showPlannerError("Reorder timed out. Please try again.");
-      } else {
-        showPlannerError("Reorder failed due to a network error.");
-      }
+      showPlannerError("Reorder failed due to a network error.");
     } finally {
-      if (reorderTimeoutId) {
-        clearTimeout(reorderTimeoutId);
+      reorderInFlight = false;
+      if (reorderDirty && pendingPayload) {
+        reorderDirty = false;
+        await sendReorder();
       }
-      reorderTimeoutId = null;
-      reorderController = null;
     }
   }
 
@@ -209,13 +213,19 @@
     event.preventDefault();
     const target = event.target.closest(".planner-row");
     if (!target || target === dragItem) return;
+    if (dragItem && target.dataset.pinned !== dragItem.dataset.pinned) {
+      return;
+    }
     const rect = target.getBoundingClientRect();
     const after = event.clientY > rect.top + rect.height / 2;
     target.parentNode.insertBefore(dragItem, after ? target.nextSibling : target);
   });
 
   list?.addEventListener("drop", async () => {
-    await persistOrder();
+    if (!dragItem) return;
+    const payload = buildBlockPayload(dragItem);
+    if (!payload) return;
+    scheduleReorder(payload);
   });
 </script>
 {% endblock %}
