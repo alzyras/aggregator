@@ -102,6 +102,49 @@ class PlannerTests(TestCase):
         state.refresh_from_db()
         self.assertEqual(state.planned_status, PlannerItemState.STATUS_DONE)
 
+    def test_planner_status_defaults_to_inbox(self):
+        plan = PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-inbox",
+            title="Inbox Task",
+        )
+        state = PlannerItemState.objects.create(plan=plan, item=item)
+        self.assertEqual(state.planner_status, PlannerItemState.PLANNER_STATUS_INBOX)
+
+    def test_planner_status_endpoint_updates(self):
+        plan = PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-status",
+            title="Status Task",
+        )
+        state = PlannerItemState.objects.create(plan=plan, item=item)
+        response = self.client.post(
+            reverse("planner_item_planner_status", args=[item.id]),
+            data=json.dumps({"planner_status": PlannerItemState.PLANNER_STATUS_DOING}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        state.refresh_from_db()
+        self.assertEqual(state.planner_status, PlannerItemState.PLANNER_STATUS_DOING)
+
     def test_status_endpoint_denies_other_workspace(self):
         other_user = self._create_user("other_user")
         other_workspace = Workspace.objects.create(name="Other Workspace")
@@ -348,7 +391,10 @@ class PlannerTests(TestCase):
             state = PlannerItemState.objects.create(plan=plan, item=item, planned_order=index + 1)
             items.append(state)
 
-        payload = {"block_order": [items[2].id, items[0].id, items[1].id]}
+        payload = {
+            "block_order": [items[2].id, items[0].id, items[1].id],
+            "planner_status": PlannerItemState.PLANNER_STATUS_INBOX,
+        }
         response = self.client.post(
             reverse("planner_item_reorder"),
             data=json.dumps(payload),
@@ -380,12 +426,18 @@ class PlannerTests(TestCase):
 
         response_one = self.client.post(
             reverse("planner_item_reorder"),
-            data=json.dumps({"block_order": [items[1].id, items[0].id, items[2].id]}),
+            data=json.dumps({
+                "block_order": [items[1].id, items[0].id, items[2].id],
+                "planner_status": PlannerItemState.PLANNER_STATUS_INBOX,
+            }),
             content_type="application/json",
         )
         response_two = self.client.post(
             reverse("planner_item_reorder"),
-            data=json.dumps({"block_order": [items[2].id, items[1].id, items[0].id]}),
+            data=json.dumps({
+                "block_order": [items[2].id, items[1].id, items[0].id],
+                "planner_status": PlannerItemState.PLANNER_STATUS_INBOX,
+            }),
             content_type="application/json",
         )
         self.assertEqual(response_one.status_code, 200)

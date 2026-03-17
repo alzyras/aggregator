@@ -85,6 +85,18 @@ class PlannerPlan(TimestampedModel):
 
 
 class PlannerItemState(models.Model):
+    PLANNER_STATUS_INBOX = "inbox"
+    PLANNER_STATUS_BACKLOG = "backlog"
+    PLANNER_STATUS_DOING = "doing"
+    PLANNER_STATUS_DONE = "done"
+
+    PLANNER_STATUS_CHOICES = [
+        (PLANNER_STATUS_INBOX, "inbox"),
+        (PLANNER_STATUS_BACKLOG, "backlog"),
+        (PLANNER_STATUS_DOING, "doing"),
+        (PLANNER_STATUS_DONE, "done"),
+    ]
+
     STATUS_PLANNED = "planned"
     STATUS_IN_PROGRESS = "in_progress"
     STATUS_DONE = "done"
@@ -99,6 +111,11 @@ class PlannerItemState(models.Model):
 
     plan = models.ForeignKey(PlannerPlan, on_delete=models.CASCADE, related_name="item_states")
     item = models.ForeignKey(PlannerItem, on_delete=models.CASCADE, related_name="planner_states")
+    planner_status = models.CharField(
+        max_length=20,
+        choices=PLANNER_STATUS_CHOICES,
+        default=PLANNER_STATUS_INBOX,
+    )
     planned_status = models.CharField(max_length=30, choices=STATUS_CHOICES, default=STATUS_PLANNED)
     planned_order = models.IntegerField(default=0)
     planned_start = models.DateTimeField(null=True, blank=True)
@@ -111,6 +128,7 @@ class PlannerItemState(models.Model):
         indexes = [
             models.Index(fields=["plan", "planned_order"]),
             models.Index(fields=["plan", "planned_status"]),
+            models.Index(fields=["plan", "planner_status"]),
         ]
         constraints = [
             models.UniqueConstraint(fields=["plan", "item"], name="planner_item_state_unique"),

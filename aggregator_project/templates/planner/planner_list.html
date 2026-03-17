@@ -42,44 +42,63 @@
 
   <div class="planner-error" id="planner-error" role="alert" aria-live="polite"></div>
 
-  <div class="planner-list" id="planner-list">
-    {% for state in states %}
-      <div class="planner-row" draggable="true" data-state-id="{{ state.id }}" data-pinned="{{ state.pinned|yesno:'true,false' }}">
-        <div class="planner-handle">⋮⋮</div>
-        <div class="planner-content">
-          <div class="planner-title">{{ state.item.title }}</div>
-          <div class="planner-meta">
-            <span class="badge source">{{ state.item.get_source_display }}</span>
-            {% if state.item.connector_account %}
-              <span class="badge">{{ state.item.connector_account.display_name }}</span>
-            {% endif %}
-            <span class="badge">External: {{ state.item.source_status|default:"unknown" }}</span>
-            {% if state.item.external_completed %}
-              <span class="badge success">Completed externally</span>
-            {% endif %}
-            {% if state.item.last_synced_at %}
-              <span class="badge">Synced {{ state.item.last_synced_at|timesince }} ago</span>
-            {% else %}
-              <span class="badge warning">Never synced</span>
-            {% endif %}
-          </div>
-        </div>
-        <div class="planner-actions">
-          <select class="status-select" data-status-id="{{ state.item.id }}">
-            {% for value,label in status_choices %}
-              <option value="{{ value }}" {% if value == state.planned_status %}selected{% endif %}>{{ label|title }}</option>
-            {% endfor %}
-          </select>
-          <button class="btn ghost small" data-pin-id="{{ state.item.id }}">{% if state.pinned %}Unpin{% else %}Pin{% endif %}</button>
-        </div>
-      </div>
-    {% empty %}
-      <div class="empty-state">
-        <strong>No planner items yet.</strong>
-        <span>Click “Add from sources” to pull in open tasks.</span>
-      </div>
+  <div class="planner-tabs" role="tablist">
+    {% for tab in tab_items %}
+      <button class="planner-tab{% if tab.value == 'inbox' %} is-active{% endif %}" type="button" role="tab" data-tab="{{ tab.value }}">
+        {{ tab.label|title }}
+        <span class="badge">{{ tab.count }}</span>
+      </button>
     {% endfor %}
   </div>
+
+  {% for tab in tab_items %}
+    <div class="planner-tab-panel{% if tab.value == 'inbox' %} is-active{% endif %}" data-tab-panel="{{ tab.value }}">
+      <div class="planner-list" data-status="{{ tab.value }}">
+        {% for state in tab.items %}
+          <div class="planner-row" draggable="true" data-state-id="{{ state.id }}" data-pinned="{{ state.pinned|yesno:'true,false' }}" data-status="{{ state.planner_status }}">
+            <div class="planner-handle">⋮⋮</div>
+            <div class="planner-content">
+              <div class="planner-title">{{ state.item.title }}</div>
+              <div class="planner-meta">
+                <span class="badge source">{{ state.item.get_source_display }}</span>
+                {% if state.item.connector_account %}
+                  <span class="badge">{{ state.item.connector_account.display_name }}</span>
+                {% endif %}
+                <span class="badge">External: {{ state.item.source_status|default:"unknown" }}</span>
+                {% if state.item.external_completed %}
+                  <span class="badge success">Completed externally</span>
+                {% endif %}
+                {% if state.item.last_synced_at %}
+                  <span class="badge">Synced {{ state.item.last_synced_at|timesince }} ago</span>
+                {% else %}
+                  <span class="badge warning">Never synced</span>
+                {% endif %}
+              </div>
+            </div>
+            <div class="planner-actions">
+              <select class="status-select" data-planner-status-id="{{ state.item.id }}">
+                {% for status_value,status_label in planner_status_choices %}
+                  <option value="{{ status_value }}" {% if status_value == state.planner_status %}selected{% endif %}>{{ status_label|title }}</option>
+                {% endfor %}
+              </select>
+              <button class="btn ghost small" data-pin-id="{{ state.item.id }}">{% if state.pinned %}Unpin{% else %}Pin{% endif %}</button>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      <div class="empty-state planner-empty{% if tab.items %} is-hidden{% endif %}" data-empty-status="{{ tab.value }}">
+        {% if tab.value == 'inbox' %}
+          <strong>No new tasks</strong>
+        {% elif tab.value == 'backlog' %}
+          <strong>Nothing in backlog</strong>
+        {% elif tab.value == 'doing' %}
+          <strong>No active work</strong>
+        {% else %}
+          <strong>Nothing completed yet</strong>
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
 </section>
 
 <script>
@@ -97,36 +116,19 @@
     });
   }
 
-  const addBtn = document.getElementById("add-from-sources-btn");
-  addBtn?.addEventListener("click", async () => {
-    addBtn.disabled = true;
-    addBtn.classList.add("is-loading");
-    await postJson("/planner/add-from-sources", {});
-    window.location.reload();
-  });
+  function showPlannerSuccess(message) {
+    const box = document.getElementById("planner-success");
+    if (!box) return;
+    box.textContent = message;
+    box.classList.add("is-visible");
+  }
 
-  document.querySelectorAll(".status-select").forEach((select) => {
-    select.addEventListener("change", async (event) => {
-      const itemId = event.target.dataset.statusId;
-      await postJson(`/planner/item/${itemId}/status`, { planned_status: event.target.value });
-    });
-  });
-
-  document.querySelectorAll("[data-pin-id]").forEach((button) => {
-    button.addEventListener("click", async (event) => {
-      event.preventDefault();
-      const itemId = event.target.dataset.pinId;
-      await postJson(`/planner/item/${itemId}/pin`, {});
-      window.location.reload();
-    });
-  });
-
-  const list = document.getElementById("planner-list");
-  let dragItem = null;
-  let reorderTimer = null;
-  let reorderInFlight = false;
-  let reorderDirty = false;
-  let pendingPayload = null;
+  function clearPlannerSuccess() {
+    const box = document.getElementById("planner-success");
+    if (!box) return;
+    box.textContent = "";
+    box.classList.remove("is-visible");
+  }
 
   function showPlannerError(message) {
     const errorBox = document.getElementById("planner-error");
@@ -142,20 +144,53 @@
     errorBox.classList.remove("is-visible");
   }
 
-  list?.addEventListener("dragstart", (event) => {
-    const target = event.target.closest(".planner-row");
-    if (!target) return;
-    dragItem = target;
-    target.classList.add("dragging");
+  const addBtn = document.getElementById("add-from-sources-btn");
+  addBtn?.addEventListener("click", async () => {
+    addBtn.disabled = true;
+    addBtn.classList.add("is-loading");
+    await postJson("/planner/add-from-sources", {});
+    window.location.reload();
   });
 
-  function buildBlockPayload(targetItem) {
-    if (!targetItem) return null;
+  document.querySelectorAll("[data-planner-status-id]").forEach((select) => {
+    select.addEventListener("change", async (event) => {
+      const itemId = event.target.dataset.plannerStatusId;
+      const newStatus = event.target.value;
+      const card = event.target.closest(".planner-row");
+      const list = document.querySelector(`.planner-list[data-status='${newStatus}']`);
+      if (card && list) {
+        card.dataset.status = newStatus;
+        list.prepend(card);
+        updateTabCounts();
+        updateEmptyStates();
+      }
+      await postJson(`/planner/item/${itemId}/planner-status`, { planner_status: newStatus });
+    });
+  });
+
+  document.querySelectorAll("[data-pin-id]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const itemId = event.target.dataset.pinId;
+      await postJson(`/planner/item/${itemId}/pin`, {});
+      window.location.reload();
+    });
+  });
+
+  let dragItem = null;
+  let dragList = null;
+  let reorderTimer = null;
+  let reorderInFlight = false;
+  let reorderDirty = false;
+  let pendingPayload = null;
+
+  function buildBlockPayload(targetItem, listEl) {
+    if (!targetItem || !listEl) return null;
     const blockPinned = targetItem.dataset.pinned === "true";
-    const blockIds = Array.from(document.querySelectorAll(".planner-row"))
+    const blockIds = Array.from(listEl.querySelectorAll(".planner-row"))
       .filter((row) => (row.dataset.pinned === "true") === blockPinned)
       .map((row) => row.dataset.stateId);
-    return { block_order: blockIds };
+    return { block_order: blockIds, planner_status: listEl.dataset.status };
   }
 
   function scheduleReorder(payload) {
@@ -202,30 +237,77 @@
     }
   }
 
-  list?.addEventListener("dragend", () => {
-    if (dragItem) {
-      dragItem.classList.remove("dragging");
-    }
-    dragItem = null;
+  function setupList(listEl) {
+    listEl.addEventListener("dragstart", (event) => {
+      const target = event.target.closest(".planner-row");
+      if (!target) return;
+      dragItem = target;
+      dragList = listEl;
+      target.classList.add("dragging");
+    });
+
+    listEl.addEventListener("dragend", () => {
+      if (dragItem) {
+        dragItem.classList.remove("dragging");
+      }
+      dragItem = null;
+      dragList = null;
+    });
+
+    listEl.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      const target = event.target.closest(".planner-row");
+      if (!target || target === dragItem) return;
+      if (dragItem && target.dataset.pinned !== dragItem.dataset.pinned) {
+        return;
+      }
+      const rect = target.getBoundingClientRect();
+      const after = event.clientY > rect.top + rect.height / 2;
+      target.parentNode.insertBefore(dragItem, after ? target.nextSibling : target);
+    });
+
+    listEl.addEventListener("drop", async () => {
+      if (!dragItem || dragList !== listEl) return;
+      const payload = buildBlockPayload(dragItem, listEl);
+      if (!payload) return;
+      scheduleReorder(payload);
+    });
+  }
+
+  document.querySelectorAll(".planner-list").forEach((listEl) => {
+    setupList(listEl);
   });
 
-  list?.addEventListener("dragover", (event) => {
-    event.preventDefault();
-    const target = event.target.closest(".planner-row");
-    if (!target || target === dragItem) return;
-    if (dragItem && target.dataset.pinned !== dragItem.dataset.pinned) {
-      return;
-    }
-    const rect = target.getBoundingClientRect();
-    const after = event.clientY > rect.top + rect.height / 2;
-    target.parentNode.insertBefore(dragItem, after ? target.nextSibling : target);
+  function updateTabCounts() {
+    document.querySelectorAll(".planner-tab").forEach((tab) => {
+      const status = tab.dataset.tab;
+      const count = document.querySelectorAll(`.planner-list[data-status='${status}'] .planner-row`).length;
+      const badge = tab.querySelector(".badge");
+      if (badge) {
+        badge.textContent = count;
+      }
+    });
+  }
+
+  function updateEmptyStates() {
+    document.querySelectorAll(".planner-empty").forEach((empty) => {
+      const status = empty.dataset.emptyStatus;
+      const count = document.querySelectorAll(`.planner-list[data-status='${status}'] .planner-row`).length;
+      empty.classList.toggle("is-hidden", count > 0);
+    });
+  }
+
+  document.querySelectorAll(".planner-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".planner-tab").forEach((button) => button.classList.remove("is-active"));
+      document.querySelectorAll(".planner-tab-panel").forEach((panel) => panel.classList.remove("is-active"));
+      tab.classList.add("is-active");
+      const status = tab.dataset.tab;
+      document.querySelector(`.planner-tab-panel[data-tab-panel='${status}']`)?.classList.add("is-active");
+    });
   });
 
-  list?.addEventListener("drop", async () => {
-    if (!dragItem) return;
-    const payload = buildBlockPayload(dragItem);
-    if (!payload) return;
-    scheduleReorder(payload);
-  });
+  updateTabCounts();
+  updateEmptyStates();
 </script>
 {% endblock %}

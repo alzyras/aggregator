@@ -12,7 +12,9 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.http import require_POST
 
+from connectors.models import ConnectorAccount
 from events.models import Event
 from planner.models import PlannerItem, PlannerItemState, PlannerPlan
 from planner.services.reconcile import add_items_from_events, ensure_item_state
@@ -39,7 +41,7 @@ def planner_list(request: HttpRequest) -> HttpResponse:
         PlannerItemState.objects
         .select_related("item", "item__connector_account")
         .filter(plan=plan, item__is_active=True)
-        .order_by("-pinned", "planned_order")
+        .order_by("planned_order", "id")
     )
 
     now = timezone.now()
@@ -55,13 +57,38 @@ def planner_list(request: HttpRequest) -> HttpResponse:
     if last_synced_at:
         stale_warning = (now - last_synced_at) > timedelta(hours=24)
 
+    source_choices = (
+        ConnectorAccount.objects
+        .for_workspace(request.workspace)
+        .values_list("source", flat=True)
+        .distinct()
+    )
+
+    grouped_states = {
+        status: [] for status, _label in PlannerItemState.PLANNER_STATUS_CHOICES
+    }
+    for state in states:
+        grouped_states.setdefault(state.planner_status, []).append(state)
+
+    tab_items = []
+    for status, label in PlannerItemState.PLANNER_STATUS_CHOICES:
+        items = grouped_states.get(status, [])
+        tab_items.append({
+            "value": status,
+            "label": label,
+            "count": len(items),
+            "items": items,
+        })
+
     context = {
         "plan": plan,
-        "states": states,
+        "tab_items": tab_items,
         "now": now,
         "last_synced_at": last_synced_at,
         "stale_warning": stale_warning,
         "status_choices": PlannerItemState.STATUS_CHOICES,
+        "planner_status_choices": PlannerItemState.PLANNER_STATUS_CHOICES,
+        "source_choices": [(source, source.replace("_", " ").title()) for source in source_choices],
     }
     return render(request, "planner/planner_list.html", context)
 
@@ -106,6 +133,23 @@ def update_planned_status(request: HttpRequest, item_id: str) -> JsonResponse:
 
 
 @login_required
+def update_planner_status(request: HttpRequest, item_id: str) -> JsonResponse:
+    response = _assert_post(request)
+    if response:
+        return response
+    payload = _parse_json(request)
+    status = payload.get("planner_status")
+    if status not in dict(PlannerItemState.PLANNER_STATUS_CHOICES):
+        return JsonResponse({"error": "Invalid status."}, status=400)
+
+    state = _get_state(request, item_id)
+    state.planner_status = status
+    state.last_planned_at = timezone.now()
+    state.save(update_fields=["planner_status", "last_planned_at"])
+    return JsonResponse({"status": "ok", "planner_status": state.planner_status})
+
+
+@login_required
 def update_planned_schedule(request: HttpRequest, item_id: str) -> JsonResponse:
     response = _assert_post(request)
     if response:
@@ -141,6 +185,7 @@ def reorder_items(request: HttpRequest) -> JsonResponse:
         return response
     payload = _parse_json(request)
     block_order = payload.get("block_order")
+    planner_status = payload.get("planner_status")
     moved_id = payload.get("moved_id")
     before_id = payload.get("before_id")
     after_id = payload.get("after_id")
@@ -154,6 +199,8 @@ def reorder_items(request: HttpRequest) -> JsonResponse:
     now = timezone.now()
 
     if block_order is not None:
+        if planner_status not in dict(PlannerItemState.PLANNER_STATUS_CHOICES):
+            return JsonResponse({"error": "planner_status is required for block_order."}, status=400)
         if not isinstance(block_order, list) or not block_order:
             return JsonResponse({"error": "block_order must be a non-empty list."}, status=400)
         try:
@@ -177,7 +224,12 @@ def reorder_items(request: HttpRequest) -> JsonResponse:
 
         block_ids = list(
             PlannerItemState.objects
-            .filter(plan=plan, pinned=pinned_value, item__is_active=True)
+            .filter(
+                plan=plan,
+                pinned=pinned_value,
+                planner_status=planner_status,
+                item__is_active=True,
+            )
             .values_list("id", flat=True)
         )
         if set(block_ids) != set(ordered_ids):
@@ -217,9 +269,17 @@ def reorder_items(request: HttpRequest) -> JsonResponse:
     if neighbor_state and neighbor_state.pinned != moved_state.pinned:
         return JsonResponse({"error": "Cannot move items across pinned boundary."}, status=400)
 
+    if planner_status and planner_status != moved_state.planner_status:
+        return JsonResponse({"error": "Planner status mismatch."}, status=400)
+
     block_states = list(
         PlannerItemState.objects
-        .filter(plan=plan, pinned=moved_state.pinned, item__is_active=True)
+        .filter(
+            plan=plan,
+            pinned=moved_state.pinned,
+            planner_status=moved_state.planner_status,
+            item__is_active=True,
+        )
         .order_by("planned_order", "id")
     )
 
@@ -262,6 +322,109 @@ def add_from_sources(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"status": "ok", "added": added})
 
 
+@login_required
+@require_POST
+def preview_sources(request: HttpRequest) -> JsonResponse:
+    payload = _parse_json(request)
+    sources = payload.get("sources") or []
+    statuses = payload.get("statuses") or []
+    days = payload.get("days", 30)
+
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "days must be an integer."}, status=400)
+
+    events = _latest_task_events(
+        request=request,
+        sources=sources,
+        statuses=statuses,
+        days=days,
+    )
+
+    results = []
+    for event in events:
+        results.append({
+            "connector_account_id": event.connector_account_id,
+            "source_entity_id": event.source_entity_id,
+            "title": event.title or event.source_entity_id,
+            "source": event.source,
+            "connector_account": event.connector_account.display_name if event.connector_account else None,
+            "external_status": event.external_status or event.event_type,
+            "updated_at": event.start_time or event.created_at,
+        })
+    return JsonResponse({"results": results})
+
+
+@login_required
+@require_POST
+def add_selected_sources(request: HttpRequest) -> JsonResponse:
+    payload = _parse_json(request)
+    selected_ids = payload.get("selected_ids") or []
+    planner_status = payload.get("planner_status") or PlannerItemState.PLANNER_STATUS_INBOX
+    planned_status = payload.get("planned_status") or PlannerItemState.STATUS_PLANNED
+    pinned = bool(payload.get("pinned", False))
+    placement = payload.get("placement") or "bottom"
+    after_id = payload.get("after_id")
+
+    if planner_status not in dict(PlannerItemState.PLANNER_STATUS_CHOICES):
+        return JsonResponse({"error": "Invalid planner_status."}, status=400)
+    if planned_status not in dict(PlannerItemState.STATUS_CHOICES):
+        return JsonResponse({"error": "Invalid planned_status."}, status=400)
+    if placement not in {"top", "bottom", "after_pinned", "after_id"}:
+        return JsonResponse({"error": "Invalid placement."}, status=400)
+
+    if not isinstance(selected_ids, list) or not selected_ids:
+        return JsonResponse({"error": "selected_ids must be a non-empty list."}, status=400)
+
+    plan = _get_or_create_plan(request)
+    if placement == "after_id":
+        if not after_id:
+            return JsonResponse({"error": "after_id is required for placement after_id."}, status=400)
+        if not PlannerItemState.objects.filter(
+            plan=plan,
+            id=after_id,
+            pinned=pinned,
+            planner_status=planner_status,
+        ).exists():
+            return JsonResponse({"error": "Invalid placement target."}, status=400)
+
+    events = _events_from_selected(request, selected_ids)
+    if not events:
+        return JsonResponse({"error": "No matching events found."}, status=400)
+
+    selected_states = []
+    with transaction.atomic():
+        for event in events:
+            item, _created = _get_or_create_planner_item_from_event(
+                request=request,
+                event=event,
+            )
+            if not item:
+                continue
+            state = ensure_item_state(plan, item, planner_status=planner_status)
+            state.planned_status = planned_status
+            state.planner_status = planner_status
+            state.pinned = pinned
+            state.last_planned_at = timezone.now()
+            state.save(update_fields=["planned_status", "planner_status", "pinned", "last_planned_at"])
+            selected_states.append(state)
+
+        if selected_states:
+            placement_ok = _apply_block_placement(
+                plan=plan,
+                pinned=pinned,
+                planner_status=planner_status,
+                placement=placement,
+                after_id=after_id,
+                selected_states=selected_states,
+            )
+            if not placement_ok:
+                return JsonResponse({"error": "Invalid placement target."}, status=400)
+
+    return JsonResponse({"status": "ok", "added": len(selected_states)})
+
+
 def _handle_add_from_sources(request: HttpRequest, plan: PlannerPlan) -> int:
     days = int(request.POST.get("days", 30))
     since = timezone.now() - timedelta(days=max(1, days))
@@ -287,6 +450,151 @@ def _handle_add_from_sources(request: HttpRequest, plan: PlannerPlan) -> int:
         events=events,
         plan=plan,
     )
+
+
+def _latest_task_events(*, request: HttpRequest, sources: list, statuses: list, days: int):
+    since = timezone.now() - timedelta(days=max(1, days))
+
+    events = (
+        Event.objects.for_workspace(request.workspace)
+        .filter(event_type__in=PLANNER_EVENT_TYPES, created_at__gte=since)
+        .select_related("connector_account")
+    )
+
+    if sources:
+        events = events.filter(source__in=sources)
+
+    status_values = {status.lower() for status in statuses if isinstance(status, str)}
+    if status_values:
+        status_query = Q()
+        if "completed" in status_values:
+            status_query |= (
+                Q(event_type="task_completed")
+                | Q(external_status__iexact="completed")
+                | Q(external_status__iexact="done")
+                | Q(external_status__iexact="closed")
+                | Q(external_status__iexact="resolved")
+            )
+        if "in_progress" in status_values:
+            status_query |= (
+                Q(external_status__iexact="in progress")
+                | Q(external_status__iexact="in_progress")
+                | Q(external_status__iexact="doing")
+            )
+        if "open" in status_values:
+            status_query |= (
+                ~Q(event_type="task_completed")
+                & ~Q(external_status__iexact="completed")
+                & ~Q(external_status__iexact="done")
+                & ~Q(external_status__iexact="closed")
+                & ~Q(external_status__iexact="resolved")
+                & ~Q(external_status__iexact="in progress")
+                & ~Q(external_status__iexact="in_progress")
+                & ~Q(external_status__iexact="doing")
+            )
+        events = events.filter(status_query)
+    else:
+        events = events.exclude(
+            Q(event_type="task_completed")
+            | Q(external_status__iexact="completed")
+            | Q(external_status__iexact="done")
+            | Q(external_status__iexact="closed")
+            | Q(external_status__iexact="resolved")
+        )
+
+    return (
+        events
+        .order_by("connector_account_id", "source_entity_id", "-created_at")
+        .distinct("connector_account_id", "source_entity_id")
+    )
+
+
+def _events_from_selected(request: HttpRequest, selected_ids: list) -> list[Event]:
+    event_ids = []
+    pairs = []
+    for entry in selected_ids:
+        if isinstance(entry, int):
+            event_ids.append(entry)
+        elif isinstance(entry, dict):
+            connector_id = entry.get("connector_account_id")
+            source_entity_id = entry.get("source_entity_id")
+            if connector_id and source_entity_id:
+                try:
+                    pairs.append((int(connector_id), str(source_entity_id)))
+                except (TypeError, ValueError):
+                    continue
+    if event_ids:
+        return list(
+            Event.objects.for_workspace(request.workspace)
+            .filter(id__in=event_ids)
+            .select_related("connector_account")
+        )
+    if pairs:
+        query = Q()
+        for connector_id, source_entity_id in pairs:
+            query |= Q(connector_account_id=connector_id, source_entity_id=source_entity_id)
+        return list(
+            Event.objects.for_workspace(request.workspace)
+            .filter(query)
+            .order_by("connector_account_id", "source_entity_id", "-created_at")
+            .distinct("connector_account_id", "source_entity_id")
+            .select_related("connector_account")
+        )
+    return []
+
+
+def _get_or_create_planner_item_from_event(
+    *,
+    request: HttpRequest,
+    event: Event,
+):
+    return _get_or_create_item_from_event(event, request.workspace, request.user)
+
+
+def _apply_block_placement(
+    *,
+    plan: PlannerPlan,
+    pinned: bool,
+    planner_status: str,
+    placement: str,
+    after_id: int | None,
+    selected_states: list[PlannerItemState],
+) -> bool:
+    block_states = list(
+        PlannerItemState.objects
+        .filter(
+            plan=plan,
+            pinned=pinned,
+            planner_status=planner_status,
+            item__is_active=True,
+        )
+        .order_by("planned_order", "id")
+    )
+    selected_ids = {state.id for state in selected_states}
+    block_states = [state for state in block_states if state.id not in selected_ids]
+
+    insert_index = len(block_states)
+    if placement == "top":
+        insert_index = 0
+    elif placement == "after_pinned":
+        insert_index = 0
+    elif placement == "after_id" and after_id:
+        after_index = next((idx for idx, state in enumerate(block_states) if state.id == int(after_id)), None)
+        if after_index is None:
+            return False
+        insert_index = after_index + 1
+
+    block_states[insert_index:insert_index] = selected_states
+    updated = []
+    now = timezone.now()
+    for index, state in enumerate(block_states, start=1):
+        if state.planned_order != index or state.last_planned_at != now:
+            state.planned_order = index
+            state.last_planned_at = now
+            updated.append(state)
+    if updated:
+        PlannerItemState.objects.bulk_update(updated, ["planned_order", "last_planned_at"])
+    return True
 
 
 def _get_or_create_plan(request: HttpRequest) -> PlannerPlan:

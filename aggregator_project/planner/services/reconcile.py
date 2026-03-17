@@ -102,21 +102,36 @@ def _auto_complete_item(item: PlannerItem) -> None:
         state.save(update_fields=["planned_status", "last_planned_at"])
 
 
-def ensure_item_state(plan: PlannerPlan, item: PlannerItem) -> PlannerItemState:
+def ensure_item_state(
+    plan: PlannerPlan,
+    item: PlannerItem,
+    planner_status: str | None = None,
+) -> PlannerItemState:
     state = PlannerItemState.objects.filter(plan=plan, item=item).first()
     if state:
         return state
-    last_order = (
-        PlannerItemState.objects
-        .filter(plan=plan)
-        .order_by("-planned_order")
-        .values_list("planned_order", flat=True)
-        .first()
-    )
-    next_order = (last_order or 0) + 1
+    if planner_status == PlannerItemState.PLANNER_STATUS_INBOX:
+        first_order = (
+            PlannerItemState.objects
+            .filter(plan=plan, planner_status=PlannerItemState.PLANNER_STATUS_INBOX)
+            .order_by("planned_order")
+            .values_list("planned_order", flat=True)
+            .first()
+        )
+        next_order = (first_order or 0) - 1
+    else:
+        last_order = (
+            PlannerItemState.objects
+            .filter(plan=plan)
+            .order_by("-planned_order")
+            .values_list("planned_order", flat=True)
+            .first()
+        )
+        next_order = (last_order or 0) + 1
     return PlannerItemState.objects.create(
         plan=plan,
         item=item,
+        planner_status=planner_status or PlannerItemState.PLANNER_STATUS_INBOX,
         planned_order=next_order,
         last_planned_at=timezone.now(),
     )
@@ -135,7 +150,7 @@ def add_items_from_events(
             item, created = _get_or_create_item_from_event(event, workspace, user)
             if not item:
                 continue
-            ensure_item_state(plan, item)
+            ensure_item_state(plan, item, planner_status=PlannerItemState.PLANNER_STATUS_INBOX)
             if created:
                 created_count += 1
     return created_count
