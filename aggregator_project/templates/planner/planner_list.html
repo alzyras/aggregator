@@ -330,11 +330,6 @@
     updateTabCounts();
     updateEmptyStates();
 
-    document.querySelectorAll(".planner-tab").forEach((button) => button.classList.remove("is-active"));
-    document.querySelectorAll(".planner-tab-panel").forEach((panel) => panel.classList.remove("is-active"));
-    document.querySelector(`.planner-tab[data-tab='${targetStatus}']`)?.classList.add("is-active");
-    document.querySelector(`.planner-tab-panel[data-tab-panel='${targetStatus}']`)?.classList.add("is-active");
-
     if (!itemId) return;
     clearPlannerError();
     try {
