@@ -327,19 +327,40 @@ a {
   border: 1px solid rgba(214, 222, 244, 0.9);
   background: #fff;
   color: var(--primary);
-  padding: 0.45rem 0.9rem;
+  padding: 0.45rem 0.95rem;
   border-radius: 999px;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
   cursor: pointer;
+  min-height: 38px;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, background 160ms ease, color 160ms ease;
 }
 
 .planner-tab.is-active {
   background: var(--primary);
   color: #fff;
   border-color: var(--primary);
+}
+
+.planner-tab:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 18px rgba(14, 27, 78, 0.12);
+}
+
+.planner-tab:focus-visible {
+  outline: 3px solid rgba(59, 130, 246, 0.35);
+  outline-offset: 2px;
+}
+
+.planner-tab.is-dragging {
+  border-style: dashed;
+}
+
+.planner-tab.is-drop-target {
+  border-color: rgba(59, 130, 246, 0.6);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
 }
 
 .planner-tab-panel {
@@ -363,11 +384,18 @@ a {
   border-radius: 18px;
   border: 1px solid rgba(220, 228, 247, 0.8);
   background: #fff;
+  transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
 }
 
 .planner-row.dragging {
   opacity: 0.6;
   border-style: dashed;
+  box-shadow: 0 16px 30px rgba(9, 18, 66, 0.18);
+  transform: scale(0.99);
+}
+
+.planner-row.just-moved {
+  animation: planner-move 280ms ease;
 }
 
 .planner-handle {
@@ -414,6 +442,16 @@ a {
   font-size: 0.72rem;
 }
 
+.planner-tab .badge {
+  min-width: 28px;
+  justify-content: center;
+  transition: transform 160ms ease;
+}
+
+.planner-tab .badge.count-bump {
+  animation: badge-bump 220ms ease;
+}
+
 .badge.warning {
   background: rgba(245, 158, 11, 0.15);
   color: #a56400;
@@ -427,6 +465,23 @@ a {
 .badge.source {
   background: rgba(99, 102, 241, 0.15);
   color: #3b3fb0;
+}
+
+@keyframes badge-bump {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+@keyframes planner-move {
+  from {
+    opacity: 0.4;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .planner-calendar {

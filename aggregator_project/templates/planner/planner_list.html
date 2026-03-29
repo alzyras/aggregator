@@ -176,6 +176,7 @@
   let reorderInFlight = false;
   let reorderDirty = false;
   let pendingPayload = null;
+  const plannerTabs = Array.from(document.querySelectorAll(".planner-tab"));
 
   function buildBlockPayload(targetItem, listEl) {
     if (!targetItem || !listEl) return null;
@@ -237,12 +238,14 @@
       dragItem = target;
       dragList = listEl;
       target.classList.add("dragging");
+      plannerTabs.forEach((tab) => tab.classList.add("is-dragging"));
     });
 
     listEl.addEventListener("dragend", () => {
       if (dragItem) {
         dragItem.classList.remove("dragging");
       }
+      plannerTabs.forEach((tab) => tab.classList.remove("is-dragging", "is-drop-target"));
       dragItem = null;
       dragList = null;
     });
@@ -277,7 +280,14 @@
       const count = document.querySelectorAll(`.planner-list[data-status='${status}'] .planner-row`).length;
       const badge = tab.querySelector(".badge");
       if (badge) {
+        const previous = Number(badge.dataset.count || badge.textContent || 0);
         badge.textContent = count;
+        badge.dataset.count = String(count);
+        if (count !== previous) {
+          badge.classList.remove("count-bump");
+          void badge.offsetWidth;
+          badge.classList.add("count-bump");
+        }
       }
     });
   }
@@ -297,6 +307,71 @@
       tab.classList.add("is-active");
       const status = tab.dataset.tab;
       document.querySelector(`.planner-tab-panel[data-tab-panel='${status}']`)?.classList.add("is-active");
+    });
+  });
+
+  async function moveItemToStatus(targetStatus) {
+    if (!dragItem || !targetStatus) return;
+    const currentStatus = dragItem.dataset.status;
+    if (currentStatus === targetStatus) return;
+
+    const targetList = document.querySelector(`.planner-list[data-status='${targetStatus}']`);
+    if (!targetList) return;
+
+    const originalList = dragItem.parentElement;
+    const originalNext = dragItem.nextElementSibling;
+    const select = dragItem.querySelector("[data-planner-status-id]");
+    const itemId = select?.dataset.plannerStatusId;
+
+    dragItem.dataset.status = targetStatus;
+    targetList.prepend(dragItem);
+    if (select) select.value = targetStatus;
+    dragItem.classList.add("just-moved");
+    updateTabCounts();
+    updateEmptyStates();
+
+    document.querySelectorAll(".planner-tab").forEach((button) => button.classList.remove("is-active"));
+    document.querySelectorAll(".planner-tab-panel").forEach((panel) => panel.classList.remove("is-active"));
+    document.querySelector(`.planner-tab[data-tab='${targetStatus}']`)?.classList.add("is-active");
+    document.querySelector(`.planner-tab-panel[data-tab-panel='${targetStatus}']`)?.classList.add("is-active");
+
+    if (!itemId) return;
+    clearPlannerError();
+    try {
+      const response = await postJson(`/planner/item/${itemId}/planner-status`, { planner_status: targetStatus });
+      if (!response.ok) {
+        throw new Error("Planner update failed.");
+      }
+      scheduleReorder(buildBlockPayload(dragItem, targetList));
+      scheduleReorder(buildBlockPayload(dragItem, originalList));
+    } catch (error) {
+      if (originalList) {
+        dragItem.dataset.status = currentStatus;
+        if (originalNext) {
+          originalList.insertBefore(dragItem, originalNext);
+        } else {
+          originalList.appendChild(dragItem);
+        }
+        if (select) select.value = currentStatus;
+      }
+      updateTabCounts();
+      updateEmptyStates();
+      showPlannerError("Move failed. Please try again.");
+    }
+  }
+
+  plannerTabs.forEach((tab) => {
+    tab.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      tab.classList.add("is-drop-target");
+    });
+    tab.addEventListener("dragleave", () => {
+      tab.classList.remove("is-drop-target");
+    });
+    tab.addEventListener("drop", async (event) => {
+      event.preventDefault();
+      tab.classList.remove("is-drop-target");
+      await moveItemToStatus(tab.dataset.tab);
     });
   });
 
