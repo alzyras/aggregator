@@ -339,9 +339,11 @@ a {
 }
 
 .planner-tab.is-active {
-  background: var(--primary);
-  color: #fff;
-  border-color: var(--primary);
+  background: #c2c8d6;
+  color: var(--primary) !important;
+  border-color: #aab3c6;
+  box-shadow: none;
+  font-weight: 600;
 }
 
 .planner-tab:hover {
@@ -359,8 +361,20 @@ a {
 }
 
 .planner-tab.is-drop-target {
-  border-color: rgba(59, 130, 246, 0.6);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+  box-shadow: 0 10px 24px rgba(14, 27, 78, 0.18), 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.planner-tab.is-active .badge {
+  background: rgba(8, 14, 98, 0.12);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.planner-tab.tab-drop-animate {
+  animation: tab-drop-pulse 240ms ease;
 }
 
 .planner-tab-panel {
@@ -471,6 +485,12 @@ a {
   0% { transform: scale(1); }
   50% { transform: scale(1.2); }
   100% { transform: scale(1); }
+}
+
+@keyframes tab-drop-pulse {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.0); }
+  50% { transform: scale(1.05); box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.2); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.0); }
 }
 
 @keyframes planner-move {

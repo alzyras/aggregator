@@ -239,6 +239,10 @@
       dragList = listEl;
       target.classList.add("dragging");
       plannerTabs.forEach((tab) => tab.classList.add("is-dragging"));
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", target.dataset.stateId || "");
+      }
     });
 
     listEl.addEventListener("dragend", () => {
@@ -307,8 +311,23 @@
       tab.classList.add("is-active");
       const status = tab.dataset.tab;
       document.querySelector(`.planner-tab-panel[data-tab-panel='${status}']`)?.classList.add("is-active");
+      syncActiveTabFromPanel();
     });
   });
+
+  function syncActiveTabFromPanel() {
+    const panels = Array.from(document.querySelectorAll(".planner-tab-panel"));
+    let activePanel = document.querySelector(".planner-tab-panel.is-active");
+    if (!activePanel && panels.length) {
+      activePanel = panels[0];
+      activePanel.classList.add("is-active");
+    }
+    const activeStatus = activePanel?.dataset.tabPanel;
+    if (!activeStatus) return;
+    document.querySelectorAll(".planner-tab").forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.tab === activeStatus);
+    });
+  }
 
   async function moveItemToStatus(targetStatus) {
     if (!dragItem || !targetStatus) return;
@@ -356,8 +375,15 @@
   }
 
   plannerTabs.forEach((tab) => {
+    tab.addEventListener("dragenter", (event) => {
+      event.preventDefault();
+      tab.classList.add("is-drop-target");
+    });
     tab.addEventListener("dragover", (event) => {
       event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "move";
+      }
       tab.classList.add("is-drop-target");
     });
     tab.addEventListener("dragleave", () => {
@@ -366,11 +392,15 @@
     tab.addEventListener("drop", async (event) => {
       event.preventDefault();
       tab.classList.remove("is-drop-target");
+      tab.classList.remove("tab-drop-animate");
+      void tab.offsetWidth;
+      tab.classList.add("tab-drop-animate");
       await moveItemToStatus(tab.dataset.tab);
     });
   });
 
   updateTabCounts();
   updateEmptyStates();
+  syncActiveTabFromPanel();
 </script>
 {% endblock %}
