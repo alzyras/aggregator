@@ -362,9 +362,13 @@ a {
 
 .planner-tab.is-drop-target {
   background: var(--primary);
-  color: #fff;
   border-color: var(--primary);
   box-shadow: 0 10px 24px rgba(14, 27, 78, 0.18), 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.planner-tab.is-drop-target,
+.planner-tab.is-drop-target .badge {
+  color: var(--primary);
 }
 
 .planner-tab.is-active .badge {
