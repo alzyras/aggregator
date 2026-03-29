@@ -1,13 +1,6 @@
 {% extends "base.html" %}
 
 {% block content %}
-  <section class="hero">
-    <div>
-      <h1>Sync</h1>
-      <p>Trigger ingestion runs and inspect grouped sync runs.</p>
-    </div>
-  </section>
-
   <section class="glow">
     <div class="panel">
       <form method="post" class="sync-actions">
@@ -27,7 +20,6 @@
       <div class="panel-header">
         <div>
           <h2>Connector Run Overview</h2>
-          <span class="panel-subtitle">How each connector performed across recent runs.</span>
         </div>
         <form method="get" class="job-filter">
           <label class="field-label" for="job-status">Status</label>
@@ -97,7 +89,6 @@
       <div class="panel-header">
         <div>
           <h2>Detailed Runs</h2>
-          <span class="panel-subtitle">Grouped run details with parameters and status summary.</span>
         </div>
       </div>
       <div class="table-shell">

@@ -2,13 +2,6 @@
 {% load json_extras %}
 
 {% block content %}
-  <section class="hero">
-    <div>
-      <h1>{{ event.title|default:event.source_entity_id }}</h1>
-      <p>Detailed normalized view.</p>
-    </div>
-  </section>
-
   <section class="glow">
     <div class="panel">
       <div class="detail-grid">

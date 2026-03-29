@@ -1,23 +1,11 @@
 {% extends "base.html" %}
 
 {% block content %}
-  <section class="hero">
-    <div>
-      <h1>Statistics</h1>
-      <p>Tasks completed and sync summary by source.</p>
-    </div>
-  </section>
-
   <section class="glow">
     <div class="panel">
       <div class="panel-header">
         <div>
           <h2>Tasks Completed</h2>
-          <span class="panel-subtitle">
-            Last generated at
-            <span title="{{ last_generated_at|date:'Y-m-d H:i:s T' }}">{{ last_generated_at|date:"Y-m-d H:i:s" }} UTC</span>
-            {% if cache_bypassed %} · uncached{% endif %}
-          </span>
         </div>
         <div class="stats-header-actions">
           <a class="btn ghost small" href="?nocache=1{% if selected_source %}&amp;source={{ selected_source }}{% endif %}">Refresh</a>
@@ -34,7 +22,6 @@
       </div>
 
       <div class="panel-header stats-chart-header">
-        <div class="panel-subtitle">Switch between daily and monthly completions.</div>
         <div class="chart-toggle" role="group" aria-label="Completion series granularity">
           <button type="button" class="btn ghost small chart-toggle-btn is-active" data-chart-mode="daily" aria-pressed="true">
             Daily
@@ -82,7 +69,6 @@
       <div class="panel-header">
         <div>
           <h2>Last Sync By Source</h2>
-          <span class="panel-subtitle">Latest finished sync and events ingested in that run.</span>
         </div>
       </div>
 

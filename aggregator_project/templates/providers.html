@@ -2,11 +2,6 @@
 
 {% block content %}
   <section class="card">
-    <h1>Providers</h1>
-    <p>Activate providers by adding credentials. Connected providers show in green.</p>
-  </section>
-
-  <section class="card">
     <div class="provider-grid">
       {% for card in provider_cards %}
         <div class="provider-card {% if card.connected %}connected{% endif %}">

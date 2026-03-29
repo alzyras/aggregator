@@ -1,17 +1,10 @@
 {% extends "base.html" %}
 
 {% block content %}
-<section class="hero">
-  <div class="hero-pill">Planner</div>
-  <h1>Weekly calendar</h1>
-  <p>Drag items onto the week to place intent. External status stays separate.</p>
-</section>
-
 <section class="panel">
   <div class="panel-header">
     <div>
       <h2>{{ plan.name }}</h2>
-      <span class="panel-subtitle">Week of {{ days.0|date:"M d" }}</span>
     </div>
     <div class="panel-actions">
       <a class="btn ghost" href="{% url 'planner_list' %}">Back to list</a>
