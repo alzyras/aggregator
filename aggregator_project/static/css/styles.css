@@ -997,7 +997,7 @@ a {
 }
 
 .run-overview-shell {
-  overflow: auto;
+  overflow: hidden;
   border: 1px solid rgba(193, 205, 241, 0.9);
   border-radius: 20px;
   background: linear-gradient(180deg, rgba(252, 253, 255, 0.95), rgba(245, 248, 255, 0.92));
@@ -1008,13 +1008,13 @@ a {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  min-width: 900px;
+  min-width: 0;
   table-layout: fixed;
 }
 
 .connector-run-grid th,
 .connector-run-grid td {
-  padding: 0.55rem 0.5rem;
+  padding: 0.45rem 0.35rem;
   border-bottom: 1px solid rgba(210, 220, 246, 0.68);
   text-align: center;
 }
@@ -1034,8 +1034,8 @@ a {
   position: sticky;
   left: 0;
   z-index: 6;
-  width: 250px;
-  min-width: 250px;
+  width: 210px;
+  min-width: 210px;
   text-align: left;
   border-right: 1px solid rgba(196, 209, 243, 0.82);
 }
@@ -1045,8 +1045,8 @@ a {
   left: 0;
   z-index: 3;
   text-align: left;
-  width: 250px;
-  min-width: 250px;
+  width: 210px;
+  min-width: 210px;
   font-size: 0.84rem;
   font-weight: 600;
   color: #1f2a53;
@@ -1079,12 +1079,12 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   margin: 0 auto;
   border-radius: 999px;
   background: rgba(8, 14, 98, 0.06);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 700;
   color: #64748b;
 }
