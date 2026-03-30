@@ -36,6 +36,7 @@ The repository is now dockerized for a production-style deployment with two serv
 
 - `web`: Django + Gunicorn
 - `worker`: background job runner (`run_worker`)
+- `postgres`: PostgreSQL (default; override with external DB via `PGHOST`)
 
 Start locally with Docker Compose:
 
@@ -62,6 +63,8 @@ Optional startup flags:
 - `RUN_MIGRATIONS=1` to apply migrations at startup (default on `web`)
 - `COLLECT_STATIC=1` to build static assets (default on `web`)
 - Application URL is `http://<your-hostname>:<WEB_PORT>/`
+- If you keep the built-in DB, set `PGHOST=postgres` (or leave it unset).
+- If you use an external DB, set `PGHOST` to that host explicitly.
 
 ## Database
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-
+import logging
 import os
 
 from django.db import IntegrityError, transaction
@@ -18,6 +18,9 @@ from ingestion.normalizers.utils import (
     serialize_raw,
 )
 from ingestion.providers import get_provider_spec
+from planner.services.reconcile import reconcile_from_event
+
+logger = logging.getLogger(__name__)
 
 
 def _latest_event_timestamp(connector_account: ConnectorAccount) -> datetime | None:
@@ -80,12 +83,16 @@ def sync_connector_account(
                 continue
             try:
                 with transaction.atomic():
-                    Event.objects.create(
+                    event = Event.objects.create(
                         workspace=workspace,
                         connector_account=connector_account,
                         **normalized,
                     )
                 inserted += 1
+                try:
+                    reconcile_from_event(event)
+                except Exception:  # noqa: BLE001
+                    logger.exception("planner_reconcile_failed", extra={"event_id": str(event.id)})
             except IntegrityError:
                 skipped += 1
             if progress_enabled and (inserted + skipped) % progress_every == 0:

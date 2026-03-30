@@ -1,13 +1,6 @@
 {% extends "base.html" %}
 
 {% block content %}
-  <section class="hero">
-    <div>
-      <h1>Events</h1>
-      <p>Browse normalized events across all connected sources.</p>
-    </div>
-  </section>
-
   <section class="glow">
     <div class="panel">
       <form method="get" class="filter-bar" data-filter-bar data-advanced-open="{{ has_advanced_filters|yesno:'1,0' }}">

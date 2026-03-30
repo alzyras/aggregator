@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "connectors",
     "ingestion",
     "events",
+    "planner",
     "providers.asana.apps.AsanaProviderConfig",
     "providers.todoist.apps.TodoistProviderConfig",
     "providers.google_fit.apps.GoogleFitProviderConfig",
@@ -137,6 +138,9 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 ENCRYPTION_KEY = _env("ENCRYPTION_KEY")
 
 JOB_MAX_CONCURRENCY = int(_env("JOB_MAX_CONCURRENCY", "4") or "4")
+
+PLANNER_AUTO_CREATE = _env("PLANNER_AUTO_CREATE", "true").lower() in {"1", "true", "yes"}
+PLANNER_AUTO_COMPLETE = _env("PLANNER_AUTO_COMPLETE", "false").lower() in {"1", "true", "yes"}
 
 SITE_ID = 1
 

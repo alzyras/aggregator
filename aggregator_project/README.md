@@ -32,3 +32,12 @@ Jira connector stores non-secret options in `ConnectorAccount.config["jira"]` an
 - Lifecycle mapping: `task_created`, `task_updated`, `task_completed`, `task_reopened`, `task_deleted`, optional `task_state`.
 - Worklogs can emit `metric_recorded` (`time_spent`, `seconds`).
 - Changelog is the preferred source for precise completion/reopen transition timestamps.
+
+## Planner
+
+Planner is a local intent layer on top of synced tasks.
+
+- External status is authoritative for truth.
+- Planned status reflects local intent.
+- Staleness is based on `PlannerItem.last_synced_at` and shown in the UI.
+- Reconciliation updates planner items when `task_state` or `task_completed` events are ingested.

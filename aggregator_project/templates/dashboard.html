@@ -1,21 +1,10 @@
 {% extends "base.html" %}
 
 {% block content %}
-  <section class="hero">
-    <div class="hero-pill">Plugins</div>
-    <h1>Simple, transparent plugin control</h1>
-    <p>Connect and verify your integrations in one place. Connected plugins are locked to prevent mistakes.</p>
-    <div class="hero-toggle">
-      <button class="toggle-btn active" type="button" data-tab="plugins">Plugins</button>
-      <button class="toggle-btn" type="button" data-tab="events">Events</button>
-    </div>
-  </section>
-
   <section class="glow tab-panel is-active" data-tab-panel="plugins">
     <div class="panel">
       <div class="panel-header">
         <h2>Plugins</h2>
-        <span class="panel-subtitle">Manage credentials and verification.</span>
       </div>
       <div class="cards-grid">
         {% for card in provider_cards %}
@@ -29,7 +18,6 @@
     <div class="panel">
       <div class="panel-header">
         <h2>Latest Events</h2>
-        <span class="panel-subtitle">Most recent normalized items.</span>
       </div>
       <div class="table-shell">
         <table class="data-table">
