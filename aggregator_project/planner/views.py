@@ -70,6 +70,14 @@ def planner_list(request: HttpRequest) -> HttpResponse:
     for state in states:
         grouped_states.setdefault(state.planner_status, []).append(state)
 
+    inbox_items = grouped_states.get(PlannerItemState.PLANNER_STATUS_INBOX, [])
+    if inbox_items:
+        grouped_states[PlannerItemState.PLANNER_STATUS_INBOX] = sorted(
+            inbox_items,
+            key=lambda item_state: item_state.item.created_at,
+            reverse=True,
+        )
+
     tab_items = []
     for status, label in PlannerItemState.PLANNER_STATUS_CHOICES:
         items = grouped_states.get(status, [])
