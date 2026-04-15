@@ -4,7 +4,6 @@ from pathlib import Path
 
 from django.apps import AppConfig
 from django.conf import settings
-
 from ingestion.providers import ProviderSpec
 
 
@@ -18,8 +17,9 @@ class HabiticaProviderConfig(AppConfig):
     def ready(self) -> None:
         from providers.habitica.client import HabiticaClient
         from providers.habitica.credentials import validate_credentials
-        from providers.habitica.normalizer import normalize_habitica
         from providers.habitica.forms import HabiticaConnectForm
+        from providers.habitica.normalizer import normalize_habitica
+        from providers.habitica.status_writer import HabiticaStatusWriter
 
         template_dir = Path(__file__).resolve().parent / "templates"
         template_dirs = settings.TEMPLATES[0].setdefault("DIRS", [])
@@ -39,4 +39,5 @@ class HabiticaProviderConfig(AppConfig):
             validate_credentials=validate_credentials,
             form_class=HabiticaConnectForm,
             icon="bi-heart-pulse",
+            status_writer_factory=lambda account: HabiticaStatusWriter(account),
         )

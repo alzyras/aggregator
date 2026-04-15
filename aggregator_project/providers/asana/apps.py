@@ -4,7 +4,6 @@ from pathlib import Path
 
 from django.apps import AppConfig
 from django.conf import settings
-
 from ingestion.providers import ProviderSpec
 
 
@@ -18,8 +17,9 @@ class AsanaProviderConfig(AppConfig):
     def ready(self) -> None:
         from providers.asana.client import AsanaClient
         from providers.asana.credentials import validate_credentials
-        from providers.asana.normalizer import normalize_asana
         from providers.asana.forms import AsanaConnectForm
+        from providers.asana.normalizer import normalize_asana
+        from providers.asana.status_writer import AsanaStatusWriter
 
         template_dir = Path(__file__).resolve().parent / "templates"
         template_dirs = settings.TEMPLATES[0].setdefault("DIRS", [])
@@ -39,4 +39,5 @@ class AsanaProviderConfig(AppConfig):
             validate_credentials=validate_credentials,
             form_class=AsanaConnectForm,
             icon="bi-kanban",
+            status_writer_factory=lambda account: AsanaStatusWriter(account),
         )

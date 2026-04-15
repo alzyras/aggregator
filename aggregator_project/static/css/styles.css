@@ -290,7 +290,7 @@ a {
   align-items: center;
   gap: 1rem;
   padding: 0.85rem 1.2rem;
-  border-radius: 18px;
+  border-radius: 8px;
   background: rgba(236, 240, 255, 0.7);
   margin-bottom: 1.5rem;
   border: 1px solid rgba(210, 220, 245, 0.7);
@@ -300,7 +300,7 @@ a {
   display: none;
   margin-bottom: 1rem;
   padding: 0.75rem 1rem;
-  border-radius: 14px;
+  border-radius: 8px;
   border: 1px solid rgba(220, 38, 38, 0.2);
   background: rgba(220, 38, 38, 0.08);
   color: #8a1f1f;
@@ -321,11 +321,16 @@ a {
   gap: 0.75rem;
   flex-wrap: wrap;
   margin-bottom: 1.25rem;
+  position: sticky;
+  top: 0.75rem;
+  z-index: 2;
+  padding: 0.35rem 0;
+  backdrop-filter: blur(12px);
 }
 
 .planner-tab {
   border: 1px solid rgba(214, 222, 244, 0.9);
-  background: #fff;
+  background: rgba(255, 255, 255, 0.92);
   color: var(--primary);
   padding: 0.45rem 0.95rem;
   border-radius: 999px;
@@ -361,14 +366,10 @@ a {
 }
 
 .planner-tab.is-drop-target {
-  background: var(--primary);
-  border-color: var(--primary);
+  background: rgba(239, 246, 255, 0.96);
+  border-color: rgba(59, 130, 246, 0.75);
   box-shadow: 0 10px 24px rgba(14, 27, 78, 0.18), 0 0 0 3px rgba(59, 130, 246, 0.15);
-}
-
-.planner-tab.is-drop-target,
-.planner-tab.is-drop-target .badge {
-  color: var(--primary);
+  transform: translateY(-2px) scale(1.02);
 }
 
 .planner-tab.is-active .badge {
@@ -395,14 +396,20 @@ a {
 
 .planner-row {
   display: grid;
-  grid-template-columns: 32px 1fr auto;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
   gap: 1rem;
   align-items: center;
   padding: 1rem 1.2rem;
   border-radius: 18px;
   border: 1px solid rgba(220, 228, 247, 0.8);
   background: #fff;
-  transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+  transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease, border-color 160ms ease;
+}
+
+.planner-row:hover {
+  border-color: rgba(59, 130, 246, 0.28);
+  box-shadow: 0 12px 24px rgba(14, 27, 78, 0.1);
+  transform: translateY(-1px);
 }
 
 .planner-row.dragging {
@@ -417,14 +424,20 @@ a {
 }
 
 .planner-handle {
+  width: 32px;
+  min-height: 36px;
+  border: 0;
+  background: transparent;
   font-size: 1.2rem;
   color: var(--muted);
   cursor: grab;
+  padding: 0;
 }
 
 .planner-title {
   font-weight: 600;
   margin-bottom: 0.35rem;
+  overflow-wrap: anywhere;
 }
 
 .planner-meta {
@@ -437,8 +450,10 @@ a {
 
 .planner-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.6rem;
   align-items: center;
+  justify-content: flex-end;
 }
 
 .status-select {
@@ -485,6 +500,44 @@ a {
   color: #3b3fb0;
 }
 
+.writeback-badge.pending {
+  background: rgba(37, 99, 235, 0.14);
+  color: #1d4ed8;
+}
+
+.writeback-badge.synced {
+  background: rgba(22, 163, 74, 0.15);
+  color: #0f6d34;
+}
+
+.writeback-badge.failed {
+  background: rgba(220, 38, 38, 0.12);
+  color: #991b1b;
+}
+
+.writeback-badge.unsupported,
+.writeback-badge.none {
+  background: rgba(100, 116, 139, 0.14);
+  color: #475569;
+}
+
+.planner-writeback-message {
+  display: none;
+  margin-top: 0.5rem;
+  color: #991b1b;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.planner-writeback-message.is-visible {
+  display: block;
+}
+
+.planner-retry.is-hidden,
+.planner-revert.is-hidden {
+  display: none;
+}
+
 @keyframes badge-bump {
   0% { transform: scale(1); }
   50% { transform: scale(1.2); }
@@ -505,6 +558,27 @@ a {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@media (max-width: 760px) {
+  .planner-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 0.6rem;
+  }
+
+  .planner-tab {
+    flex: 0 0 auto;
+  }
+
+  .planner-row {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .planner-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
   }
 }
 

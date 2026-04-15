@@ -105,6 +105,10 @@ python aggregator_project/manage.py run_worker
 ```
 
 In development, a background worker thread auto-starts when `DEBUG=true`.
+Queued jobs are durable in Postgres. A worker restart reclaims jobs that were
+left `running` longer than `JOB_STALE_RUNNING_SECONDS`. General sync jobs use
+`JOB_MAX_ATTEMPTS`; planner task status writeback uses
+`PLANNER_STATUS_WRITEBACK_MAX_RETRIES` retries before surfacing a failed sync.
 
 Optionally pass `--since=2025-01-01T00:00:00Z` to limit scope.
 

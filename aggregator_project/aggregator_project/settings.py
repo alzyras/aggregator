@@ -138,6 +138,9 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 ENCRYPTION_KEY = _env("ENCRYPTION_KEY")
 
 JOB_MAX_CONCURRENCY = int(_env("JOB_MAX_CONCURRENCY", "4") or "4")
+JOB_MAX_ATTEMPTS = int(_env("JOB_MAX_ATTEMPTS", "3") or "3")
+JOB_STALE_RUNNING_SECONDS = int(_env("JOB_STALE_RUNNING_SECONDS", "900") or "900")
+PLANNER_STATUS_WRITEBACK_MAX_RETRIES = int(_env("PLANNER_STATUS_WRITEBACK_MAX_RETRIES", "3") or "3")
 
 PLANNER_AUTO_CREATE = _env("PLANNER_AUTO_CREATE", "true").lower() in {"1", "true", "yes"}
 PLANNER_AUTO_COMPLETE = _env("PLANNER_AUTO_COMPLETE", "false").lower() in {"1", "true", "yes"}
