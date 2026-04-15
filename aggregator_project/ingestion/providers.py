@@ -1,18 +1,45 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Callable, Type, TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Callable, Protocol, Type
 
 from django import forms
-
 from django.apps import apps
 
 if TYPE_CHECKING:
     from connectors.models import ConnectorAccount
+    from planner.models import PlannerItem
 
 ClientFactory = Callable[["ConnectorAccount"], Any]
 Normalizer = Callable[[dict[str, Any]], dict[str, Any]]
 CredentialsValidator = Callable[[dict[str, Any]], tuple[bool, str]]
+StatusWriterFactory = Callable[["ConnectorAccount"], "ProviderStatusWriter"]
+
+STATUS_WRITEBACK_SUCCESS = "success"
+STATUS_WRITEBACK_UNSUPPORTED = "unsupported"
+STATUS_WRITEBACK_NOOP = "noop"
+STATUS_WRITEBACK_FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class StatusWritebackResult:
+    status: str
+    source_status: str | None = None
+    external_completed: bool | None = None
+    message: str = ""
+    raw: dict[str, Any] = field(default_factory=dict)
+
+
+class ProviderStatusWriter(Protocol):
+    def apply_planner_status(
+        self,
+        *,
+        source_entity_id: str,
+        planner_status: str,
+        item: "PlannerItem | None" = None,
+        source_entity_type: str | None = None,
+    ) -> StatusWritebackResult:
+        ...
 
 
 @dataclass(frozen=True)
@@ -26,6 +53,7 @@ class ProviderSpec:
     validate_credentials: CredentialsValidator
     form_class: Type[forms.Form]
     icon: str
+    status_writer_factory: StatusWriterFactory | None = None
 
 
 def get_provider_specs() -> list[ProviderSpec]:

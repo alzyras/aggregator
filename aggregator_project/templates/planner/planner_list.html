@@ -35,67 +35,91 @@
 
   <div class="planner-error" id="planner-error" role="alert" aria-live="polite"></div>
 
-  <div class="planner-tabs" role="tablist">
-    {% for tab in tab_items %}
-      <button class="planner-tab{% if tab.value == 'inbox' %} is-active{% endif %}" type="button" role="tab" data-tab="{{ tab.value }}">
-        {{ tab.label|title }}
-        <span class="badge">{{ tab.count }}</span>
-      </button>
+  <div class="planner-board" aria-label="Planner board">
+    {% for column in board_columns %}
+      <section class="planner-column" data-column-status="{{ column.value }}" aria-label="{{ column.label }}">
+        <div class="planner-column-header">
+          <h3>{{ column.label }}</h3>
+          <span class="badge planner-count" data-count-status="{{ column.value }}">{{ column.count }}</span>
+        </div>
+        <div class="planner-list" data-status="{{ column.value }}">
+          {% for state in column.items %}
+            <article
+              class="planner-row"
+              draggable="true"
+              data-state-id="{{ state.id }}"
+              data-item-id="{{ state.item.id }}"
+              data-pinned="{{ state.pinned|yesno:'true,false' }}"
+              data-status="{{ state.planner_status }}"
+              data-writeback-status="{{ state.writeback_status }}"
+            >
+              <button class="planner-handle" type="button" aria-label="Drag task">⋮⋮</button>
+              <div class="planner-content">
+                <div class="planner-title">{{ state.item.title }}</div>
+                <div class="planner-meta">
+                  <span class="badge source">{{ state.item.get_source_display }}</span>
+                  {% if state.item.connector_account %}
+                    <span class="badge">{{ state.item.connector_account.display_name }}</span>
+                  {% endif %}
+                  <span class="badge">External: {{ state.item.source_status|default:"unknown" }}</span>
+                  {% if state.item.external_completed %}
+                    <span class="badge success">Completed externally</span>
+                  {% endif %}
+                  <span class="badge writeback-badge {{ state.writeback_status }}" data-writeback-badge>
+                    {% if state.writeback_status == "pending" %}
+                      Saving
+                    {% elif state.writeback_status == "synced" %}
+                      Synced
+                    {% elif state.writeback_status == "failed" %}
+                      Failed sync
+                    {% elif state.writeback_status == "unsupported" %}
+                      Local only
+                    {% else %}
+                      Local
+                    {% endif %}
+                  </span>
+                  {% if state.item.last_synced_at %}
+                    <span class="badge">Synced {{ state.item.last_synced_at|timesince }} ago</span>
+                  {% else %}
+                    <span class="badge warning">Never synced</span>
+                  {% endif %}
+                </div>
+                <div class="planner-writeback-message" data-writeback-message>
+                  {{ state.last_writeback_error }}
+                </div>
+              </div>
+              <div class="planner-actions">
+                <select class="status-select" data-planner-status-id="{{ state.item.id }}" aria-label="Move task">
+                  {% for status_value,status_label in planner_status_choices %}
+                    <option value="{{ status_value }}" {% if status_value == state.planner_status %}selected{% endif %}>{{ status_label }}</option>
+                  {% endfor %}
+                </select>
+                <button class="btn ghost small planner-retry{% if state.writeback_status != 'failed' %} is-hidden{% endif %}" type="button" data-retry-id="{{ state.item.id }}">Retry</button>
+                <button class="btn ghost small planner-revert{% if state.writeback_status != 'failed' %} is-hidden{% endif %}" type="button" data-revert-id="{{ state.item.id }}">Revert</button>
+                <button class="btn ghost small" type="button" data-pin-id="{{ state.item.id }}">{% if state.pinned %}Unpin{% else %}Pin{% endif %}</button>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+        <div class="empty-state planner-empty{% if column.items %} is-hidden{% endif %}" data-empty-status="{{ column.value }}">
+          {% if column.value == 'inbox' %}
+            <strong>No new tasks</strong>
+          {% elif column.value == 'backlog' %}
+            <strong>Nothing to do</strong>
+          {% elif column.value == 'doing' %}
+            <strong>No active work</strong>
+          {% else %}
+            <strong>Nothing completed yet</strong>
+          {% endif %}
+        </div>
+      </section>
     {% endfor %}
   </div>
-
-  {% for tab in tab_items %}
-    <div class="planner-tab-panel{% if tab.value == 'inbox' %} is-active{% endif %}" data-tab-panel="{{ tab.value }}">
-      <div class="planner-list" data-status="{{ tab.value }}">
-        {% for state in tab.items %}
-          <div class="planner-row" draggable="true" data-state-id="{{ state.id }}" data-pinned="{{ state.pinned|yesno:'true,false' }}" data-status="{{ state.planner_status }}">
-            <div class="planner-handle">⋮⋮</div>
-            <div class="planner-content">
-              <div class="planner-title">{{ state.item.title }}</div>
-              <div class="planner-meta">
-                <span class="badge source">{{ state.item.get_source_display }}</span>
-                {% if state.item.connector_account %}
-                  <span class="badge">{{ state.item.connector_account.display_name }}</span>
-                {% endif %}
-                <span class="badge">External: {{ state.item.source_status|default:"unknown" }}</span>
-                {% if state.item.external_completed %}
-                  <span class="badge success">Completed externally</span>
-                {% endif %}
-                {% if state.item.last_synced_at %}
-                  <span class="badge">Synced {{ state.item.last_synced_at|timesince }} ago</span>
-                {% else %}
-                  <span class="badge warning">Never synced</span>
-                {% endif %}
-              </div>
-            </div>
-            <div class="planner-actions">
-              <select class="status-select" data-planner-status-id="{{ state.item.id }}">
-                {% for status_value,status_label in planner_status_choices %}
-                  <option value="{{ status_value }}" {% if status_value == state.planner_status %}selected{% endif %}>{{ status_label|title }}</option>
-                {% endfor %}
-              </select>
-              <button class="btn ghost small" data-pin-id="{{ state.item.id }}">{% if state.pinned %}Unpin{% else %}Pin{% endif %}</button>
-            </div>
-          </div>
-        {% endfor %}
-      </div>
-      <div class="empty-state planner-empty{% if tab.items %} is-hidden{% endif %}" data-empty-status="{{ tab.value }}">
-        {% if tab.value == 'inbox' %}
-          <strong>No new tasks</strong>
-        {% elif tab.value == 'backlog' %}
-          <strong>Nothing in backlog</strong>
-        {% elif tab.value == 'doing' %}
-          <strong>No active work</strong>
-        {% else %}
-          <strong>Nothing completed yet</strong>
-        {% endif %}
-      </div>
-    </div>
-  {% endfor %}
 </section>
 
 <script>
   const csrfToken = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1];
+  let dragState = null;
 
   function postJson(url, payload) {
     return fetch(url, {
@@ -107,20 +131,6 @@
       credentials: "same-origin",
       body: JSON.stringify(payload || {}),
     });
-  }
-
-  function showPlannerSuccess(message) {
-    const box = document.getElementById("planner-success");
-    if (!box) return;
-    box.textContent = message;
-    box.classList.add("is-visible");
-  }
-
-  function clearPlannerSuccess() {
-    const box = document.getElementById("planner-success");
-    if (!box) return;
-    box.textContent = "";
-    box.classList.remove("is-visible");
   }
 
   function showPlannerError(message) {
@@ -137,161 +147,35 @@
     errorBox.classList.remove("is-visible");
   }
 
-  const addBtn = document.getElementById("add-from-sources-btn");
-  addBtn?.addEventListener("click", async () => {
-    addBtn.disabled = true;
-    addBtn.classList.add("is-loading");
-    await postJson("/planner/add-from-sources", {});
-    window.location.reload();
-  });
-
-  document.querySelectorAll("[data-planner-status-id]").forEach((select) => {
-    select.addEventListener("change", async (event) => {
-      const itemId = event.target.dataset.plannerStatusId;
-      const newStatus = event.target.value;
-      const card = event.target.closest(".planner-row");
-      const list = document.querySelector(`.planner-list[data-status='${newStatus}']`);
-      if (card && list) {
-        card.dataset.status = newStatus;
-        list.prepend(card);
-        updateTabCounts();
-        updateEmptyStates();
-      }
-      await postJson(`/planner/item/${itemId}/planner-status`, { planner_status: newStatus });
-    });
-  });
-
-  document.querySelectorAll("[data-pin-id]").forEach((button) => {
-    button.addEventListener("click", async (event) => {
-      event.preventDefault();
-      const itemId = event.target.dataset.pinId;
-      await postJson(`/planner/item/${itemId}/pin`, {});
-      window.location.reload();
-    });
-  });
-
-  let dragItem = null;
-  let dragList = null;
-  let reorderTimer = null;
-  let reorderInFlight = false;
-  let reorderDirty = false;
-  let pendingPayload = null;
-  const plannerTabs = Array.from(document.querySelectorAll(".planner-tab"));
-
-  function buildBlockPayload(targetItem, listEl) {
-    if (!targetItem || !listEl) return null;
-    const blockPinned = targetItem.dataset.pinned === "true";
-    const blockIds = Array.from(listEl.querySelectorAll(".planner-row"))
-      .filter((row) => (row.dataset.pinned === "true") === blockPinned)
-      .map((row) => row.dataset.stateId);
-    return { block_order: blockIds, planner_status: listEl.dataset.status };
-  }
-
-  function scheduleReorder(payload) {
-    pendingPayload = payload;
-    if (reorderTimer) {
-      clearTimeout(reorderTimer);
-    }
-    reorderTimer = setTimeout(() => {
-      reorderTimer = null;
-      void sendReorder();
-    }, 400);
-  }
-
-  async function sendReorder() {
-    if (!pendingPayload) return;
-    if (reorderInFlight) {
-      reorderDirty = true;
-      return;
-    }
-    reorderInFlight = true;
-    reorderDirty = false;
-    clearPlannerError();
-    const payload = pendingPayload;
-    pendingPayload = null;
-    try {
-      const response = await postJson("/planner/reorder", payload);
-      if (!response.ok) {
-        const message = await response.text();
-        const trimmed = message.trim();
-        if (trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html")) {
-          showPlannerError("Reorder failed: server error. Check logs.");
-        } else {
-          showPlannerError(`Reorder failed: ${message}`);
-        }
-      }
-    } catch (error) {
-      showPlannerError("Reorder failed due to a network error.");
-    } finally {
-      reorderInFlight = false;
-      if (reorderDirty && pendingPayload) {
-        reorderDirty = false;
-        await sendReorder();
-      }
+  function moveCardToList(card, targetList, insertAtTop = true) {
+    if (!card || !targetList) return;
+    if (insertAtTop) {
+      targetList.prepend(card);
+    } else {
+      targetList.appendChild(card);
     }
   }
 
-  function setupList(listEl) {
-    listEl.addEventListener("dragstart", (event) => {
-      const target = event.target.closest(".planner-row");
-      if (!target) return;
-      dragItem = target;
-      dragList = listEl;
-      target.classList.add("dragging");
-      plannerTabs.forEach((tab) => tab.classList.add("is-dragging"));
-      if (event.dataTransfer) {
-        event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData("text/plain", target.dataset.stateId || "");
-      }
-    });
-
-    listEl.addEventListener("dragend", () => {
-      if (dragItem) {
-        dragItem.classList.remove("dragging");
-      }
-      plannerTabs.forEach((tab) => tab.classList.remove("is-dragging", "is-drop-target"));
-      dragItem = null;
-      dragList = null;
-    });
-
-    listEl.addEventListener("dragover", (event) => {
-      event.preventDefault();
-      const target = event.target.closest(".planner-row");
-      if (!target || target === dragItem) return;
-      if (dragItem && target.dataset.pinned !== dragItem.dataset.pinned) {
-        return;
-      }
-      const rect = target.getBoundingClientRect();
-      const after = event.clientY > rect.top + rect.height / 2;
-      target.parentNode.insertBefore(dragItem, after ? target.nextSibling : target);
-    });
-
-    listEl.addEventListener("drop", async () => {
-      if (!dragItem || dragList !== listEl) return;
-      const payload = buildBlockPayload(dragItem, listEl);
-      if (!payload) return;
-      scheduleReorder(payload);
-    });
+  function restoreCard(card, originalList, originalNext) {
+    if (!card || !originalList) return;
+    if (originalNext && originalNext.parentElement === originalList) {
+      originalList.insertBefore(card, originalNext);
+    } else {
+      originalList.appendChild(card);
+    }
   }
 
-  document.querySelectorAll(".planner-list").forEach((listEl) => {
-    setupList(listEl);
-  });
-
-  function updateTabCounts() {
-    document.querySelectorAll(".planner-tab").forEach((tab) => {
-      const status = tab.dataset.tab;
+  function updateCounts() {
+    document.querySelectorAll(".planner-count").forEach((badge) => {
+      const status = badge.dataset.countStatus;
       const count = document.querySelectorAll(`.planner-list[data-status='${status}'] .planner-row`).length;
-      const badge = tab.querySelector(".badge");
-      if (badge) {
-        const previous = Number(badge.dataset.count || badge.textContent || 0);
-        badge.textContent = count;
-        badge.dataset.count = String(count);
-        if (count !== previous) {
-          badge.classList.remove("count-bump");
-          void badge.offsetWidth;
-          badge.classList.add("count-bump");
-        }
+      const previous = Number(badge.dataset.count || badge.textContent || 0);
+      badge.textContent = count;
+      badge.dataset.count = String(count);
+      if (count !== previous) {
+        badge.classList.remove("count-bump");
+        void badge.offsetWidth;
+        badge.classList.add("count-bump");
       }
     });
   }
@@ -304,103 +188,232 @@
     });
   }
 
-  document.querySelectorAll(".planner-tab").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      document.querySelectorAll(".planner-tab").forEach((button) => button.classList.remove("is-active"));
-      document.querySelectorAll(".planner-tab-panel").forEach((panel) => panel.classList.remove("is-active"));
-      tab.classList.add("is-active");
-      const status = tab.dataset.tab;
-      document.querySelector(`.planner-tab-panel[data-tab-panel='${status}']`)?.classList.add("is-active");
-      syncActiveTabFromPanel();
-    });
-  });
-
-  function syncActiveTabFromPanel() {
-    const panels = Array.from(document.querySelectorAll(".planner-tab-panel"));
-    let activePanel = document.querySelector(".planner-tab-panel.is-active");
-    if (!activePanel && panels.length) {
-      activePanel = panels[0];
-      activePanel.classList.add("is-active");
+  function updateWriteback(card, status, message) {
+    if (!card) return;
+    card.dataset.writebackStatus = status || "none";
+    const badge = card.querySelector("[data-writeback-badge]");
+    const messageEl = card.querySelector("[data-writeback-message]");
+    const retry = card.querySelector("[data-retry-id]");
+    const revert = card.querySelector("[data-revert-id]");
+    const labels = {
+      pending: "Saving",
+      synced: "Synced",
+      failed: "Failed sync",
+      unsupported: "Local only",
+      none: "Local",
+    };
+    if (badge) {
+      badge.className = `badge writeback-badge ${status || "none"}`;
+      badge.textContent = labels[status] || labels.none;
     }
-    const activeStatus = activePanel?.dataset.tabPanel;
-    if (!activeStatus) return;
-    document.querySelectorAll(".planner-tab").forEach((button) => {
-      button.classList.toggle("is-active", button.dataset.tab === activeStatus);
-    });
+    if (messageEl) {
+      messageEl.textContent = message || "";
+      messageEl.classList.toggle("is-visible", Boolean(message));
+    }
+    const failed = status === "failed";
+    retry?.classList.toggle("is-hidden", !failed);
+    revert?.classList.toggle("is-hidden", !failed);
   }
 
-  async function moveItemToStatus(targetStatus) {
-    if (!dragItem || !targetStatus) return;
-    const currentStatus = dragItem.dataset.status;
-    if (currentStatus === targetStatus) return;
+  function buildReorderPayload(listEl, pinned) {
+    if (!listEl) return null;
+    const ids = Array.from(listEl.querySelectorAll(".planner-row"))
+      .filter((row) => (row.dataset.pinned === "true") === pinned)
+      .map((row) => row.dataset.stateId);
+    if (!ids.length) return null;
+    return { block_order: ids, planner_status: listEl.dataset.status };
+  }
 
+  async function sendReorderForList(listEl, pinned) {
+    const payload = buildReorderPayload(listEl, pinned);
+    if (!payload) return;
+    try {
+      const response = await postJson("/planner/reorder", payload);
+      if (!response.ok) {
+        showPlannerError("Reorder failed. Refresh and try again.");
+      }
+    } catch (error) {
+      showPlannerError("Reorder failed due to a network error.");
+    }
+  }
+
+  async function persistStatusMove(card, targetStatus, originalList, originalNext, originalStatus) {
     const targetList = document.querySelector(`.planner-list[data-status='${targetStatus}']`);
-    if (!targetList) return;
-
-    const originalList = dragItem.parentElement;
-    const originalNext = dragItem.nextElementSibling;
-    const select = dragItem.querySelector("[data-planner-status-id]");
+    const select = card?.querySelector("[data-planner-status-id]");
     const itemId = select?.dataset.plannerStatusId;
+    if (!card || !targetList || !itemId) return;
+    const originalWritebackStatus = card.dataset.writebackStatus || "none";
+    const originalWritebackMessage = card.querySelector("[data-writeback-message]")?.textContent || "";
 
-    dragItem.dataset.status = targetStatus;
-    targetList.prepend(dragItem);
+    card.dataset.status = targetStatus;
     if (select) select.value = targetStatus;
-    dragItem.classList.add("just-moved");
-    updateTabCounts();
+    card.classList.add("just-moved");
+    updateWriteback(card, "pending", "Saving to source...");
+    updateCounts();
     updateEmptyStates();
-
-    if (!itemId) return;
     clearPlannerError();
+
     try {
       const response = await postJson(`/planner/item/${itemId}/planner-status`, { planner_status: targetStatus });
+      const payload = await response.json();
       if (!response.ok) {
-        throw new Error("Planner update failed.");
+        throw new Error(payload.error || "Planner update failed.");
       }
-      scheduleReorder(buildBlockPayload(dragItem, targetList));
-      scheduleReorder(buildBlockPayload(dragItem, originalList));
+      updateWriteback(card, payload.writeback_status, payload.writeback_message);
+      const pinned = card.dataset.pinned === "true";
+      await sendReorderForList(targetList, pinned);
+      if (originalList && originalList !== targetList) {
+        await sendReorderForList(originalList, pinned);
+      }
     } catch (error) {
-      if (originalList) {
-        dragItem.dataset.status = currentStatus;
-        if (originalNext) {
-          originalList.insertBefore(dragItem, originalNext);
-        } else {
-          originalList.appendChild(dragItem);
-        }
-        if (select) select.value = currentStatus;
-      }
-      updateTabCounts();
+      card.dataset.status = originalStatus;
+      if (select) select.value = originalStatus;
+      restoreCard(card, originalList, originalNext);
+      updateWriteback(card, originalWritebackStatus, originalWritebackMessage);
+      updateCounts();
       updateEmptyStates();
-      showPlannerError("Move failed. Please try again.");
+      showPlannerError(error.message || "Move failed. Please try again.");
     }
   }
 
-  plannerTabs.forEach((tab) => {
-    tab.addEventListener("dragenter", (event) => {
-      event.preventDefault();
-      tab.classList.add("is-drop-target");
-    });
-    tab.addEventListener("dragover", (event) => {
-      event.preventDefault();
+  function setupList(listEl) {
+    listEl.addEventListener("dragstart", (event) => {
+      const card = event.target.closest(".planner-row");
+      if (!card) return;
+      dragState = {
+        card,
+        originalList: card.parentElement,
+        originalNext: card.nextElementSibling,
+        originalStatus: card.dataset.status,
+        pinned: card.dataset.pinned === "true",
+      };
+      card.classList.add("dragging");
+      document.querySelectorAll(".planner-column").forEach((column) => column.classList.add("is-dragging"));
       if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = "move";
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", card.dataset.stateId || "");
       }
-      tab.classList.add("is-drop-target");
     });
-    tab.addEventListener("dragleave", () => {
-      tab.classList.remove("is-drop-target");
-    });
-    tab.addEventListener("drop", async (event) => {
+
+    listEl.addEventListener("dragover", (event) => {
+      if (!dragState?.card) return;
       event.preventDefault();
-      tab.classList.remove("is-drop-target");
-      tab.classList.remove("tab-drop-animate");
-      void tab.offsetWidth;
-      tab.classList.add("tab-drop-animate");
-      await moveItemToStatus(tab.dataset.tab);
+      const target = event.target.closest(".planner-row");
+      if (!target || target === dragState.card) {
+        if (!target && dragState.card.parentElement !== listEl) {
+          listEl.appendChild(dragState.card);
+        }
+        return;
+      }
+      if (target.dataset.pinned !== dragState.card.dataset.pinned) return;
+      const rect = target.getBoundingClientRect();
+      const after = event.clientY > rect.top + rect.height / 2;
+      target.parentNode.insertBefore(dragState.card, after ? target.nextSibling : target);
+    });
+
+    listEl.addEventListener("drop", async (event) => {
+      if (!dragState?.card) return;
+      event.preventDefault();
+      const card = dragState.card;
+      const targetStatus = listEl.dataset.status;
+      const originalList = dragState.originalList;
+      const originalNext = dragState.originalNext;
+      const originalStatus = dragState.originalStatus;
+      const pinned = dragState.pinned;
+      if (targetStatus !== originalStatus) {
+        await persistStatusMove(card, targetStatus, originalList, originalNext, originalStatus);
+      } else {
+        await sendReorderForList(listEl, pinned);
+      }
+    });
+
+    listEl.addEventListener("dragend", () => {
+      dragState?.card?.classList.remove("dragging");
+      document.querySelectorAll(".planner-column").forEach((column) => column.classList.remove("is-dragging", "is-drop-target"));
+      dragState = null;
+    });
+  }
+
+  document.querySelectorAll(".planner-list").forEach((listEl) => {
+    setupList(listEl);
+  });
+
+  document.querySelectorAll(".planner-column").forEach((column) => {
+    column.addEventListener("dragenter", () => column.classList.add("is-drop-target"));
+    column.addEventListener("dragleave", (event) => {
+      if (!column.contains(event.relatedTarget)) {
+        column.classList.remove("is-drop-target");
+      }
+    });
+    column.addEventListener("drop", () => column.classList.remove("is-drop-target"));
+  });
+
+  document.querySelectorAll("[data-planner-status-id]").forEach((select) => {
+    select.addEventListener("change", async (event) => {
+      const card = event.target.closest(".planner-row");
+      const targetStatus = event.target.value;
+      const targetList = document.querySelector(`.planner-list[data-status='${targetStatus}']`);
+      if (!card || !targetList) return;
+      const originalList = card.parentElement;
+      const originalNext = card.nextElementSibling;
+      const originalStatus = card.dataset.status;
+      moveCardToList(card, targetList);
+      await persistStatusMove(card, targetStatus, originalList, originalNext, originalStatus);
     });
   });
 
-  updateTabCounts();
+  document.querySelectorAll("[data-retry-id]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const card = event.target.closest(".planner-row");
+      const itemId = event.target.dataset.retryId;
+      updateWriteback(card, "pending", "Saving to source...");
+      const response = await postJson(`/planner/item/${itemId}/writeback/retry`, {});
+      const payload = await response.json();
+      updateWriteback(card, payload.writeback_status, payload.writeback_message);
+    });
+  });
+
+  document.querySelectorAll("[data-revert-id]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const card = event.target.closest(".planner-row");
+      const itemId = event.target.dataset.revertId;
+      const response = await postJson(`/planner/item/${itemId}/writeback/revert`, {});
+      const payload = await response.json();
+      if (!response.ok) {
+        showPlannerError(payload.error || "Revert failed.");
+        return;
+      }
+      const targetList = document.querySelector(`.planner-list[data-status='${payload.planner_status}']`);
+      moveCardToList(card, targetList);
+      card.dataset.status = payload.planner_status;
+      const select = card.querySelector("[data-planner-status-id]");
+      if (select) select.value = payload.planner_status;
+      updateWriteback(card, payload.writeback_status, payload.writeback_message);
+      updateCounts();
+      updateEmptyStates();
+    });
+  });
+
+  document.querySelectorAll("[data-pin-id]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const itemId = event.target.dataset.pinId;
+      await postJson(`/planner/item/${itemId}/pin`, {});
+      window.location.reload();
+    });
+  });
+
+  const addBtn = document.getElementById("add-from-sources-btn");
+  addBtn?.addEventListener("click", async () => {
+    addBtn.disabled = true;
+    addBtn.classList.add("is-loading");
+    await postJson("/planner/add-from-sources", {});
+    window.location.reload();
+  });
+
+  updateCounts();
   updateEmptyStates();
-  syncActiveTabFromPanel();
 </script>
 {% endblock %}

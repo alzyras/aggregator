@@ -4,7 +4,6 @@ from pathlib import Path
 
 from django.apps import AppConfig
 from django.conf import settings
-
 from ingestion.providers import ProviderSpec
 
 
@@ -18,8 +17,9 @@ class TodoistProviderConfig(AppConfig):
     def ready(self) -> None:
         from providers.todoist.client import TodoistClient
         from providers.todoist.credentials import validate_credentials
-        from providers.todoist.normalizer import normalize_todoist
         from providers.todoist.forms import TodoistConnectForm
+        from providers.todoist.normalizer import normalize_todoist
+        from providers.todoist.status_writer import TodoistStatusWriter
 
         template_dir = Path(__file__).resolve().parent / "templates"
         template_dirs = settings.TEMPLATES[0].setdefault("DIRS", [])
@@ -38,4 +38,5 @@ class TodoistProviderConfig(AppConfig):
             validate_credentials=validate_credentials,
             form_class=TodoistConnectForm,
             icon="bi-check2-square",
+            status_writer_factory=lambda account: TodoistStatusWriter(account),
         )

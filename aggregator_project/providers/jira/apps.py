@@ -4,7 +4,6 @@ from pathlib import Path
 
 from django.apps import AppConfig
 from django.conf import settings
-
 from ingestion.providers import ProviderSpec
 
 
@@ -20,6 +19,7 @@ class JiraProviderConfig(AppConfig):
         from providers.jira.credentials import validate_credentials
         from providers.jira.forms import JiraConnectForm
         from providers.jira.normalizer import normalize_jira
+        from providers.jira.status_writer import JiraStatusWriter
 
         template_dir = Path(__file__).resolve().parent / "templates"
         template_dirs = settings.TEMPLATES[0].setdefault("DIRS", [])
@@ -39,5 +39,5 @@ class JiraProviderConfig(AppConfig):
             validate_credentials=validate_credentials,
             form_class=JiraConnectForm,
             icon="bi-journal-text",
+            status_writer_factory=lambda account: JiraStatusWriter(account),
         )
-

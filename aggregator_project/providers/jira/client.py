@@ -8,9 +8,9 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import requests
+from connectors.models import ConnectorAccount
 from requests.auth import HTTPBasicAuth
 
-from connectors.models import ConnectorAccount
 from providers.jira.settings import get_jira_config
 
 logger = logging.getLogger(__name__)
@@ -209,6 +209,18 @@ class JiraClient:
             worklogs_payload = self._request("GET", f"{self._issue_path(issue_key)}/worklog")
             issue["_expanded_worklogs"] = worklogs_payload.get("worklogs") or []
 
+    def get_issue_transitions(self, issue_key: str) -> list[dict[str, Any]]:
+        payload = self._request("GET", f"{self._issue_path(issue_key)}/transitions")
+        return payload.get("transitions") or []
+
+    def transition_issue(self, issue_key: str, transition_id: str) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"{self._issue_path(issue_key)}/transitions",
+            json={"transition": {"id": transition_id}},
+            headers={"Content-Type": "application/json"},
+        )
+
     def _issue_path(self, issue_key: str) -> str:
         deployment = self.config.get("deployment_type") or "cloud"
         api_version = "3" if deployment == "cloud" else "2"
@@ -257,6 +269,8 @@ class JiraClient:
                     f"Jira API error {response.status_code}: {response.text[:200]}"
                 )
 
+            if getattr(response, "content", None) == b"":
+                return {}
             return response.json()
 
         raise RuntimeError("Jira request exhausted retries.")

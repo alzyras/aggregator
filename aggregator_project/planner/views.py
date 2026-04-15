@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 
+from connectors.models import ConnectorAccount
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
@@ -13,14 +14,28 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
-
-from connectors.models import ConnectorAccount
 from events.models import Event
-from planner.models import PlannerItem, PlannerItemState, PlannerPlan
-from planner.services.reconcile import add_items_from_events, ensure_item_state
 
+from planner.models import PlannerItem, PlannerItemState, PlannerPlan
+from planner.services.reconcile import (
+    _get_or_create_item_from_event,
+    add_items_from_events,
+    ensure_item_state,
+)
+from planner.services.writeback import (
+    planned_status_for_planner_status,
+    queue_status_writeback,
+    revert_state_to_source_status,
+    writeback_payload,
+)
 
 PLANNER_EVENT_TYPES = ["task_created", "task_updated", "task_state", "task_completed"]
+PLANNER_STATUS_LABELS = {
+    PlannerItemState.PLANNER_STATUS_INBOX: "Inbox",
+    PlannerItemState.PLANNER_STATUS_BACKLOG: "To do",
+    PlannerItemState.PLANNER_STATUS_DOING: "Doing",
+    PlannerItemState.PLANNER_STATUS_DONE: "Done",
+}
 
 
 @login_required
@@ -78,24 +93,27 @@ def planner_list(request: HttpRequest) -> HttpResponse:
             reverse=True,
         )
 
-    tab_items = []
+    board_columns = []
     for status, label in PlannerItemState.PLANNER_STATUS_CHOICES:
         items = grouped_states.get(status, [])
-        tab_items.append({
+        board_columns.append({
             "value": status,
-            "label": label,
+            "label": PLANNER_STATUS_LABELS.get(status, label.title()),
             "count": len(items),
             "items": items,
         })
 
     context = {
         "plan": plan,
-        "tab_items": tab_items,
+        "board_columns": board_columns,
         "now": now,
         "last_synced_at": last_synced_at,
         "stale_warning": stale_warning,
         "status_choices": PlannerItemState.STATUS_CHOICES,
-        "planner_status_choices": PlannerItemState.PLANNER_STATUS_CHOICES,
+        "planner_status_choices": [
+            (status, PLANNER_STATUS_LABELS.get(status, label.title()))
+            for status, label in PlannerItemState.PLANNER_STATUS_CHOICES
+        ],
         "source_choices": [(source, source.replace("_", " ").title()) for source in source_choices],
     }
     return render(request, "planner/planner_list.html", context)
@@ -152,9 +170,43 @@ def update_planner_status(request: HttpRequest, item_id: str) -> JsonResponse:
 
     state = _get_state(request, item_id)
     state.planner_status = status
+    state.planned_status = planned_status_for_planner_status(status)
     state.last_planned_at = timezone.now()
-    state.save(update_fields=["planner_status", "last_planned_at"])
-    return JsonResponse({"status": "ok", "planner_status": state.planner_status})
+    state.save(update_fields=["planner_status", "planned_status", "last_planned_at"])
+    job = queue_status_writeback(state=state, created_by=request.user)
+    return JsonResponse({
+        "status": "ok",
+        "planner_status": state.planner_status,
+        **writeback_payload(state, job),
+    })
+
+
+@login_required
+def retry_status_writeback(request: HttpRequest, item_id: str) -> JsonResponse:
+    response = _assert_post(request)
+    if response:
+        return response
+    state = _get_state(request, item_id)
+    job = queue_status_writeback(state=state, created_by=request.user)
+    return JsonResponse({
+        "status": "ok",
+        "planner_status": state.planner_status,
+        **writeback_payload(state, job),
+    })
+
+
+@login_required
+def revert_status_writeback(request: HttpRequest, item_id: str) -> JsonResponse:
+    response = _assert_post(request)
+    if response:
+        return response
+    state = _get_state(request, item_id)
+    revert_state_to_source_status(state)
+    return JsonResponse({
+        "status": "ok",
+        "planner_status": state.planner_status,
+        **writeback_payload(state),
+    })
 
 
 @login_required
@@ -436,8 +488,6 @@ def add_selected_sources(request: HttpRequest) -> JsonResponse:
 def _handle_add_from_sources(request: HttpRequest, plan: PlannerPlan) -> int:
     days = int(request.POST.get("days", 30))
     since = timezone.now() - timedelta(days=max(1, days))
-    completed_statuses = {"completed", "done", "closed", "resolved"}
-
     events = (
         Event.objects.for_workspace(request.workspace)
         .filter(event_type__in=PLANNER_EVENT_TYPES, created_at__gte=since)
@@ -626,7 +676,7 @@ def _get_or_create_plan(request: HttpRequest) -> PlannerPlan:
 def _get_state(request: HttpRequest, item_id: str) -> PlannerItemState:
     plan = _get_or_create_plan(request)
     return get_object_or_404(
-        PlannerItemState.objects.select_related("item"),
+        PlannerItemState.objects.select_related("item", "item__connector_account"),
         plan=plan,
         item_id=item_id,
     )

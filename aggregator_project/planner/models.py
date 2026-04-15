@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from django.conf import settings
-from django.db import models
-from django.utils import timezone
-
 from connectors.models import ConnectorAccount
 from core.constants import SOURCE_CHOICES
 from core.models import TimestampedModel
+from django.conf import settings
+from django.db import models
+from django.utils import timezone
 from workspaces.models import Workspace
 
 
@@ -109,6 +108,20 @@ class PlannerItemState(models.Model):
         (STATUS_DEFERRED, "deferred"),
     ]
 
+    WRITEBACK_STATUS_NONE = "none"
+    WRITEBACK_STATUS_PENDING = "pending"
+    WRITEBACK_STATUS_SYNCED = "synced"
+    WRITEBACK_STATUS_FAILED = "failed"
+    WRITEBACK_STATUS_UNSUPPORTED = "unsupported"
+
+    WRITEBACK_STATUS_CHOICES = [
+        (WRITEBACK_STATUS_NONE, "none"),
+        (WRITEBACK_STATUS_PENDING, "pending"),
+        (WRITEBACK_STATUS_SYNCED, "synced"),
+        (WRITEBACK_STATUS_FAILED, "failed"),
+        (WRITEBACK_STATUS_UNSUPPORTED, "unsupported"),
+    ]
+
     plan = models.ForeignKey(PlannerPlan, on_delete=models.CASCADE, related_name="item_states")
     item = models.ForeignKey(PlannerItem, on_delete=models.CASCADE, related_name="planner_states")
     planner_status = models.CharField(
@@ -123,12 +136,28 @@ class PlannerItemState(models.Model):
     pinned = models.BooleanField(default=False)
     notes = models.TextField(null=True, blank=True)
     last_planned_at = models.DateTimeField(default=timezone.now)
+    external_status_requested = models.CharField(
+        max_length=20,
+        choices=PLANNER_STATUS_CHOICES,
+        null=True,
+        blank=True,
+    )
+    writeback_status = models.CharField(
+        max_length=20,
+        choices=WRITEBACK_STATUS_CHOICES,
+        default=WRITEBACK_STATUS_NONE,
+    )
+    last_writeback_job_id = models.UUIDField(null=True, blank=True)
+    last_writeback_error = models.TextField(blank=True)
+    last_writeback_attempted_at = models.DateTimeField(null=True, blank=True)
+    last_writeback_succeeded_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         indexes = [
             models.Index(fields=["plan", "planned_order"]),
             models.Index(fields=["plan", "planned_status"]),
             models.Index(fields=["plan", "planner_status"]),
+            models.Index(fields=["plan", "writeback_status"]),
         ]
         constraints = [
             models.UniqueConstraint(fields=["plan", "item"], name="planner_item_state_unique"),

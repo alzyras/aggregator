@@ -6,15 +6,14 @@ import socket
 import traceback
 import uuid
 
+from connectors.models import ConnectorAccount
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from connectors.models import ConnectorAccount
 from ingestion.models import Job
 from ingestion.services.sync import sync_connector_account
-
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +70,10 @@ def run_job(job_id):
                 last_sync_status=ConnectorAccount.SYNC_STATUS_FAILED,
                 last_sync_at=timezone.now(),
             )
+        if job.job_type == "planner_status_writeback":
+            from planner.services.writeback import mark_status_writeback_job_failed
+
+            mark_status_writeback_job_failed(job, str(exc))
         if job.attempt_count < _max_attempts():
             job.status = Job.STATUS_QUEUED
             job.next_run_at = timezone.now() + _retry_delay(job.attempt_count)
@@ -109,6 +112,10 @@ def run_job(job_id):
 def execute_job(job: Job):
     if job.job_type == "sync":
         return _execute_sync_job(job)
+    if job.job_type == "planner_status_writeback":
+        from planner.services.writeback import execute_status_writeback_job
+
+        return execute_status_writeback_job(job)
     raise ValueError(f"Unsupported job type: {job.job_type}")
 
 
@@ -122,12 +129,14 @@ def _execute_sync_job(job: Job):
     if connector_account.workspace_id != job.workspace_id:
         raise ValueError("Connector account does not belong to workspace.")
 
-    stats = sync_connector_account(
-        workspace=job.workspace,
-        connector_account=connector_account,
-        since=since,
-        full_sync=full_sync,
-    )
+    sync_kwargs = {
+        "workspace": job.workspace,
+        "connector_account": connector_account,
+        "since": since,
+    }
+    if full_sync:
+        sync_kwargs["full_sync"] = True
+    stats = sync_connector_account(**sync_kwargs)
     return {"results": [stats]}
 
 

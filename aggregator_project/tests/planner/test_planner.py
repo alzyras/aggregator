@@ -1,19 +1,24 @@
 from __future__ import annotations
 
 import json
-
-from django.contrib.auth import get_user_model
-from django.test import TestCase
-from django.urls import reverse
-from django.utils import timezone
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from connectors.models import ConnectorAccount
+from cryptography.fernet import Fernet
+from django.contrib.auth import get_user_model
+from django.test import TestCase, override_settings
+from django.urls import reverse
 from events.models import Event
+from ingestion.models import Job
+from ingestion.providers import STATUS_WRITEBACK_SUCCESS, StatusWritebackResult
+from ingestion.services.jobs import run_job
 from planner.models import PlannerItem, PlannerItemState, PlannerPlan
 from planner.services.reconcile import reconcile_from_event
 from workspaces.models import Workspace, WorkspaceMember
 
 
+@override_settings(ENCRYPTION_KEY=Fernet.generate_key())
 class PlannerTests(TestCase):
     def setUp(self) -> None:
         self.user = self._create_user("planner_user")
@@ -30,9 +35,11 @@ class PlannerTests(TestCase):
             source="asana",
             display_name="Main",
             auth_type=ConnectorAccount.AUTH_API_TOKEN,
-            encrypted_access_token=b"token",
+            encrypted_access_token=b"",
             status=ConnectorAccount.STATUS_CONNECTED,
         )
+        self.account.set_access_token("token")
+        self.account.save(update_fields=["encrypted_access_token"])
 
     def test_reconcile_creates_planner_item(self):
         event = Event.objects.create(
@@ -144,6 +151,142 @@ class PlannerTests(TestCase):
         self.assertEqual(response.status_code, 200)
         state.refresh_from_db()
         self.assertEqual(state.planner_status, PlannerItemState.PLANNER_STATUS_DOING)
+        self.assertEqual(state.writeback_status, PlannerItemState.WRITEBACK_STATUS_PENDING)
+        self.assertTrue(Job.objects.filter(job_type="planner_status_writeback").exists())
+
+    def test_planner_status_endpoint_marks_disconnected_account_unsupported(self):
+        self.account.status = ConnectorAccount.STATUS_ERROR
+        self.account.save(update_fields=["status"])
+        plan = PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-disconnected",
+            title="Disconnected Task",
+        )
+        state = PlannerItemState.objects.create(plan=plan, item=item)
+
+        response = self.client.post(
+            reverse("planner_item_planner_status", args=[item.id]),
+            data=json.dumps({"planner_status": PlannerItemState.PLANNER_STATUS_DONE}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        state.refresh_from_db()
+        self.assertEqual(state.planner_status, PlannerItemState.PLANNER_STATUS_DONE)
+        self.assertEqual(state.writeback_status, PlannerItemState.WRITEBACK_STATUS_UNSUPPORTED)
+        self.assertEqual(Job.objects.filter(job_type="planner_status_writeback").count(), 0)
+
+    def test_planner_writeback_job_updates_external_fields(self):
+        plan = PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-writeback",
+            title="Writeback Task",
+            source_status="open",
+        )
+        state = PlannerItemState.objects.create(
+            plan=plan,
+            item=item,
+            planner_status=PlannerItemState.PLANNER_STATUS_DONE,
+            external_status_requested=PlannerItemState.PLANNER_STATUS_DONE,
+            writeback_status=PlannerItemState.WRITEBACK_STATUS_PENDING,
+        )
+        job = Job.objects.create(
+            workspace=self.workspace,
+            connector_account=self.account,
+            job_type="planner_status_writeback",
+            job_name="planner_status_writeback",
+            input_params={
+                "planner_item_state_id": state.id,
+                "planner_item_id": item.id,
+                "planner_status": PlannerItemState.PLANNER_STATUS_DONE,
+            },
+            created_by=self.user,
+        )
+        writer = Mock()
+        writer.apply_planner_status.return_value = StatusWritebackResult(
+            status=STATUS_WRITEBACK_SUCCESS,
+            source_status="completed",
+            external_completed=True,
+            message="ok",
+        )
+        spec = SimpleNamespace(status_writer_factory=lambda account: writer)
+
+        with patch("planner.services.writeback.get_provider_spec", return_value=spec):
+            run_job(job.id)
+
+        item.refresh_from_db()
+        state.refresh_from_db()
+        job.refresh_from_db()
+        self.assertEqual(job.status, Job.STATUS_SUCCESS)
+        self.assertEqual(item.source_status, "completed")
+        self.assertTrue(item.external_completed)
+        self.assertEqual(state.writeback_status, PlannerItemState.WRITEBACK_STATUS_SYNCED)
+
+    def test_planner_writeback_job_failure_marks_state_and_retries(self):
+        plan = PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-failure",
+            title="Failure Task",
+        )
+        state = PlannerItemState.objects.create(
+            plan=plan,
+            item=item,
+            planner_status=PlannerItemState.PLANNER_STATUS_DONE,
+            external_status_requested=PlannerItemState.PLANNER_STATUS_DONE,
+            writeback_status=PlannerItemState.WRITEBACK_STATUS_PENDING,
+        )
+        job = Job.objects.create(
+            workspace=self.workspace,
+            connector_account=self.account,
+            job_type="planner_status_writeback",
+            job_name="planner_status_writeback",
+            input_params={
+                "planner_item_state_id": state.id,
+                "planner_item_id": item.id,
+                "planner_status": PlannerItemState.PLANNER_STATUS_DONE,
+            },
+            created_by=self.user,
+        )
+        writer = Mock()
+        writer.apply_planner_status.side_effect = RuntimeError("provider down")
+        spec = SimpleNamespace(status_writer_factory=lambda account: writer)
+
+        with patch("planner.services.writeback.get_provider_spec", return_value=spec):
+            run_job(job.id)
+
+        state.refresh_from_db()
+        job.refresh_from_db()
+        self.assertEqual(state.writeback_status, PlannerItemState.WRITEBACK_STATUS_FAILED)
+        self.assertIn("provider down", state.last_writeback_error)
+        self.assertEqual(job.status, Job.STATUS_QUEUED)
+        self.assertEqual(job.attempt_count, 1)
 
     def test_status_endpoint_denies_other_workspace(self):
         other_user = self._create_user("other_user")
@@ -201,7 +344,6 @@ class PlannerTests(TestCase):
             state = PlannerItemState.objects.create(plan=plan, item=item, planned_order=index + 1)
             items.append(state)
 
-        order = [str(items[2].id), str(items[0].id), str(items[1].id)]
         response = self.client.post(
             reverse("planner_item_reorder"),
             data=json.dumps({"moved_id": items[2].id, "before_id": items[0].id}),
