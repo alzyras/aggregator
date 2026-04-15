@@ -102,7 +102,7 @@ class JobTests(TestCase):
             input_params={"source": "asana"},
         )
 
-        with patch.dict("os.environ", {"JOB_MAX_ATTEMPTS": "1"}):
+        with self.settings(JOB_MAX_ATTEMPTS=1):
             with patch(
                 "ingestion.services.jobs.sync_connector_account",
                 side_effect=RuntimeError("boom"),
@@ -112,6 +112,36 @@ class JobTests(TestCase):
         self.assertEqual(result.status, Job.STATUS_FAILED)
         self.assertIn("boom", result.error_message)
         self.assertTrue(result.error_traceback)
+
+    @override_settings(JOB_STALE_RUNNING_SECONDS=60)
+    def test_recovers_stale_running_jobs_for_retry(self):
+        account = ConnectorAccount.objects.create(
+            workspace=self.workspace_a,
+            source="asana",
+            display_name="Asana",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+        stale_job = Job.objects.create(
+            workspace=self.workspace_a,
+            connector_account=account,
+            job_type="sync",
+            job_name="sync_connector",
+            status=Job.STATUS_RUNNING,
+            locked_at=timezone.now() - timedelta(minutes=10),
+            locked_by="dead-worker",
+        )
+
+        recovered = job_service.recover_stale_jobs()
+
+        stale_job.refresh_from_db()
+        self.assertEqual(recovered, 1)
+        self.assertEqual(stale_job.status, Job.STATUS_QUEUED)
+        self.assertLessEqual(stale_job.next_run_at, timezone.now())
+        self.assertIsNone(stale_job.locked_at)
+        self.assertEqual(stale_job.locked_by, "")
 
     def test_jobs_are_workspace_isolated(self):
         account_a = ConnectorAccount.objects.create(

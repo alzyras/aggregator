@@ -142,6 +142,28 @@ def mark_status_writeback_job_failed(job: Job, message: str) -> None:
     )
 
 
+def mark_status_writeback_job_retrying(job: Job, message: str) -> None:
+    state_id = job.input_params.get("planner_item_state_id")
+    requested_status = job.input_params.get("planner_status")
+    if not state_id:
+        return
+    state = PlannerItemState.objects.filter(id=state_id).first()
+    if not state:
+        return
+    if requested_status and state.external_status_requested != requested_status:
+        return
+    state.writeback_status = PlannerItemState.WRITEBACK_STATUS_PENDING
+    state.last_writeback_error = ""
+    state.last_writeback_attempted_at = timezone.now()
+    state.save(
+        update_fields=[
+            "writeback_status",
+            "last_writeback_error",
+            "last_writeback_attempted_at",
+        ]
+    )
+
+
 def revert_state_to_source_status(state: PlannerItemState) -> None:
     state.planner_status = _planner_status_from_source(state.item)
     state.planned_status = _planned_status_from_planner_status(state.planner_status)

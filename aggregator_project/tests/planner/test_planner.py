@@ -450,7 +450,8 @@ class PlannerTests(TestCase):
         self.assertTrue(item.external_completed)
         self.assertEqual(state.writeback_status, PlannerItemState.WRITEBACK_STATUS_SYNCED)
 
-    def test_planner_writeback_job_failure_marks_state_and_retries(self):
+    @override_settings(PLANNER_STATUS_WRITEBACK_MAX_RETRIES=1)
+    def test_planner_writeback_job_failure_stays_pending_while_retrying(self):
         plan = PlannerPlan.objects.create(
             workspace=self.workspace,
             user=self.user,
@@ -493,9 +494,58 @@ class PlannerTests(TestCase):
 
         state.refresh_from_db()
         job.refresh_from_db()
+        self.assertEqual(state.writeback_status, PlannerItemState.WRITEBACK_STATUS_PENDING)
+        self.assertEqual(state.last_writeback_error, "")
+        self.assertEqual(job.status, Job.STATUS_QUEUED)
+        self.assertEqual(job.attempt_count, 1)
+
+    @override_settings(PLANNER_STATUS_WRITEBACK_MAX_RETRIES=0)
+    def test_planner_writeback_job_failure_marks_state_after_retries_exhausted(self):
+        plan = PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-final-failure",
+            title="Final Failure Task",
+        )
+        state = PlannerItemState.objects.create(
+            plan=plan,
+            item=item,
+            planner_status=PlannerItemState.PLANNER_STATUS_DONE,
+            external_status_requested=PlannerItemState.PLANNER_STATUS_DONE,
+            writeback_status=PlannerItemState.WRITEBACK_STATUS_PENDING,
+        )
+        job = Job.objects.create(
+            workspace=self.workspace,
+            connector_account=self.account,
+            job_type="planner_status_writeback",
+            job_name="planner_status_writeback",
+            input_params={
+                "planner_item_state_id": state.id,
+                "planner_item_id": item.id,
+                "planner_status": PlannerItemState.PLANNER_STATUS_DONE,
+            },
+            created_by=self.user,
+        )
+        writer = Mock()
+        writer.apply_planner_status.side_effect = RuntimeError("provider down")
+        spec = SimpleNamespace(status_writer_factory=lambda account: writer)
+
+        with patch("planner.services.writeback.get_provider_spec", return_value=spec):
+            run_job(job.id)
+
+        state.refresh_from_db()
+        job.refresh_from_db()
         self.assertEqual(state.writeback_status, PlannerItemState.WRITEBACK_STATUS_FAILED)
         self.assertIn("provider down", state.last_writeback_error)
-        self.assertEqual(job.status, Job.STATUS_QUEUED)
+        self.assertEqual(job.status, Job.STATUS_FAILED)
         self.assertEqual(job.attempt_count, 1)
 
     def test_status_endpoint_denies_other_workspace(self):

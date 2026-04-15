@@ -8,7 +8,9 @@ import uuid
 
 from connectors.models import ConnectorAccount
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -27,13 +29,18 @@ def enqueue_job(job_id):
 
 
 def run_job(job_id):
+    recover_stale_jobs()
     if _is_concurrency_full():
         _defer_job(job_id)
         logger.info("job_deferred_concurrency", extra={"job_id": str(job_id)})
-        return Job.objects.get(id=job_id)
+        return Job.objects.filter(id=job_id).first()
 
     with transaction.atomic():
-        job = Job.objects.select_for_update(skip_locked=True).get(id=job_id)
+        try:
+            job = Job.objects.select_for_update(skip_locked=True).get(id=job_id)
+        except ObjectDoesNotExist:
+            logger.info("job_missing_or_locked", extra={"job_id": str(job_id)})
+            return None
         now = timezone.now()
         if job.status != Job.STATUS_QUEUED:
             return job
@@ -70,29 +77,37 @@ def run_job(job_id):
                 last_sync_status=ConnectorAccount.SYNC_STATUS_FAILED,
                 last_sync_at=timezone.now(),
             )
-        if job.job_type == "planner_status_writeback":
-            from planner.services.writeback import mark_status_writeback_job_failed
-
-            mark_status_writeback_job_failed(job, str(exc))
-        if job.attempt_count < _max_attempts():
+        if job.attempt_count < _max_attempts(job):
             job.status = Job.STATUS_QUEUED
             job.next_run_at = timezone.now() + _retry_delay(job.attempt_count)
+            if job.job_type == "planner_status_writeback":
+                from planner.services.writeback import mark_status_writeback_job_retrying
+
+                mark_status_writeback_job_retrying(job, str(exc))
             logger.info(
                 "job_retry_scheduled",
                 extra={
                     "job_id": str(job.id),
                     "workspace_id": job.workspace_id,
                     "status": job.status,
+                    "attempt_count": job.attempt_count,
+                    "max_attempts": _max_attempts(job),
                 },
             )
         else:
             job.status = Job.STATUS_FAILED
+            if job.job_type == "planner_status_writeback":
+                from planner.services.writeback import mark_status_writeback_job_failed
+
+                mark_status_writeback_job_failed(job, str(exc))
             logger.info(
                 "job_failed",
                 extra={"job_id": str(job.id), "workspace_id": job.workspace_id, "status": job.status},
             )
     finally:
         job.finished_at = timezone.now()
+        job.locked_at = None
+        job.locked_by = ""
         job.save(
             update_fields=[
                 "status",
@@ -141,7 +156,10 @@ def _execute_sync_job(job: Job):
 
 
 def _is_concurrency_full() -> bool:
-    running_count = Job.objects.filter(status=Job.STATUS_RUNNING).count()
+    cutoff = _stale_lock_cutoff()
+    running_count = Job.objects.filter(status=Job.STATUS_RUNNING).filter(
+        Q(locked_at__gte=cutoff) | Q(locked_at__isnull=True, started_at__gte=cutoff)
+    ).count()
     return running_count >= settings.JOB_MAX_CONCURRENCY
 
 
@@ -157,8 +175,35 @@ def _retry_delay(attempt_count: int):
     return timezone.timedelta(seconds=delay_seconds)
 
 
-def _max_attempts() -> int:
-    return int(os.getenv("JOB_MAX_ATTEMPTS", "3"))
+def _max_attempts(job: Job | None = None) -> int:
+    if job and job.job_type == "planner_status_writeback":
+        retries = max(int(getattr(settings, "PLANNER_STATUS_WRITEBACK_MAX_RETRIES", 3)), 0)
+        return retries + 1
+    return max(int(getattr(settings, "JOB_MAX_ATTEMPTS", 3)), 1)
+
+
+def _stale_lock_cutoff():
+    timeout_seconds = max(int(getattr(settings, "JOB_STALE_RUNNING_SECONDS", 900)), 1)
+    return timezone.now() - timezone.timedelta(seconds=timeout_seconds)
+
+
+def recover_stale_jobs() -> int:
+    now = timezone.now()
+    stale_jobs = Job.objects.filter(status=Job.STATUS_RUNNING).filter(
+        Q(locked_at__lt=_stale_lock_cutoff())
+        | Q(locked_at__isnull=True, started_at__isnull=True)
+        | Q(locked_at__isnull=True, started_at__lt=_stale_lock_cutoff())
+    )
+    updated = stale_jobs.update(
+        status=Job.STATUS_QUEUED,
+        next_run_at=now,
+        locked_at=None,
+        locked_by="",
+        error_message="Recovered stale running job for retry.",
+    )
+    if updated:
+        logger.warning("stale_jobs_recovered", extra={"count": updated})
+    return updated
 
 
 def _lock_owner() -> str:
