@@ -148,6 +148,31 @@ class PlannerTests(TestCase):
         self.assertNotContains(response, "planner-board")
         self.assertNotContains(response, "planner-column")
 
+    def test_planner_rows_show_created_date_not_sync_timestamp(self):
+        plan = PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-created-date",
+            title="Created Date Task",
+        )
+        PlannerItemState.objects.create(plan=plan, item=item)
+
+        response = self.client.get(reverse("planner_list"))
+
+        item.refresh_from_db()
+        self.assertContains(response, f"Created {item.created_at:%Y-%m-%d}")
+        self.assertContains(response, item.created_at.strftime("%Y-%m-%d"))
+        self.assertNotContains(response, "Never synced")
+        self.assertNotContains(response, "Synced ")
+
     def test_planner_inbox_includes_unplanned_synced_tasks_newest_first(self):
         todoist_account = ConnectorAccount.objects.create(
             workspace=self.workspace,

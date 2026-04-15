@@ -92,11 +92,9 @@
                     Local
                   {% endif %}
                 </span>
-                {% if row.item.last_synced_at %}
-                  <span class="badge">Synced {{ row.item.last_synced_at|timesince }} ago</span>
-                {% else %}
-                  <span class="badge warning">Never synced</span>
-                {% endif %}
+                <span class="badge" title="{{ row.item.created_at|date:'Y-m-d H:i:s T' }}">
+                  Created {{ row.item.created_at|date:'Y-m-d' }}
+                </span>
               </div>
               <div class="planner-writeback-message{% if row.writeback_status == 'failed' and row.last_writeback_error %} is-visible{% endif %}" data-writeback-message>
                 {{ row.last_writeback_error }}
