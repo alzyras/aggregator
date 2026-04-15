@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -9,6 +10,7 @@ from cryptography.fernet import Fernet
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from events.models import Event
 from ingestion.models import Job
 from ingestion.providers import STATUS_WRITEBACK_SUCCESS, StatusWritebackResult
@@ -127,6 +129,139 @@ class PlannerTests(TestCase):
         state = PlannerItemState.objects.create(plan=plan, item=item)
         self.assertEqual(state.planner_status, PlannerItemState.PLANNER_STATUS_INBOX)
 
+    def test_planner_list_renders_tabbed_list_rows_not_board_columns(self):
+        PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=None,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-list-shape",
+            title="List Shape Task",
+            last_synced_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse("planner_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "planner-tabs")
+        self.assertContains(response, "planner-row")
+        self.assertNotContains(response, "planner-board")
+        self.assertNotContains(response, "planner-column")
+
+    def test_planner_inbox_includes_unplanned_synced_tasks_newest_first(self):
+        todoist_account = ConnectorAccount.objects.create(
+            workspace=self.workspace,
+            source="todoist",
+            display_name="Todoist",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"",
+            status=ConnectorAccount.STATUS_CONNECTED,
+        )
+        older = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=None,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-older",
+            title="Older Task",
+            last_synced_at=timezone.now(),
+        )
+        newer = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=None,
+            connector_account=todoist_account,
+            source="todoist",
+            source_entity_id="task-newer",
+            title="Newer Task",
+            last_synced_at=timezone.now(),
+        )
+        PlannerItem.objects.filter(id=older.id).update(created_at=timezone.now() - timedelta(hours=1))
+        PlannerItem.objects.filter(id=newer.id).update(created_at=timezone.now())
+
+        response = self.client.get(reverse("planner_list"))
+
+        inbox = next(tab for tab in response.context["tab_items"] if tab["value"] == PlannerItemState.PLANNER_STATUS_INBOX)
+        self.assertEqual([row.item.id for row in inbox["items"][:2]], [newer.id, older.id])
+
+    def test_planner_inbox_excludes_items_assigned_to_status_tabs(self):
+        plan = PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        assigned = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-assigned",
+            title="Assigned Task",
+            last_synced_at=timezone.now(),
+        )
+        unplanned = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=None,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-unplanned",
+            title="Unplanned Task",
+            last_synced_at=timezone.now(),
+        )
+        PlannerItemState.objects.create(
+            plan=plan,
+            item=assigned,
+            planner_status=PlannerItemState.PLANNER_STATUS_BACKLOG,
+        )
+
+        response = self.client.get(reverse("planner_list"))
+
+        tabs = {tab["value"]: tab for tab in response.context["tab_items"]}
+        inbox_ids = [row.item.id for row in tabs[PlannerItemState.PLANNER_STATUS_INBOX]["items"]]
+        backlog_ids = [row.item.id for row in tabs[PlannerItemState.PLANNER_STATUS_BACKLOG]["items"]]
+        self.assertNotIn(assigned.id, inbox_ids)
+        self.assertIn(unplanned.id, inbox_ids)
+        self.assertIn(assigned.id, backlog_ids)
+
+    def test_planner_inbox_excludes_duplicate_source_identity_assigned_to_status_tab(self):
+        plan = PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        assigned = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-source-duplicate",
+            title="Same Provider Task",
+            last_synced_at=timezone.now(),
+        )
+        duplicate = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=None,
+            connector_account=None,
+            source="asana",
+            source_entity_id="task-source-duplicate",
+            title="Same Provider Task",
+            last_synced_at=timezone.now(),
+        )
+        PlannerItemState.objects.create(
+            plan=plan,
+            item=assigned,
+            planner_status=PlannerItemState.PLANNER_STATUS_BACKLOG,
+        )
+
+        response = self.client.get(reverse("planner_list"))
+
+        tabs = {tab["value"]: tab for tab in response.context["tab_items"]}
+        inbox_ids = [row.item.id for row in tabs[PlannerItemState.PLANNER_STATUS_INBOX]["items"]]
+        backlog_ids = [row.item.id for row in tabs[PlannerItemState.PLANNER_STATUS_BACKLOG]["items"]]
+        self.assertNotIn(duplicate.id, inbox_ids)
+        self.assertIn(assigned.id, backlog_ids)
+
     def test_planner_status_endpoint_updates(self):
         plan = PlannerPlan.objects.create(
             workspace=self.workspace,
@@ -153,6 +288,81 @@ class PlannerTests(TestCase):
         self.assertEqual(state.planner_status, PlannerItemState.PLANNER_STATUS_DOING)
         self.assertEqual(state.writeback_status, PlannerItemState.WRITEBACK_STATUS_PENDING)
         self.assertTrue(Job.objects.filter(job_type="planner_status_writeback").exists())
+
+    def test_planner_status_endpoint_creates_state_for_unplanned_item(self):
+        PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=None,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-unplanned-status",
+            title="Unplanned Status Task",
+            last_synced_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            reverse("planner_item_planner_status", args=[item.id]),
+            data=json.dumps({"planner_status": PlannerItemState.PLANNER_STATUS_BACKLOG}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        state = PlannerItemState.objects.get(item=item)
+        self.assertEqual(response.json()["state_id"], state.id)
+        self.assertEqual(state.planner_status, PlannerItemState.PLANNER_STATUS_BACKLOG)
+        self.assertEqual(state.writeback_status, PlannerItemState.WRITEBACK_STATUS_PENDING)
+        self.assertTrue(Job.objects.filter(job_type="planner_status_writeback").exists())
+
+    def test_planner_status_endpoint_reuses_state_for_duplicate_source_identity(self):
+        plan = PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        assigned = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-existing-source",
+            title="Existing Provider Task",
+            last_synced_at=timezone.now(),
+        )
+        duplicate = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=None,
+            connector_account=None,
+            source="asana",
+            source_entity_id="task-existing-source",
+            title="Existing Provider Task",
+            last_synced_at=timezone.now(),
+        )
+        existing_state = PlannerItemState.objects.create(
+            plan=plan,
+            item=assigned,
+            planner_status=PlannerItemState.PLANNER_STATUS_BACKLOG,
+        )
+
+        response = self.client.post(
+            reverse("planner_item_planner_status", args=[duplicate.id]),
+            data=json.dumps({"planner_status": PlannerItemState.PLANNER_STATUS_DOING}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        existing_state.refresh_from_db()
+        self.assertEqual(payload["item_id"], assigned.id)
+        self.assertEqual(payload["state_id"], existing_state.id)
+        self.assertEqual(existing_state.planner_status, PlannerItemState.PLANNER_STATUS_DOING)
+        self.assertFalse(PlannerItemState.objects.filter(plan=plan, item=duplicate).exists())
 
     def test_planner_status_endpoint_marks_disconnected_account_unsupported(self):
         self.account.status = ConnectorAccount.STATUS_ERROR

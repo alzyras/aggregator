@@ -8,7 +8,7 @@
       <h2>{{ plan.name }}</h2>
     </div>
     <div class="panel-actions">
-      <button class="btn ghost" type="button" id="add-from-sources-btn">Add from sources</button>
+      <button class="btn ghost" type="button" id="add-from-sources-btn">Refresh from sources</button>
       <a class="btn primary" href="{% url 'planner_calendar' %}">Calendar</a>
     </div>
   </div>
@@ -35,91 +35,113 @@
 
   <div class="planner-error" id="planner-error" role="alert" aria-live="polite"></div>
 
-  <div class="planner-board" aria-label="Planner board">
-    {% for column in board_columns %}
-      <section class="planner-column" data-column-status="{{ column.value }}" aria-label="{{ column.label }}">
-        <div class="planner-column-header">
-          <h3>{{ column.label }}</h3>
-          <span class="badge planner-count" data-count-status="{{ column.value }}">{{ column.count }}</span>
-        </div>
-        <div class="planner-list" data-status="{{ column.value }}">
-          {% for state in column.items %}
-            <article
-              class="planner-row"
-              draggable="true"
-              data-state-id="{{ state.id }}"
-              data-item-id="{{ state.item.id }}"
-              data-pinned="{{ state.pinned|yesno:'true,false' }}"
-              data-status="{{ state.planner_status }}"
-              data-writeback-status="{{ state.writeback_status }}"
-            >
-              <button class="planner-handle" type="button" aria-label="Drag task">⋮⋮</button>
-              <div class="planner-content">
-                <div class="planner-title">{{ state.item.title }}</div>
-                <div class="planner-meta">
-                  <span class="badge source">{{ state.item.get_source_display }}</span>
-                  {% if state.item.connector_account %}
-                    <span class="badge">{{ state.item.connector_account.display_name }}</span>
-                  {% endif %}
-                  <span class="badge">External: {{ state.item.source_status|default:"unknown" }}</span>
-                  {% if state.item.external_completed %}
-                    <span class="badge success">Completed externally</span>
-                  {% endif %}
-                  <span class="badge writeback-badge {{ state.writeback_status }}" data-writeback-badge>
-                    {% if state.writeback_status == "pending" %}
-                      Saving
-                    {% elif state.writeback_status == "synced" %}
-                      Synced
-                    {% elif state.writeback_status == "failed" %}
-                      Failed sync
-                    {% elif state.writeback_status == "unsupported" %}
-                      Local only
-                    {% else %}
-                      Local
-                    {% endif %}
-                  </span>
-                  {% if state.item.last_synced_at %}
-                    <span class="badge">Synced {{ state.item.last_synced_at|timesince }} ago</span>
-                  {% else %}
-                    <span class="badge warning">Never synced</span>
-                  {% endif %}
-                </div>
-                <div class="planner-writeback-message" data-writeback-message>
-                  {{ state.last_writeback_error }}
-                </div>
-              </div>
-              <div class="planner-actions">
-                <select class="status-select" data-planner-status-id="{{ state.item.id }}" aria-label="Move task">
-                  {% for status_value,status_label in planner_status_choices %}
-                    <option value="{{ status_value }}" {% if status_value == state.planner_status %}selected{% endif %}>{{ status_label }}</option>
-                  {% endfor %}
-                </select>
-                <button class="btn ghost small planner-retry{% if state.writeback_status != 'failed' %} is-hidden{% endif %}" type="button" data-retry-id="{{ state.item.id }}">Retry</button>
-                <button class="btn ghost small planner-revert{% if state.writeback_status != 'failed' %} is-hidden{% endif %}" type="button" data-revert-id="{{ state.item.id }}">Revert</button>
-                <button class="btn ghost small" type="button" data-pin-id="{{ state.item.id }}">{% if state.pinned %}Unpin{% else %}Pin{% endif %}</button>
-              </div>
-            </article>
-          {% endfor %}
-        </div>
-        <div class="empty-state planner-empty{% if column.items %} is-hidden{% endif %}" data-empty-status="{{ column.value }}">
-          {% if column.value == 'inbox' %}
-            <strong>No new tasks</strong>
-          {% elif column.value == 'backlog' %}
-            <strong>Nothing to do</strong>
-          {% elif column.value == 'doing' %}
-            <strong>No active work</strong>
-          {% else %}
-            <strong>Nothing completed yet</strong>
-          {% endif %}
-        </div>
-      </section>
+  <div class="planner-tabs" role="tablist" aria-label="Planner statuses">
+    {% for tab in tab_items %}
+      <button
+        class="planner-tab{% if tab.value == 'inbox' %} is-active{% endif %}"
+        type="button"
+        role="tab"
+        data-tab="{{ tab.value }}"
+        aria-selected="{% if tab.value == 'inbox' %}true{% else %}false{% endif %}"
+      >
+        {{ tab.label }}
+        <span class="badge" data-count-status="{{ tab.value }}">{{ tab.count }}</span>
+      </button>
     {% endfor %}
   </div>
+
+  {% for tab in tab_items %}
+    <div
+      class="planner-tab-panel{% if tab.value == 'inbox' %} is-active{% endif %}"
+      data-tab-panel="{{ tab.value }}"
+      role="tabpanel"
+    >
+      <div class="planner-list" data-status="{{ tab.value }}">
+        {% for row in tab.items %}
+          <article
+            class="planner-row"
+            draggable="true"
+            data-state-id="{{ row.state_id }}"
+            data-item-id="{{ row.item.id }}"
+            data-pinned="{{ row.pinned|yesno:'true,false' }}"
+            data-status="{{ row.planner_status }}"
+            data-writeback-status="{{ row.writeback_status }}"
+          >
+            <button class="planner-handle" type="button" aria-label="Drag task">⋮⋮</button>
+            <div class="planner-content">
+              <div class="planner-title">{{ row.item.title }}</div>
+              <div class="planner-meta">
+                <span class="badge source">{{ row.item.get_source_display }}</span>
+                {% if row.item.connector_account %}
+                  <span class="badge">{{ row.item.connector_account.display_name }}</span>
+                {% endif %}
+                <span class="badge">External: {{ row.item.source_status|default:"unknown" }}</span>
+                {% if row.item.external_completed %}
+                  <span class="badge success">Completed externally</span>
+                {% endif %}
+                <span class="badge writeback-badge {{ row.writeback_status }}" data-writeback-badge>
+                  {% if row.writeback_status == "pending" %}
+                    Saving
+                  {% elif row.writeback_status == "synced" %}
+                    Synced
+                  {% elif row.writeback_status == "failed" %}
+                    Failed sync
+                  {% elif row.writeback_status == "unsupported" %}
+                    Local only
+                  {% else %}
+                    Local
+                  {% endif %}
+                </span>
+                {% if row.item.last_synced_at %}
+                  <span class="badge">Synced {{ row.item.last_synced_at|timesince }} ago</span>
+                {% else %}
+                  <span class="badge warning">Never synced</span>
+                {% endif %}
+              </div>
+              <div class="planner-writeback-message{% if row.writeback_status == 'failed' and row.last_writeback_error %} is-visible{% endif %}" data-writeback-message>
+                {{ row.last_writeback_error }}
+              </div>
+            </div>
+            <div class="planner-actions">
+              <select class="status-select" data-planner-status-id="{{ row.item.id }}" aria-label="Move task">
+                {% for status_value,status_label in planner_status_choices %}
+                  <option value="{{ status_value }}" {% if status_value == row.planner_status %}selected{% endif %}>{{ status_label }}</option>
+                {% endfor %}
+              </select>
+              {% if row.state_id %}
+                <button class="btn ghost small planner-retry{% if row.writeback_status != 'failed' %} is-hidden{% endif %}" type="button" data-retry-id="{{ row.item.id }}">Retry</button>
+                <button class="btn ghost small planner-revert{% if row.writeback_status != 'failed' %} is-hidden{% endif %}" type="button" data-revert-id="{{ row.item.id }}">Revert</button>
+                <button class="btn ghost small" type="button" data-pin-id="{{ row.item.id }}">{% if row.pinned %}Unpin{% else %}Pin{% endif %}</button>
+              {% endif %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+      <div class="empty-state planner-empty{% if tab.items %} is-hidden{% endif %}" data-empty-status="{{ tab.value }}">
+        {% if tab.value == 'inbox' %}
+          <strong>No new tasks</strong>
+        {% elif tab.value == 'backlog' %}
+          <strong>Nothing to do</strong>
+        {% elif tab.value == 'doing' %}
+          <strong>No active work</strong>
+        {% else %}
+          <strong>Nothing completed yet</strong>
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
 </section>
 
 <script>
   const csrfToken = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1];
-  let dragState = null;
+  let dragItem = null;
+  let dragList = null;
+  let dragOriginalNext = null;
+  let reorderTimer = null;
+  let reorderInFlight = false;
+  let reorderDirty = false;
+  let pendingPayload = null;
+  const plannerTabs = Array.from(document.querySelectorAll(".planner-tab"));
 
   function postJson(url, payload) {
     return fetch(url, {
@@ -147,28 +169,30 @@
     errorBox.classList.remove("is-visible");
   }
 
-  function moveCardToList(card, targetList, insertAtTop = true) {
-    if (!card || !targetList) return;
+  function moveRowToList(row, targetList, insertAtTop = true) {
+    if (!row || !targetList) return;
     if (insertAtTop) {
-      targetList.prepend(card);
+      targetList.prepend(row);
     } else {
-      targetList.appendChild(card);
+      targetList.appendChild(row);
     }
   }
 
-  function restoreCard(card, originalList, originalNext) {
-    if (!card || !originalList) return;
+  function restoreRow(row, originalList, originalNext) {
+    if (!row || !originalList) return;
     if (originalNext && originalNext.parentElement === originalList) {
-      originalList.insertBefore(card, originalNext);
+      originalList.insertBefore(row, originalNext);
     } else {
-      originalList.appendChild(card);
+      originalList.appendChild(row);
     }
   }
 
-  function updateCounts() {
-    document.querySelectorAll(".planner-count").forEach((badge) => {
-      const status = badge.dataset.countStatus;
+  function updateTabCounts() {
+    document.querySelectorAll(".planner-tab").forEach((tab) => {
+      const status = tab.dataset.tab;
       const count = document.querySelectorAll(`.planner-list[data-status='${status}'] .planner-row`).length;
+      const badge = tab.querySelector(".badge");
+      if (!badge) return;
       const previous = Number(badge.dataset.count || badge.textContent || 0);
       badge.textContent = count;
       badge.dataset.count = String(count);
@@ -188,13 +212,14 @@
     });
   }
 
-  function updateWriteback(card, status, message) {
-    if (!card) return;
-    card.dataset.writebackStatus = status || "none";
-    const badge = card.querySelector("[data-writeback-badge]");
-    const messageEl = card.querySelector("[data-writeback-message]");
-    const retry = card.querySelector("[data-retry-id]");
-    const revert = card.querySelector("[data-revert-id]");
+  function updateWriteback(row, status, message) {
+    if (!row) return;
+    const normalized = status || "none";
+    row.dataset.writebackStatus = normalized;
+    const badge = row.querySelector("[data-writeback-badge]");
+    const messageEl = row.querySelector("[data-writeback-message]");
+    const retry = row.querySelector("[data-retry-id]");
+    const revert = row.querySelector("[data-revert-id]");
     const labels = {
       pending: "Saving",
       synced: "Synced",
@@ -203,30 +228,80 @@
       none: "Local",
     };
     if (badge) {
-      badge.className = `badge writeback-badge ${status || "none"}`;
-      badge.textContent = labels[status] || labels.none;
+      badge.className = `badge writeback-badge ${normalized}`;
+      badge.textContent = labels[normalized] || labels.none;
     }
     if (messageEl) {
-      messageEl.textContent = message || "";
-      messageEl.classList.toggle("is-visible", Boolean(message));
+      const visibleMessage = normalized === "failed" ? (message || "") : "";
+      messageEl.textContent = visibleMessage;
+      messageEl.classList.toggle("is-visible", Boolean(visibleMessage));
     }
-    const failed = status === "failed";
+    const failed = normalized === "failed";
     retry?.classList.toggle("is-hidden", !failed);
     revert?.classList.toggle("is-hidden", !failed);
   }
 
-  function buildReorderPayload(listEl, pinned) {
-    if (!listEl) return null;
-    const ids = Array.from(listEl.querySelectorAll(".planner-row"))
-      .filter((row) => (row.dataset.pinned === "true") === pinned)
-      .map((row) => row.dataset.stateId);
-    if (!ids.length) return null;
-    return { block_order: ids, planner_status: listEl.dataset.status };
+  function applyStatusPayload(row, payload) {
+    if (!row || !payload) return;
+    if (payload.item_id) {
+      const itemId = String(payload.item_id);
+      row.dataset.itemId = itemId;
+      const statusSelect = row.querySelector("[data-planner-status-id]");
+      const retry = row.querySelector("[data-retry-id]");
+      const revert = row.querySelector("[data-revert-id]");
+      const pin = row.querySelector("[data-pin-id]");
+      if (statusSelect) statusSelect.dataset.plannerStatusId = itemId;
+      if (retry) retry.dataset.retryId = itemId;
+      if (revert) revert.dataset.revertId = itemId;
+      if (pin) pin.dataset.pinId = itemId;
+    }
+    if (payload.state_id) {
+      row.dataset.stateId = String(payload.state_id);
+    }
+    if (payload.planner_status) {
+      row.dataset.status = payload.planner_status;
+      const select = row.querySelector("[data-planner-status-id]");
+      if (select) select.value = payload.planner_status;
+    }
+    if (typeof payload.pinned === "boolean") {
+      row.dataset.pinned = payload.pinned ? "true" : "false";
+    }
+    updateWriteback(row, payload.writeback_status, payload.writeback_message);
   }
 
-  async function sendReorderForList(listEl, pinned) {
-    const payload = buildReorderPayload(listEl, pinned);
+  function buildBlockPayloadForList(listEl, pinned) {
+    if (!listEl) return null;
+    const blockIds = Array.from(listEl.querySelectorAll(".planner-row"))
+      .filter((row) => row.dataset.stateId)
+      .filter((row) => (row.dataset.pinned === "true") === pinned)
+      .map((row) => row.dataset.stateId);
+    if (!blockIds.length) return null;
+    return { block_order: blockIds, planner_status: listEl.dataset.status };
+  }
+
+  function scheduleReorder(payload) {
     if (!payload) return;
+    pendingPayload = payload;
+    if (reorderTimer) {
+      clearTimeout(reorderTimer);
+    }
+    reorderTimer = setTimeout(() => {
+      reorderTimer = null;
+      void sendReorder();
+    }, 300);
+  }
+
+  async function sendReorder() {
+    if (!pendingPayload) return;
+    if (reorderInFlight) {
+      reorderDirty = true;
+      return;
+    }
+    reorderInFlight = true;
+    reorderDirty = false;
+    clearPlannerError();
+    const payload = pendingPayload;
+    pendingPayload = null;
     try {
       const response = await postJson("/planner/reorder", payload);
       if (!response.ok) {
@@ -234,22 +309,30 @@
       }
     } catch (error) {
       showPlannerError("Reorder failed due to a network error.");
+    } finally {
+      reorderInFlight = false;
+      if (reorderDirty && pendingPayload) {
+        reorderDirty = false;
+        await sendReorder();
+      }
     }
   }
 
-  async function persistStatusMove(card, targetStatus, originalList, originalNext, originalStatus) {
+  async function persistStatusMove(row, targetStatus, originalList, originalNext, originalStatus) {
     const targetList = document.querySelector(`.planner-list[data-status='${targetStatus}']`);
-    const select = card?.querySelector("[data-planner-status-id]");
-    const itemId = select?.dataset.plannerStatusId;
-    if (!card || !targetList || !itemId) return;
-    const originalWritebackStatus = card.dataset.writebackStatus || "none";
-    const originalWritebackMessage = card.querySelector("[data-writeback-message]")?.textContent || "";
+    const itemId = row?.dataset.itemId;
+    const select = row?.querySelector("[data-planner-status-id]");
+    if (!row || !targetList || !itemId) return;
 
-    card.dataset.status = targetStatus;
+    const originalWritebackStatus = row.dataset.writebackStatus || "none";
+    const originalWritebackMessage = row.querySelector("[data-writeback-message]")?.textContent || "";
+
+    row.dataset.status = targetStatus;
     if (select) select.value = targetStatus;
-    card.classList.add("just-moved");
-    updateWriteback(card, "pending", "Saving to source...");
-    updateCounts();
+    moveRowToList(row, targetList);
+    row.classList.add("just-moved");
+    updateWriteback(row, "pending", "Saving to source...");
+    updateTabCounts();
     updateEmptyStates();
     clearPlannerError();
 
@@ -259,125 +342,140 @@
       if (!response.ok) {
         throw new Error(payload.error || "Planner update failed.");
       }
-      updateWriteback(card, payload.writeback_status, payload.writeback_message);
-      const pinned = card.dataset.pinned === "true";
-      await sendReorderForList(targetList, pinned);
+      applyStatusPayload(row, payload);
+      const pinned = row.dataset.pinned === "true";
+      scheduleReorder(buildBlockPayloadForList(targetList, pinned));
       if (originalList && originalList !== targetList) {
-        await sendReorderForList(originalList, pinned);
+        scheduleReorder(buildBlockPayloadForList(originalList, pinned));
       }
     } catch (error) {
-      card.dataset.status = originalStatus;
+      row.dataset.status = originalStatus;
       if (select) select.value = originalStatus;
-      restoreCard(card, originalList, originalNext);
-      updateWriteback(card, originalWritebackStatus, originalWritebackMessage);
-      updateCounts();
+      restoreRow(row, originalList, originalNext);
+      updateWriteback(row, originalWritebackStatus, originalWritebackMessage);
+      updateTabCounts();
       updateEmptyStates();
       showPlannerError(error.message || "Move failed. Please try again.");
     }
   }
 
+  function activateTab(tab) {
+    if (!tab) return;
+    document.querySelectorAll(".planner-tab").forEach((button) => {
+      const active = button === tab;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    document.querySelectorAll(".planner-tab-panel").forEach((panel) => {
+      panel.classList.toggle("is-active", panel.dataset.tabPanel === tab.dataset.tab);
+    });
+  }
+
   function setupList(listEl) {
     listEl.addEventListener("dragstart", (event) => {
-      const card = event.target.closest(".planner-row");
-      if (!card) return;
-      dragState = {
-        card,
-        originalList: card.parentElement,
-        originalNext: card.nextElementSibling,
-        originalStatus: card.dataset.status,
-        pinned: card.dataset.pinned === "true",
-      };
-      card.classList.add("dragging");
-      document.querySelectorAll(".planner-column").forEach((column) => column.classList.add("is-dragging"));
+      const target = event.target.closest(".planner-row");
+      if (!target) return;
+      dragItem = target;
+      dragList = listEl;
+      dragOriginalNext = target.nextElementSibling;
+      target.classList.add("dragging");
+      plannerTabs.forEach((tab) => tab.classList.add("is-dragging"));
       if (event.dataTransfer) {
         event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData("text/plain", card.dataset.stateId || "");
+        event.dataTransfer.setData("text/plain", target.dataset.stateId || target.dataset.itemId || "");
       }
     });
 
     listEl.addEventListener("dragover", (event) => {
-      if (!dragState?.card) return;
+      if (!dragItem || dragList !== listEl) return;
       event.preventDefault();
       const target = event.target.closest(".planner-row");
-      if (!target || target === dragState.card) {
-        if (!target && dragState.card.parentElement !== listEl) {
-          listEl.appendChild(dragState.card);
-        }
-        return;
-      }
-      if (target.dataset.pinned !== dragState.card.dataset.pinned) return;
+      if (!target || target === dragItem) return;
+      if (target.dataset.pinned !== dragItem.dataset.pinned) return;
       const rect = target.getBoundingClientRect();
       const after = event.clientY > rect.top + rect.height / 2;
-      target.parentNode.insertBefore(dragState.card, after ? target.nextSibling : target);
+      target.parentNode.insertBefore(dragItem, after ? target.nextSibling : target);
     });
 
-    listEl.addEventListener("drop", async (event) => {
-      if (!dragState?.card) return;
+    listEl.addEventListener("drop", (event) => {
+      if (!dragItem || dragList !== listEl) return;
       event.preventDefault();
-      const card = dragState.card;
-      const targetStatus = listEl.dataset.status;
-      const originalList = dragState.originalList;
-      const originalNext = dragState.originalNext;
-      const originalStatus = dragState.originalStatus;
-      const pinned = dragState.pinned;
-      if (targetStatus !== originalStatus) {
-        await persistStatusMove(card, targetStatus, originalList, originalNext, originalStatus);
-      } else {
-        await sendReorderForList(listEl, pinned);
-      }
+      if (!dragItem.dataset.stateId) return;
+      scheduleReorder(buildBlockPayloadForList(listEl, dragItem.dataset.pinned === "true"));
     });
 
     listEl.addEventListener("dragend", () => {
-      dragState?.card?.classList.remove("dragging");
-      document.querySelectorAll(".planner-column").forEach((column) => column.classList.remove("is-dragging", "is-drop-target"));
-      dragState = null;
+      dragItem?.classList.remove("dragging");
+      plannerTabs.forEach((tab) => tab.classList.remove("is-dragging", "is-drop-target"));
+      dragItem = null;
+      dragList = null;
+      dragOriginalNext = null;
     });
   }
 
-  document.querySelectorAll(".planner-list").forEach((listEl) => {
-    setupList(listEl);
-  });
+  document.querySelectorAll(".planner-list").forEach((listEl) => setupList(listEl));
 
-  document.querySelectorAll(".planner-column").forEach((column) => {
-    column.addEventListener("dragenter", () => column.classList.add("is-drop-target"));
-    column.addEventListener("dragleave", (event) => {
-      if (!column.contains(event.relatedTarget)) {
-        column.classList.remove("is-drop-target");
-      }
+  plannerTabs.forEach((tab) => {
+    tab.addEventListener("click", () => activateTab(tab));
+    tab.addEventListener("dragenter", (event) => {
+      event.preventDefault();
+      tab.classList.add("is-drop-target");
     });
-    column.addEventListener("drop", () => column.classList.remove("is-drop-target"));
+    tab.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "move";
+      }
+      tab.classList.add("is-drop-target");
+    });
+    tab.addEventListener("dragleave", () => {
+      tab.classList.remove("is-drop-target");
+    });
+    tab.addEventListener("drop", async (event) => {
+      event.preventDefault();
+      tab.classList.remove("is-drop-target");
+      tab.classList.remove("tab-drop-animate");
+      void tab.offsetWidth;
+      tab.classList.add("tab-drop-animate");
+      if (!dragItem) return;
+      const originalStatus = dragItem.dataset.status;
+      if (originalStatus === tab.dataset.tab) return;
+      await persistStatusMove(dragItem, tab.dataset.tab, dragList, dragOriginalNext, originalStatus);
+    });
   });
 
   document.querySelectorAll("[data-planner-status-id]").forEach((select) => {
     select.addEventListener("change", async (event) => {
-      const card = event.target.closest(".planner-row");
+      const row = event.target.closest(".planner-row");
       const targetStatus = event.target.value;
-      const targetList = document.querySelector(`.planner-list[data-status='${targetStatus}']`);
-      if (!card || !targetList) return;
-      const originalList = card.parentElement;
-      const originalNext = card.nextElementSibling;
-      const originalStatus = card.dataset.status;
-      moveCardToList(card, targetList);
-      await persistStatusMove(card, targetStatus, originalList, originalNext, originalStatus);
+      if (!row || row.dataset.status === targetStatus) return;
+      const originalList = row.parentElement;
+      const originalNext = row.nextElementSibling;
+      const originalStatus = row.dataset.status;
+      await persistStatusMove(row, targetStatus, originalList, originalNext, originalStatus);
     });
   });
 
   document.querySelectorAll("[data-retry-id]").forEach((button) => {
     button.addEventListener("click", async (event) => {
       event.preventDefault();
-      const card = event.target.closest(".planner-row");
+      const row = event.target.closest(".planner-row");
       const itemId = event.target.dataset.retryId;
-      updateWriteback(card, "pending", "Saving to source...");
+      updateWriteback(row, "pending", "Saving to source...");
       const response = await postJson(`/planner/item/${itemId}/writeback/retry`, {});
       const payload = await response.json();
-      updateWriteback(card, payload.writeback_status, payload.writeback_message);
+      if (!response.ok) {
+        updateWriteback(row, "failed", payload.error || "Retry failed.");
+        return;
+      }
+      applyStatusPayload(row, payload);
     });
   });
 
   document.querySelectorAll("[data-revert-id]").forEach((button) => {
     button.addEventListener("click", async (event) => {
       event.preventDefault();
-      const card = event.target.closest(".planner-row");
+      const row = event.target.closest(".planner-row");
       const itemId = event.target.dataset.revertId;
       const response = await postJson(`/planner/item/${itemId}/writeback/revert`, {});
       const payload = await response.json();
@@ -386,12 +484,9 @@
         return;
       }
       const targetList = document.querySelector(`.planner-list[data-status='${payload.planner_status}']`);
-      moveCardToList(card, targetList);
-      card.dataset.status = payload.planner_status;
-      const select = card.querySelector("[data-planner-status-id]");
-      if (select) select.value = payload.planner_status;
-      updateWriteback(card, payload.writeback_status, payload.writeback_message);
-      updateCounts();
+      moveRowToList(row, targetList);
+      applyStatusPayload(row, payload);
+      updateTabCounts();
       updateEmptyStates();
     });
   });
@@ -413,7 +508,7 @@
     window.location.reload();
   });
 
-  updateCounts();
+  updateTabCounts();
   updateEmptyStates();
 </script>
 {% endblock %}

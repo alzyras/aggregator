@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import timedelta
 
 from connectors.models import ConnectorAccount
@@ -38,6 +39,18 @@ PLANNER_STATUS_LABELS = {
 }
 
 
+@dataclass(frozen=True)
+class PlannerRow:
+    item: PlannerItem
+    state: PlannerItemState | None
+    state_id: int | str
+    planner_status: str
+    pinned: bool
+    planned_order: int
+    writeback_status: str
+    last_writeback_error: str
+
+
 @login_required
 @ensure_csrf_cookie
 def planner_list(request: HttpRequest) -> HttpResponse:
@@ -63,7 +76,10 @@ def planner_list(request: HttpRequest) -> HttpResponse:
     last_synced_at = (
         PlannerItem.objects
         .for_workspace(request.workspace)
-        .filter(user=request.user, last_synced_at__isnull=False)
+        .filter(
+            Q(user=request.user) | Q(user__isnull=True),
+            last_synced_at__isnull=False,
+        )
         .order_by("-last_synced_at")
         .values_list("last_synced_at", flat=True)
         .first()
@@ -79,33 +95,11 @@ def planner_list(request: HttpRequest) -> HttpResponse:
         .distinct()
     )
 
-    grouped_states = {
-        status: [] for status, _label in PlannerItemState.PLANNER_STATUS_CHOICES
-    }
-    for state in states:
-        grouped_states.setdefault(state.planner_status, []).append(state)
-
-    inbox_items = grouped_states.get(PlannerItemState.PLANNER_STATUS_INBOX, [])
-    if inbox_items:
-        grouped_states[PlannerItemState.PLANNER_STATUS_INBOX] = sorted(
-            inbox_items,
-            key=lambda item_state: item_state.item.created_at,
-            reverse=True,
-        )
-
-    board_columns = []
-    for status, label in PlannerItemState.PLANNER_STATUS_CHOICES:
-        items = grouped_states.get(status, [])
-        board_columns.append({
-            "value": status,
-            "label": PLANNER_STATUS_LABELS.get(status, label.title()),
-            "count": len(items),
-            "items": items,
-        })
+    tab_items = _planner_tab_items(request=request, plan=plan, states=list(states))
 
     context = {
         "plan": plan,
-        "board_columns": board_columns,
+        "tab_items": tab_items,
         "now": now,
         "last_synced_at": last_synced_at,
         "stale_warning": stale_warning,
@@ -168,7 +162,7 @@ def update_planner_status(request: HttpRequest, item_id: str) -> JsonResponse:
     if status not in dict(PlannerItemState.PLANNER_STATUS_CHOICES):
         return JsonResponse({"error": "Invalid status."}, status=400)
 
-    state = _get_state(request, item_id)
+    state = _get_or_create_state(request, item_id, planner_status=status)
     state.planner_status = status
     state.planned_status = planned_status_for_planner_status(status)
     state.last_planned_at = timezone.now()
@@ -176,7 +170,10 @@ def update_planner_status(request: HttpRequest, item_id: str) -> JsonResponse:
     job = queue_status_writeback(state=state, created_by=request.user)
     return JsonResponse({
         "status": "ok",
+        "item_id": state.item_id,
+        "state_id": state.id,
         "planner_status": state.planner_status,
+        "pinned": state.pinned,
         **writeback_payload(state, job),
     })
 
@@ -190,6 +187,8 @@ def retry_status_writeback(request: HttpRequest, item_id: str) -> JsonResponse:
     job = queue_status_writeback(state=state, created_by=request.user)
     return JsonResponse({
         "status": "ok",
+        "item_id": state.item_id,
+        "state_id": state.id,
         "planner_status": state.planner_status,
         **writeback_payload(state, job),
     })
@@ -204,6 +203,8 @@ def revert_status_writeback(request: HttpRequest, item_id: str) -> JsonResponse:
     revert_state_to_source_status(state)
     return JsonResponse({
         "status": "ok",
+        "item_id": state.item_id,
+        "state_id": state.id,
         "planner_status": state.planner_status,
         **writeback_payload(state),
     })
@@ -485,6 +486,92 @@ def add_selected_sources(request: HttpRequest) -> JsonResponse:
     return JsonResponse({"status": "ok", "added": len(selected_states)})
 
 
+def _planner_tab_items(*, request: HttpRequest, plan: PlannerPlan, states: list[PlannerItemState]) -> list[dict]:
+    rows_by_status = {
+        status: [] for status, _label in PlannerItemState.PLANNER_STATUS_CHOICES
+    }
+    states_by_item_id = {}
+    state_source_keys = set()
+
+    for state in states:
+        states_by_item_id[state.item_id] = state
+        source_key = _planner_item_source_key(state.item)
+        if source_key:
+            state_source_keys.add(source_key)
+        rows_by_status.setdefault(state.planner_status, []).append(_row_from_state(state))
+
+    unplanned_items = (
+        PlannerItem.objects
+        .for_workspace(request.workspace)
+        .filter(
+            Q(user=request.user) | Q(user__isnull=True),
+            is_active=True,
+            external_completed=False,
+            last_synced_at__isnull=False,
+        )
+        .exclude(id__in=states_by_item_id.keys())
+        .select_related("connector_account")
+        .order_by("-created_at", "-id")
+    )
+    for item in unplanned_items:
+        source_key = _planner_item_source_key(item)
+        if source_key and source_key in state_source_keys:
+            continue
+        rows_by_status[PlannerItemState.PLANNER_STATUS_INBOX].append(_row_from_item(item))
+
+    inbox_status = PlannerItemState.PLANNER_STATUS_INBOX
+    rows_by_status[inbox_status] = sorted(
+        rows_by_status[inbox_status],
+        key=lambda row: row.item.created_at,
+        reverse=True,
+    )
+
+    tab_items = []
+    for status, label in PlannerItemState.PLANNER_STATUS_CHOICES:
+        rows = rows_by_status.get(status, [])
+        if status != inbox_status:
+            rows = sorted(rows, key=lambda row: (not row.pinned, row.planned_order, row.state_id or 0))
+        tab_items.append({
+            "value": status,
+            "label": PLANNER_STATUS_LABELS.get(status, label.title()),
+            "count": len(rows),
+            "items": rows,
+        })
+    return tab_items
+
+
+def _row_from_state(state: PlannerItemState) -> PlannerRow:
+    return PlannerRow(
+        item=state.item,
+        state=state,
+        state_id=state.id,
+        planner_status=state.planner_status,
+        pinned=state.pinned,
+        planned_order=state.planned_order,
+        writeback_status=state.writeback_status,
+        last_writeback_error=state.last_writeback_error,
+    )
+
+
+def _row_from_item(item: PlannerItem) -> PlannerRow:
+    return PlannerRow(
+        item=item,
+        state=None,
+        state_id="",
+        planner_status=PlannerItemState.PLANNER_STATUS_INBOX,
+        pinned=False,
+        planned_order=0,
+        writeback_status=PlannerItemState.WRITEBACK_STATUS_NONE,
+        last_writeback_error="",
+    )
+
+
+def _planner_item_source_key(item: PlannerItem) -> tuple[str, str] | None:
+    if not item.source or not item.source_entity_id:
+        return None
+    return (item.source, item.source_entity_id)
+
+
 def _handle_add_from_sources(request: HttpRequest, plan: PlannerPlan) -> int:
     days = int(request.POST.get("days", 30))
     since = timezone.now() - timedelta(days=max(1, days))
@@ -679,6 +766,59 @@ def _get_state(request: HttpRequest, item_id: str) -> PlannerItemState:
         PlannerItemState.objects.select_related("item", "item__connector_account"),
         plan=plan,
         item_id=item_id,
+        item__is_active=True,
+    )
+
+
+def _get_or_create_state(
+    request: HttpRequest,
+    item_id: str,
+    planner_status: str | None = None,
+) -> PlannerItemState:
+    plan = _get_or_create_plan(request)
+    state = (
+        PlannerItemState.objects
+        .select_related("item", "item__connector_account")
+        .filter(plan=plan, item_id=item_id, item__is_active=True)
+        .first()
+    )
+    if state:
+        return state
+
+    item = get_object_or_404(
+        PlannerItem.objects
+        .select_related("connector_account")
+        .for_workspace(request.workspace)
+        .filter(Q(user=request.user) | Q(user__isnull=True), is_active=True),
+        id=item_id,
+    )
+    existing_state = _get_state_by_source_identity(plan=plan, item=item)
+    if existing_state:
+        return existing_state
+    return ensure_item_state(
+        plan,
+        item,
+        planner_status=planner_status or PlannerItemState.PLANNER_STATUS_INBOX,
+    )
+
+
+def _get_state_by_source_identity(*, plan: PlannerPlan, item: PlannerItem) -> PlannerItemState | None:
+    source_key = _planner_item_source_key(item)
+    if not source_key:
+        return None
+    source, source_entity_id = source_key
+    return (
+        PlannerItemState.objects
+        .select_related("item", "item__connector_account")
+        .filter(
+            plan=plan,
+            item__workspace=plan.workspace,
+            item__source=source,
+            item__source_entity_id=source_entity_id,
+            item__is_active=True,
+        )
+        .order_by("item_id")
+        .first()
     )
 
 
