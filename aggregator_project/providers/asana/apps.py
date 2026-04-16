@@ -19,6 +19,7 @@ class AsanaProviderConfig(AppConfig):
         from providers.asana.credentials import validate_credentials
         from providers.asana.forms import AsanaConnectForm
         from providers.asana.normalizer import normalize_asana
+        from providers.asana.sanitizer import sanitize_raw
         from providers.asana.status_writer import AsanaStatusWriter
 
         template_dir = Path(__file__).resolve().parent / "templates"
@@ -40,4 +41,5 @@ class AsanaProviderConfig(AppConfig):
             form_class=AsanaConnectForm,
             icon="bi-kanban",
             status_writer_factory=lambda account: AsanaStatusWriter(account),
+            raw_sanitizer=sanitize_raw,
         )

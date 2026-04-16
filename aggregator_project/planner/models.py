@@ -165,3 +165,68 @@ class PlannerItemState(models.Model):
 
     def __str__(self) -> str:
         return f"{self.plan_id}:{self.item_id}"
+
+
+class PlannerStatusIntent(models.Model):
+    STATUS_PENDING = "pending"
+    STATUS_SYNCED = "synced"
+    STATUS_FAILED = "failed"
+    STATUS_UNSUPPORTED = "unsupported"
+    STATUS_STALE = "stale"
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "pending"),
+        (STATUS_SYNCED, "synced"),
+        (STATUS_FAILED, "failed"),
+        (STATUS_UNSUPPORTED, "unsupported"),
+        (STATUS_STALE, "stale"),
+    ]
+
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
+    plan = models.ForeignKey(PlannerPlan, on_delete=models.CASCADE, related_name="status_intents")
+    item = models.ForeignKey(PlannerItem, on_delete=models.CASCADE, related_name="status_intents")
+    state = models.ForeignKey(
+        PlannerItemState,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="status_intents",
+    )
+    connector_account = models.ForeignKey(
+        ConnectorAccount,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="planner_status_intents",
+    )
+    requested_planner_status = models.CharField(
+        max_length=20,
+        choices=PlannerItemState.PLANNER_STATUS_CHOICES,
+    )
+    provider_status_at_request = models.CharField(max_length=100, blank=True)
+    provider_completed_at_request = models.BooleanField(default=False)
+    resolved_provider_status = models.CharField(max_length=100, blank=True)
+    resolved_external_completed = models.BooleanField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    job = models.ForeignKey(
+        "ingestion.Job",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="planner_status_intents",
+    )
+    attempts = models.IntegerField(default=0)
+    last_error = models.TextField(blank=True)
+    requested_at = models.DateTimeField(default=timezone.now)
+    last_attempted_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["workspace", "status", "requested_at"]),
+            models.Index(fields=["plan", "item", "status"]),
+            models.Index(fields=["job"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.item_id}:{self.requested_planner_status} ({self.status})"

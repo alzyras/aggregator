@@ -15,7 +15,7 @@ from events.models import Event
 from ingestion.models import Job
 from ingestion.providers import STATUS_WRITEBACK_SUCCESS, StatusWritebackResult
 from ingestion.services.jobs import run_job
-from planner.models import PlannerItem, PlannerItemState, PlannerPlan
+from planner.models import PlannerItem, PlannerItemState, PlannerPlan, PlannerStatusIntent
 from planner.services.reconcile import reconcile_from_event
 from workspaces.models import Workspace, WorkspaceMember
 
@@ -313,6 +313,9 @@ class PlannerTests(TestCase):
         self.assertEqual(state.planner_status, PlannerItemState.PLANNER_STATUS_DOING)
         self.assertEqual(state.writeback_status, PlannerItemState.WRITEBACK_STATUS_PENDING)
         self.assertTrue(Job.objects.filter(job_type="planner_status_writeback").exists())
+        intent = PlannerStatusIntent.objects.get(item=item)
+        self.assertEqual(intent.requested_planner_status, PlannerItemState.PLANNER_STATUS_DOING)
+        self.assertEqual(intent.status, PlannerStatusIntent.STATUS_PENDING)
 
     def test_planner_status_endpoint_creates_state_for_unplanned_item(self):
         PlannerPlan.objects.create(
@@ -443,6 +446,15 @@ class PlannerTests(TestCase):
             external_status_requested=PlannerItemState.PLANNER_STATUS_DONE,
             writeback_status=PlannerItemState.WRITEBACK_STATUS_PENDING,
         )
+        intent = PlannerStatusIntent.objects.create(
+            workspace=self.workspace,
+            plan=plan,
+            item=item,
+            state=state,
+            connector_account=self.account,
+            requested_planner_status=PlannerItemState.PLANNER_STATUS_DONE,
+            provider_status_at_request=item.source_status or "",
+        )
         job = Job.objects.create(
             workspace=self.workspace,
             connector_account=self.account,
@@ -452,6 +464,7 @@ class PlannerTests(TestCase):
                 "planner_item_state_id": state.id,
                 "planner_item_id": item.id,
                 "planner_status": PlannerItemState.PLANNER_STATUS_DONE,
+                "planner_status_intent_id": intent.id,
             },
             created_by=self.user,
         )
@@ -498,6 +511,15 @@ class PlannerTests(TestCase):
             external_status_requested=PlannerItemState.PLANNER_STATUS_DONE,
             writeback_status=PlannerItemState.WRITEBACK_STATUS_PENDING,
         )
+        intent = PlannerStatusIntent.objects.create(
+            workspace=self.workspace,
+            plan=plan,
+            item=item,
+            state=state,
+            connector_account=self.account,
+            requested_planner_status=PlannerItemState.PLANNER_STATUS_DONE,
+            provider_status_at_request=item.source_status or "",
+        )
         job = Job.objects.create(
             workspace=self.workspace,
             connector_account=self.account,
@@ -507,6 +529,7 @@ class PlannerTests(TestCase):
                 "planner_item_state_id": state.id,
                 "planner_item_id": item.id,
                 "planner_status": PlannerItemState.PLANNER_STATUS_DONE,
+                "planner_status_intent_id": intent.id,
             },
             created_by=self.user,
         )
@@ -547,6 +570,15 @@ class PlannerTests(TestCase):
             external_status_requested=PlannerItemState.PLANNER_STATUS_DONE,
             writeback_status=PlannerItemState.WRITEBACK_STATUS_PENDING,
         )
+        intent = PlannerStatusIntent.objects.create(
+            workspace=self.workspace,
+            plan=plan,
+            item=item,
+            state=state,
+            connector_account=self.account,
+            requested_planner_status=PlannerItemState.PLANNER_STATUS_DONE,
+            provider_status_at_request=item.source_status or "",
+        )
         job = Job.objects.create(
             workspace=self.workspace,
             connector_account=self.account,
@@ -556,6 +588,7 @@ class PlannerTests(TestCase):
                 "planner_item_state_id": state.id,
                 "planner_item_id": item.id,
                 "planner_status": PlannerItemState.PLANNER_STATUS_DONE,
+                "planner_status_intent_id": intent.id,
             },
             created_by=self.user,
         )
@@ -567,11 +600,26 @@ class PlannerTests(TestCase):
             run_job(job.id)
 
         state.refresh_from_db()
+        intent.refresh_from_db()
         job.refresh_from_db()
         self.assertEqual(state.writeback_status, PlannerItemState.WRITEBACK_STATUS_FAILED)
         self.assertIn("provider down", state.last_writeback_error)
+        self.assertEqual(state.planner_status, PlannerItemState.PLANNER_STATUS_BACKLOG)
+        self.assertEqual(intent.status, PlannerStatusIntent.STATUS_FAILED)
+        self.assertIn("Tried to set Done", intent.last_error)
         self.assertEqual(job.status, Job.STATUS_FAILED)
         self.assertEqual(job.attempt_count, 1)
+
+        response = self.client.post(reverse("planner_item_writeback_retry", args=[item.id]))
+
+        self.assertEqual(response.status_code, 200)
+        state.refresh_from_db()
+        self.assertEqual(state.planner_status, PlannerItemState.PLANNER_STATUS_DONE)
+        self.assertEqual(state.writeback_status, PlannerItemState.WRITEBACK_STATUS_PENDING)
+        self.assertEqual(
+            Job.objects.filter(job_type="planner_status_writeback", status=Job.STATUS_QUEUED).count(),
+            1,
+        )
 
     def test_status_endpoint_denies_other_workspace(self):
         other_user = self._create_user("other_user")

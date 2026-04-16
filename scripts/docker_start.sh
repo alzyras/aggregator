@@ -12,10 +12,20 @@ COLLECT_STATIC="${COLLECT_STATIC:-1}"
 WORKER_POLL_SECONDS="${WORKER_POLL_SECONDS:-5}"
 GUNICORN_WORKERS="${GUNICORN_WORKERS:-2}"
 GUNICORN_TIMEOUT="${GUNICORN_TIMEOUT:-120}"
+VALIDATE_RUNTIME_CONFIG="${VALIDATE_RUNTIME_CONFIG:-1}"
+STRICT_RUNTIME_CONFIG="${STRICT_RUNTIME_CONFIG:-0}"
 
 if [ -z "${ENCRYPTION_KEY:-}" ]; then
   echo "ENCRYPTION_KEY is required. Set it in your environment or .env."
   exit 1
+fi
+
+if [ "${VALIDATE_RUNTIME_CONFIG}" = "1" ]; then
+  if [ "${STRICT_RUNTIME_CONFIG}" = "1" ]; then
+    python aggregator_project/manage.py validate_runtime_config --strict
+  else
+    python aggregator_project/manage.py validate_runtime_config
+  fi
 fi
 
 if [ "${AUTO_CREATE_DB}" = "1" ]; then

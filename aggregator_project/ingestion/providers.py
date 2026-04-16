@@ -14,6 +14,7 @@ ClientFactory = Callable[["ConnectorAccount"], Any]
 Normalizer = Callable[[dict[str, Any]], dict[str, Any]]
 CredentialsValidator = Callable[[dict[str, Any]], tuple[bool, str]]
 StatusWriterFactory = Callable[["ConnectorAccount"], "ProviderStatusWriter"]
+RawSanitizer = Callable[[dict[str, Any]], dict[str, Any]]
 
 STATUS_WRITEBACK_SUCCESS = "success"
 STATUS_WRITEBACK_UNSUPPORTED = "unsupported"
@@ -54,6 +55,7 @@ class ProviderSpec:
     form_class: Type[forms.Form]
     icon: str
     status_writer_factory: StatusWriterFactory | None = None
+    raw_sanitizer: RawSanitizer | None = None
 
 
 def get_provider_specs() -> list[ProviderSpec]:

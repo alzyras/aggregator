@@ -26,6 +26,7 @@ from planner.services.reconcile import (
 from planner.services.writeback import (
     planned_status_for_planner_status,
     queue_status_writeback,
+    retry_failed_status_writeback,
     revert_state_to_source_status,
     writeback_payload,
 )
@@ -184,7 +185,7 @@ def retry_status_writeback(request: HttpRequest, item_id: str) -> JsonResponse:
     if response:
         return response
     state = _get_state(request, item_id)
-    job = queue_status_writeback(state=state, created_by=request.user)
+    job = retry_failed_status_writeback(state=state, created_by=request.user)
     return JsonResponse({
         "status": "ok",
         "item_id": state.item_id,

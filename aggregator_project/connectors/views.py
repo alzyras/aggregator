@@ -16,7 +16,7 @@ from connectors.services import sanitize_error
 from connectors.services.verify import verify_credentials
 from events.models import Event
 from ingestion.models import Job
-from ingestion.providers import get_provider_spec, get_provider_specs
+from ingestion.providers import get_provider_specs
 from ingestion.services.jobs import queue_sync_jobs
 
 
@@ -43,7 +43,7 @@ def connect_provider(request, source: str):
     if request.method != "POST":
         return redirect("plugins_view")
 
-    spec = get_provider_spec(source)
+    spec = _get_provider_spec(source)
     if not spec:
         messages.error(request, "Unknown provider.")
         return redirect("plugins_view")
@@ -148,7 +148,7 @@ def update_connector_account(request, account_id: int):
         messages.info(request, "Connector account not found.")
         return redirect("plugins_view")
 
-    spec = get_provider_spec(account.source)
+    spec = _get_provider_spec(account.source)
     if not spec:
         messages.error(request, "Unknown provider.")
         return redirect("plugins_view")
@@ -301,6 +301,13 @@ def sync_connector_account_view(request, account_id: int):
 def _enabled_plugins() -> set[str]:
     raw = os.getenv("ENABLED_PLUGINS", "")
     return {value.strip().lower() for value in raw.split(",") if value.strip()}
+
+
+def _get_provider_spec(source: str):
+    for spec in get_provider_specs():
+        if spec.source == source:
+            return spec
+    return None
 
 
 def _provider_description(spec) -> str:

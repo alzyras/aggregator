@@ -5,6 +5,15 @@
     <div class="panel-header">
       <div>
         <h2>Jobs</h2>
+        <p class="muted">
+          Queue lag {{ ops_summary.queue_lag_seconds }}s ·
+          queued {{ ops_summary.queued }} ·
+          running {{ ops_summary.running }} ·
+          failed {{ ops_summary.failed }} ·
+          stale {{ ops_summary.stale_running }} ·
+          failed writebacks {{ ops_summary.failed_writeback_intents }} ·
+          connector issues {{ ops_summary.failed_connectors }}
+        </p>
       </div>
       <form method="get" class="job-filter">
         <label class="field-label" for="jobs-status">Status</label>
@@ -16,6 +25,13 @@
         </select>
       </form>
     </div>
+    <div class="panel-actions">
+      <form method="post">
+        {% csrf_token %}
+        <button class="btn ghost" name="action" value="recover_stale" type="submit">Recover stale jobs</button>
+        <button class="btn ghost" name="action" value="retry_failed_writebacks" type="submit">Retry failed writebacks</button>
+      </form>
+    </div>
 
     <div class="table-wrap">
       <table class="data-table">
@@ -24,7 +40,9 @@
             <th>Job</th>
             <th>Connector</th>
             <th>Status</th>
+            <th>Attempts</th>
             <th>Queued</th>
+            <th>Next run</th>
             <th>Started</th>
             <th>Finished</th>
             <th>Error</th>
@@ -52,9 +70,17 @@
                   {{ job.status|title }}
                 </span>
               </td>
+              <td>{{ job.attempt_count }} / {{ job.max_attempts|default:"?" }}</td>
               <td>
                 {% if job.queued_at %}
                   <span title="{{ job.queued_at|date:'Y-m-d H:i:s T' }}">{{ job.queued_at|date:"Y-m-d" }}</span>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if job.next_run_at %}
+                  <span title="{{ job.next_run_at|date:'Y-m-d H:i:s T' }}">{{ job.next_run_at|date:"Y-m-d H:i" }}</span>
                 {% else %}
                   —
                 {% endif %}
@@ -83,7 +109,7 @@
             </tr>
           {% empty %}
             <tr>
-              <td colspan="7">No jobs yet.</td>
+              <td colspan="9">No jobs yet.</td>
             </tr>
           {% endfor %}
         </tbody>

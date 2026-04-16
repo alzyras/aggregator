@@ -194,15 +194,12 @@ def _task_state_events(
             if ts:
                 completion_occurrence_ts = ts
                 break
-    if task.get("completed") and completion_occurrence_ts:
-        return events
-
     for label, occurred_at in candidates:
         if not occurred_at:
             continue
         if label == "completed" and completion_occurrence_ts and occurred_at == completion_occurrence_ts:
-            # Avoid duplicate: skip completed snapshot when completion occurrence at same timestamp exists.
-            continue
+            # Keep completed state visible, but avoid sharing the exact occurrence timestamp.
+            occurred_at = updated_at or fallback_time
         source_version = occurred_at.isoformat()
         if source_version in seen_versions:
             continue

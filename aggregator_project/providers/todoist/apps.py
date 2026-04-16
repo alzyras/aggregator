@@ -19,6 +19,7 @@ class TodoistProviderConfig(AppConfig):
         from providers.todoist.credentials import validate_credentials
         from providers.todoist.forms import TodoistConnectForm
         from providers.todoist.normalizer import normalize_todoist
+        from providers.todoist.sanitizer import sanitize_raw
         from providers.todoist.status_writer import TodoistStatusWriter
 
         template_dir = Path(__file__).resolve().parent / "templates"
@@ -39,4 +40,5 @@ class TodoistProviderConfig(AppConfig):
             form_class=TodoistConnectForm,
             icon="bi-check2-square",
             status_writer_factory=lambda account: TodoistStatusWriter(account),
+            raw_sanitizer=sanitize_raw,
         )

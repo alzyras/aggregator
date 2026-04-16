@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from connectors.models import ConnectorAccount
 from ingestion import views as ingestion_views
-from ingestion.models import Job
+from ingestion.models import Job, JobAttempt
 from ingestion.services import jobs as job_service
 from workspaces.models import Workspace, WorkspaceMember
 
@@ -83,6 +83,9 @@ class JobTests(TestCase):
         self.assertEqual(result.output_summary, {"results": [{"inserted": 1}]})
         self.assertIsNotNone(result.started_at)
         self.assertIsNotNone(result.finished_at)
+        attempt = JobAttempt.objects.get(job=result)
+        self.assertEqual(attempt.status, JobAttempt.STATUS_SUCCESS)
+        self.assertEqual(attempt.attempt_number, 1)
 
     def test_failed_job_stores_error(self):
         account = ConnectorAccount.objects.create(
@@ -142,6 +145,88 @@ class JobTests(TestCase):
         self.assertLessEqual(stale_job.next_run_at, timezone.now())
         self.assertIsNone(stale_job.locked_at)
         self.assertEqual(stale_job.locked_by, "")
+
+    @override_settings(JOB_STALE_RUNNING_SECONDS=60)
+    def test_recovers_expired_lease_for_retry(self):
+        account = ConnectorAccount.objects.create(
+            workspace=self.workspace_a,
+            source="asana",
+            display_name="Asana",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+        stale_job = Job.objects.create(
+            workspace=self.workspace_a,
+            connector_account=account,
+            job_type="sync",
+            job_name="sync_connector",
+            status=Job.STATUS_RUNNING,
+            locked_at=timezone.now(),
+            lease_expires_at=timezone.now() - timedelta(seconds=1),
+            locked_by="dead-worker",
+        )
+        JobAttempt.objects.create(
+            job=stale_job,
+            attempt_number=1,
+            worker_id="dead-worker",
+            status=JobAttempt.STATUS_RUNNING,
+        )
+
+        recovered = job_service.recover_stale_jobs()
+
+        stale_job.refresh_from_db()
+        self.assertEqual(recovered, 1)
+        self.assertEqual(stale_job.status, Job.STATUS_QUEUED)
+        self.assertIsNone(stale_job.lease_expires_at)
+
+        with patch("ingestion.services.jobs.execute_job", return_value={}):
+            result = job_service.run_job(stale_job.id)
+
+        self.assertEqual(result.status, Job.STATUS_SUCCESS)
+        self.assertEqual(
+            list(result.attempts.order_by("attempt_number").values_list("attempt_number", flat=True)),
+            [1, 2],
+        )
+
+    @override_settings(JOB_STALE_RUNNING_SECONDS=60)
+    def test_stale_recovery_marks_exhausted_job_failed(self):
+        account = ConnectorAccount.objects.create(
+            workspace=self.workspace_a,
+            source="asana",
+            display_name="Asana",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+        stale_job = Job.objects.create(
+            workspace=self.workspace_a,
+            connector_account=account,
+            job_type="sync",
+            job_name="sync_connector",
+            status=Job.STATUS_RUNNING,
+            locked_at=timezone.now(),
+            lease_expires_at=timezone.now() - timedelta(seconds=1),
+            locked_by="dead-worker",
+            max_attempts=1,
+        )
+        JobAttempt.objects.create(
+            job=stale_job,
+            attempt_number=1,
+            worker_id="dead-worker",
+            status=JobAttempt.STATUS_RUNNING,
+        )
+
+        recovered = job_service.recover_stale_jobs()
+
+        stale_job.refresh_from_db()
+        self.assertEqual(recovered, 1)
+        self.assertEqual(stale_job.status, Job.STATUS_FAILED)
+        self.assertEqual(stale_job.attempt_count, 1)
+        self.assertLessEqual(stale_job.next_run_at, timezone.now())
+        self.assertEqual(stale_job.attempts.get().status, JobAttempt.STATUS_FAILED)
 
     def test_jobs_are_workspace_isolated(self):
         account_a = ConnectorAccount.objects.create(
@@ -264,6 +349,37 @@ class JobTests(TestCase):
             {job.input_params.get("run_group_id") for job in stored_jobs},
             {run_group_id},
         )
+
+    def test_create_job_dedupes_active_idempotency_key(self):
+        account = ConnectorAccount.objects.create(
+            workspace=self.workspace_a,
+            source="asana",
+            display_name="Asana",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+
+        first = job_service.create_job(
+            workspace=self.workspace_a,
+            connector_account=account,
+            job_type="sync",
+            job_name="sync_connector",
+            input_params={"source": "asana"},
+            idempotency_key="sync:test",
+        )
+        second = job_service.create_job(
+            workspace=self.workspace_a,
+            connector_account=account,
+            job_type="sync",
+            job_name="sync_connector",
+            input_params={"source": "asana"},
+            idempotency_key="sync:test",
+        )
+
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(Job.objects.filter(idempotency_key="sync:test").count(), 1)
 
     def test_sync_view_groups_runs_and_builds_connector_overview(self):
         account_one = ConnectorAccount.objects.create(

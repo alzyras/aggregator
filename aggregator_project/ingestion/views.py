@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.conf import settings
+from django.db.models import Count, Q
 from django.shortcuts import redirect, render
 from django.utils import timezone
 
@@ -13,7 +14,8 @@ from connectors.models import ConnectorAccount
 
 from ingestion.models import Job
 from ingestion.providers import get_provider_choices
-from ingestion.services.jobs import queue_sync_jobs, run_job
+from ingestion.services.jobs import queue_sync_jobs, recover_stale_jobs, run_job
+from planner.models import PlannerStatusIntent
 
 RUN_STATUS_PRECEDENCE = (
     Job.STATUS_FAILED,
@@ -104,6 +106,17 @@ def sync_view(request):
 
 @login_required
 def jobs_list(request):
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "recover_stale":
+            recovered = recover_stale_jobs()
+            messages.success(request, f"Recovered {recovered} stale jobs.")
+            return redirect("jobs_list")
+        if action == "retry_failed_writebacks":
+            retried = _retry_failed_writebacks(request)
+            messages.success(request, f"Queued {retried} failed planner writebacks for retry.")
+            return redirect("jobs_list")
+
     status_filter = request.GET.get("status", "")
     jobs = Job.objects.for_workspace(request.workspace).select_related(
         "connector_account"
@@ -114,8 +127,80 @@ def jobs_list(request):
     return render(
         request,
         "jobs_list.html",
-        {"jobs": jobs, "status_filter": status_filter, "status_choices": Job.STATUS_CHOICES},
+        {
+            "jobs": jobs,
+            "status_filter": status_filter,
+            "status_choices": Job.STATUS_CHOICES,
+            "ops_summary": _build_ops_summary(request.workspace),
+        },
     )
+
+
+def _build_ops_summary(workspace) -> dict[str, object]:
+    now = timezone.now()
+    counts = {
+        row["status"]: row["count"]
+        for row in (
+            Job.objects
+            .for_workspace(workspace)
+            .values("status")
+            .annotate(count=Count("id"))
+        )
+    }
+    oldest_due = (
+        Job.objects
+        .for_workspace(workspace)
+        .filter(status=Job.STATUS_QUEUED, next_run_at__lte=now)
+        .order_by("next_run_at")
+        .values_list("next_run_at", flat=True)
+        .first()
+    )
+    stale_jobs = Job.objects.for_workspace(workspace).filter(
+        status=Job.STATUS_RUNNING,
+    ).filter(
+        Q(lease_expires_at__lt=now)
+        | Q(lease_expires_at__isnull=True, locked_at__lt=now - timedelta(seconds=settings.JOB_STALE_RUNNING_SECONDS))
+    )
+    failed_writeback_intents = PlannerStatusIntent.objects.filter(
+        workspace=workspace,
+        status=PlannerStatusIntent.STATUS_FAILED,
+    ).count()
+    failed_connectors = ConnectorAccount.objects.for_workspace(workspace).filter(
+        Q(status=ConnectorAccount.STATUS_ERROR)
+        | Q(last_sync_status=ConnectorAccount.SYNC_STATUS_FAILED)
+        | Q(last_error__isnull=False)
+    ).count()
+    queue_lag_seconds = 0
+    if oldest_due:
+        queue_lag_seconds = max(int((now - oldest_due).total_seconds()), 0)
+    return {
+        "counts": counts,
+        "queued": counts.get(Job.STATUS_QUEUED, 0),
+        "running": counts.get(Job.STATUS_RUNNING, 0),
+        "failed": counts.get(Job.STATUS_FAILED, 0),
+        "queue_lag_seconds": queue_lag_seconds,
+        "stale_running": stale_jobs.count(),
+        "failed_writeback_intents": failed_writeback_intents,
+        "failed_connectors": failed_connectors,
+    }
+
+
+def _retry_failed_writebacks(request) -> int:
+    from planner.services.writeback import retry_failed_status_writeback
+
+    intents = (
+        PlannerStatusIntent.objects
+        .select_related("state", "item")
+        .filter(workspace=request.workspace, status=PlannerStatusIntent.STATUS_FAILED)
+        .order_by("-requested_at")[:50]
+    )
+    queued = 0
+    for intent in intents:
+        if not intent.state:
+            continue
+        retry_failed_status_writeback(state=intent.state, created_by=request.user)
+        queued += 1
+    return queued
 
 
 def _connector_label(job: Job) -> str:

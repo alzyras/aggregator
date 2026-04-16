@@ -30,6 +30,7 @@ x = ["lint", "format", "isort"]
 [dependency-groups]
 dev = [
     "poethepoet>=0.32.2",
+    "pytest>=9.0.3",
     "python-dotenv>=1.0.1",
     "ruff>=0.9.7",
 ]

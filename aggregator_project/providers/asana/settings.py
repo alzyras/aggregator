@@ -26,7 +26,7 @@ def get_asana_settings(scopes: dict[str, Any] | list[Any] | None) -> dict[str, b
         return DEFAULT_SETTINGS.copy()
     stored = scopes.get("asana")
     if not isinstance(stored, dict):
-        return DEFAULT_SETTINGS.copy()
+        stored = scopes
     merged = DEFAULT_SETTINGS.copy()
     for key, value in stored.items():
         if key in merged:

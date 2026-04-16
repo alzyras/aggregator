@@ -19,6 +19,7 @@ class JiraProviderConfig(AppConfig):
         from providers.jira.credentials import validate_credentials
         from providers.jira.forms import JiraConnectForm
         from providers.jira.normalizer import normalize_jira
+        from providers.jira.sanitizer import sanitize_raw
         from providers.jira.status_writer import JiraStatusWriter
 
         template_dir = Path(__file__).resolve().parent / "templates"
@@ -40,4 +41,5 @@ class JiraProviderConfig(AppConfig):
             form_class=JiraConnectForm,
             icon="bi-journal-text",
             status_writer_factory=lambda account: JiraStatusWriter(account),
+            raw_sanitizer=sanitize_raw,
         )

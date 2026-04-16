@@ -8,6 +8,7 @@ from django.utils import timezone
 from django.core.exceptions import ValidationError
 
 from connectors.models import ConnectorAccount
+from core.models import TimestampedModel
 from workspaces.models import Workspace
 
 
@@ -53,13 +54,16 @@ class Job(models.Model):
         default=STATUS_QUEUED,
     )
     priority = models.IntegerField(default=0)
+    idempotency_key = models.CharField(max_length=255, blank=True, default="")
     queued_at = models.DateTimeField(auto_now_add=True)
     next_run_at = models.DateTimeField(default=timezone.now)
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     locked_at = models.DateTimeField(null=True, blank=True)
     locked_by = models.CharField(max_length=100, null=True, blank=True)
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
     attempt_count = models.IntegerField(default=0)
+    max_attempts = models.IntegerField(null=True, blank=True)
     input_params = models.JSONField(default=dict, blank=True)
     output_summary = models.JSONField(default=dict, blank=True)
     error_message = models.TextField(blank=True)
@@ -79,6 +83,8 @@ class Job(models.Model):
             models.Index(fields=["workspace", "connector_account", "status"]),
             models.Index(fields=["workspace", "status", "queued_at"]),
             models.Index(fields=["workspace", "job_type", "queued_at"]),
+            models.Index(fields=["idempotency_key", "status"]),
+            models.Index(fields=["status", "lease_expires_at"]),
         ]
 
     def display_name(self) -> str:
@@ -100,3 +106,40 @@ class Job(models.Model):
 
     def __str__(self) -> str:
         return f"{self.job_type}:{self.job_name} ({self.status})"
+
+
+class JobAttempt(TimestampedModel):
+    STATUS_RUNNING = "running"
+    STATUS_SUCCESS = "success"
+    STATUS_FAILED = "failed"
+    STATUS_RETRYING = "retrying"
+    STATUS_CHOICES = [
+        (STATUS_RUNNING, "running"),
+        (STATUS_SUCCESS, "success"),
+        (STATUS_FAILED, "failed"),
+        (STATUS_RETRYING, "retrying"),
+    ]
+
+    job = models.ForeignKey(Job, on_delete=models.CASCADE, related_name="attempts")
+    attempt_number = models.IntegerField()
+    worker_id = models.CharField(max_length=100, blank=True)
+    started_at = models.DateTimeField(default=timezone.now)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_RUNNING)
+    error_message = models.TextField(blank=True)
+    output_summary = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["job", "attempt_number"]),
+            models.Index(fields=["status", "started_at"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["job", "attempt_number"],
+                name="job_attempt_unique_attempt_number",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.job_id}:{self.attempt_number} ({self.status})"

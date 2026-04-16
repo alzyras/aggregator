@@ -53,6 +53,7 @@ Portainer stack deployment:
 - `DJANGO_ALLOWED_HOSTS`
 - `ENCRYPTION_KEY` (required and must stay stable)
 - `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`
+- `DB_DEPLOYMENT_MODE` (`built_in` for the compose `postgres` service, `external` for an existing database)
 - `WEB_PORT` (host port, example `8000`)
 - `APP_PORT` (container app port, default `8000`)
 4. Expose port `8000` from the `web` service.
@@ -63,8 +64,9 @@ Optional startup flags:
 - `RUN_MIGRATIONS=1` to apply migrations at startup (default on `web`)
 - `COLLECT_STATIC=1` to build static assets (default on `web`)
 - Application URL is `http://<your-hostname>:<WEB_PORT>/`
-- If you keep the built-in DB, set `PGHOST=postgres` (or leave it unset).
-- If you use an external DB, set `PGHOST` to that host explicitly.
+- If you keep the built-in DB, set `DB_DEPLOYMENT_MODE=built_in` and `PGHOST=postgres` (or leave it unset).
+- If you use an external DB, set `DB_DEPLOYMENT_MODE=external` and set `PGHOST` to that host explicitly. Do not leave `PGHOST=postgres`, or Portainer will point the app at the stack-created database service.
+- `VALIDATE_RUNTIME_CONFIG=1` runs startup configuration checks for both `web` and `worker`; `STRICT_RUNTIME_CONFIG=1` turns warnings into startup failures.
 
 ## Database
 
@@ -109,6 +111,16 @@ Queued jobs are durable in Postgres. A worker restart reclaims jobs that were
 left `running` longer than `JOB_STALE_RUNNING_SECONDS`. General sync jobs use
 `JOB_MAX_ATTEMPTS`; planner task status writeback uses
 `PLANNER_STATUS_WRITEBACK_MAX_RETRIES` retries before surfacing a failed sync.
+Jobs also use Postgres leases, so a stopped worker/container can be recovered
+by another worker after the lease expires.
+
+Local queue operations:
+
+```bash
+python aggregator_project/manage.py queue_health
+python aggregator_project/manage.py recover_stale_jobs
+python aggregator_project/manage.py retry_failed_writebacks --workspace-id <id>
+```
 
 Optionally pass `--since=2025-01-01T00:00:00Z` to limit scope.
 

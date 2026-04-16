@@ -79,11 +79,10 @@
                 {% if row.item.external_completed %}
                   <span class="badge success">Completed externally</span>
                 {% endif %}
-                <span class="badge writeback-badge {{ row.writeback_status }}" data-writeback-badge>
+                <span class="badge writeback-badge {{ row.writeback_status }}{% if row.writeback_status == 'synced' %} is-hidden{% endif %}" data-writeback-badge>
                   {% if row.writeback_status == "pending" %}
                     Saving
                   {% elif row.writeback_status == "synced" %}
-                    Synced
                   {% elif row.writeback_status == "failed" %}
                     Failed sync
                   {% elif row.writeback_status == "unsupported" %}
@@ -220,14 +219,15 @@
     const revert = row.querySelector("[data-revert-id]");
     const labels = {
       pending: "Saving",
-      synced: "Synced",
+      synced: "",
       failed: "Failed sync",
       unsupported: "Local only",
       none: "Local",
     };
     if (badge) {
       badge.className = `badge writeback-badge ${normalized}`;
-      badge.textContent = labels[normalized] || labels.none;
+      badge.textContent = Object.prototype.hasOwnProperty.call(labels, normalized) ? labels[normalized] : labels.none;
+      badge.classList.toggle("is-hidden", normalized === "synced");
     }
     if (messageEl) {
       const visibleMessage = normalized === "failed" ? (message || "") : "";

@@ -20,7 +20,7 @@ def get_habitica_settings(scopes: dict[str, Any] | list[Any] | None) -> dict[str
         return DEFAULT_SETTINGS.copy()
     stored = scopes.get("habitica")
     if not isinstance(stored, dict):
-        return DEFAULT_SETTINGS.copy()
+        stored = scopes
     merged = DEFAULT_SETTINGS.copy()
     for key, value in stored.items():
         if key in merged:

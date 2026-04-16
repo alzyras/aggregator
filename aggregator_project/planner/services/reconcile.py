@@ -77,10 +77,18 @@ def reconcile_from_event(event: Event) -> PlannerReconcileResult:
     if updated_fields:
         item.save(update_fields=updated_fields + ["updated_at"])
 
+    _mark_matching_pending_writebacks(item)
+
     if defaults["external_completed"] and _should_auto_complete():
         _auto_complete_item(item)
 
     return PlannerReconcileResult(item=item, created=False)
+
+
+def _mark_matching_pending_writebacks(item: PlannerItem) -> None:
+    from planner.services.writeback import mark_matching_pending_intents_synced
+
+    mark_matching_pending_intents_synced(item)
 
 
 def _auto_complete_item(item: PlannerItem) -> None:

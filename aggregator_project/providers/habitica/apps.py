@@ -19,6 +19,7 @@ class HabiticaProviderConfig(AppConfig):
         from providers.habitica.credentials import validate_credentials
         from providers.habitica.forms import HabiticaConnectForm
         from providers.habitica.normalizer import normalize_habitica
+        from providers.habitica.sanitizer import sanitize_raw
         from providers.habitica.status_writer import HabiticaStatusWriter
 
         template_dir = Path(__file__).resolve().parent / "templates"
@@ -40,4 +41,5 @@ class HabiticaProviderConfig(AppConfig):
             form_class=HabiticaConnectForm,
             icon="bi-heart-pulse",
             status_writer_factory=lambda account: HabiticaStatusWriter(account),
+            raw_sanitizer=sanitize_raw,
         )
