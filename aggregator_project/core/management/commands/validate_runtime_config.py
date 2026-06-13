@@ -21,6 +21,13 @@ class Command(BaseCommand):
         pg_user = os.getenv("PGUSER", "")
         pg_password = os.getenv("PGPASSWORD", "")
         db_mode = os.getenv("DB_DEPLOYMENT_MODE", "").lower()
+        ssl_redirect = (os.getenv("DJANGO_SECURE_SSL_REDIRECT", "1").lower() in {"1", "true", "yes", "on"})
+        trust_proxy_ssl = (
+            os.getenv("DJANGO_TRUST_PROXY_SSL_HEADER", "0").lower() in {"1", "true", "yes", "on"}
+        )
+        cookie_secure = (
+            os.getenv("DJANGO_SESSION_COOKIE_SECURE", "1").lower() in {"1", "true", "yes", "on"}
+        )
 
         if role not in {"web", "worker"}:
             errors.append("APP_ROLE must be either 'web' or 'worker'.")
@@ -38,6 +45,14 @@ class Command(BaseCommand):
             warnings.append("DB_DEPLOYMENT_MODE is not set; use 'built_in' or 'external' to document the DB choice.")
         if not settings.DEBUG and pg_user == "postgres" and pg_password == "postgres":
             warnings.append("Production deploy is using the default postgres/postgres database credentials.")
+        if not settings.DEBUG and not ssl_redirect:
+            warnings.append("DJANGO_SECURE_SSL_REDIRECT is disabled while DJANGO_DEBUG=false.")
+        if ssl_redirect and not trust_proxy_ssl:
+            warnings.append(
+                "DJANGO_SECURE_SSL_REDIRECT is enabled but DJANGO_TRUST_PROXY_SSL_HEADER is disabled."
+            )
+        if ssl_redirect and not cookie_secure:
+            warnings.append("Session cookies are not marked secure while HTTPS redirect is enabled.")
 
         for warning in warnings:
             self.stdout.write(self.style.WARNING(f"Warning: {warning}"))
