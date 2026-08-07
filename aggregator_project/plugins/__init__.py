@@ -1,0 +1,1 @@
+"""Installable workspace data plugins."""

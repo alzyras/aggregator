@@ -11,8 +11,9 @@ def verify_todoist(credentials: dict[str, Any]) -> tuple[bool, str]:
         return False, "Missing API token."
     try:
         response = requests.get(
-            "https://api.todoist.com/rest/v2/projects",
+            "https://api.todoist.com/api/v1/projects",
             headers={"Authorization": f"Bearer {token}"},
+            params={"limit": 1},
             timeout=10,
         )
     except requests.RequestException:

@@ -64,11 +64,16 @@ class HabiticaClient:
         tasks = self._merge_tasks(todos, completed_todos)
         tasks.extend(habits)
         tasks.extend(dailies)
+        tag_map = self.get_tag_map()
 
         for task in tasks:
             if actor:
                 task["actor"] = actor
             task["_habitica_settings"] = self.settings
+            task["__habitica_planner_context"] = {
+                "task_type": self._planner_task_type_label(task.get("type")),
+                "tags": self._resolve_task_tags(task, tag_map),
+            }
         if since:
             filtered: list[dict[str, Any]] = []
             for task in tasks:
@@ -120,6 +125,15 @@ class HabiticaClient:
         }
         return {key: value for key, value in actor.items() if value not in (None, "")}
 
+    def get_tag_map(self) -> dict[str, str]:
+        profile = self.get_user_profile()
+        tags = profile.get("tags") or []
+        return {
+            str(tag.get("id") or tag.get("_id") or ""): str(tag.get("name") or "")
+            for tag in tags
+            if (tag.get("id") or tag.get("_id")) and tag.get("name")
+        }
+
     def _fetch_tasks(self, user_id: str, api_token: str, task_type: str) -> list[dict[str, Any]]:
         headers = self._headers(user_id, api_token)
         response = requests.get(
@@ -153,3 +167,22 @@ class HabiticaClient:
             if task.get("completed") and not existing.get("completed"):
                 merged[task_id] = task
         return list(merged.values())
+
+    def _resolve_task_tags(self, task: dict[str, Any], tag_map: dict[str, str]) -> list[str]:
+        tags = []
+        for raw_tag in task.get("tags") or []:
+            tag_id = str(raw_tag or "").strip()
+            if not tag_id:
+                continue
+            tag_name = tag_map.get(tag_id)
+            if tag_name:
+                tags.append(tag_name)
+        return tags
+
+    def _planner_task_type_label(self, task_type: Any) -> str:
+        value = str(task_type or "").lower()
+        if value == "daily":
+            return "Daily"
+        if value == "habit":
+            return "Habit"
+        return "Todo"

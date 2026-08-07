@@ -36,12 +36,21 @@ class AsanaClient:
 
         tasks: list[dict[str, Any]] = []
         for workspace_gid in workspace_gids:
+            workspace = self._fetch_workspace(access_token, workspace_gid)
             projects = self._fetch_projects(access_token, workspace_gid)
             for project in projects:
                 project_gid = project.get("gid")
                 if not project_gid:
                     continue
-                tasks.extend(self._fetch_project_tasks(access_token, project_gid, since))
+                tasks.extend(
+                    self._fetch_project_tasks(
+                        access_token,
+                        project_gid,
+                        since,
+                        workspace_name=str(workspace.get("name") or ""),
+                        project_name=str(project.get("name") or ""),
+                    )
+                )
 
         filtered = []
         for task in tasks:
@@ -64,7 +73,16 @@ class AsanaClient:
             filtered.append(task)
 
         return filtered
-        return tasks
+
+    def _fetch_workspace(self, access_token: str, workspace_gid: str) -> dict[str, Any]:
+        payload = requests.get(
+            f"{BASE_URL}/workspaces/{workspace_gid}",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={"opt_fields": "gid,name"},
+            timeout=30,
+        )
+        payload.raise_for_status()
+        return payload.json().get("data") or {}
 
     def _fetch_projects(self, access_token: str, workspace_gid: str) -> list[dict[str, Any]]:
         params = {
@@ -77,7 +95,13 @@ class AsanaClient:
         )
 
     def _fetch_project_tasks(
-        self, access_token: str, project_gid: str, since: datetime | None
+        self,
+        access_token: str,
+        project_gid: str,
+        since: datetime | None,
+        *,
+        workspace_name: str,
+        project_name: str,
     ) -> list[dict[str, Any]]:
         params: dict[str, Any] = {
             "opt_fields": ",".join(
@@ -111,11 +135,17 @@ class AsanaClient:
         }
         if since is not None:
             params["modified_since"] = since.isoformat()
-        return self._paginate(
+        tasks = self._paginate(
             f"{BASE_URL}/projects/{project_gid}/tasks",
             access_token,
             params,
         )
+        for task in tasks:
+            task["__asana_planner_context"] = {
+                "workspace_name": workspace_name,
+                "project_name": project_name,
+            }
+        return tasks
 
     def _paginate(
         self,

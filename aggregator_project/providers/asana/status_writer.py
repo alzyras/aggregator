@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import requests
-from ingestion.providers import STATUS_WRITEBACK_SUCCESS, StatusWritebackResult
+from ingestion.providers import (
+    STATUS_WRITEBACK_SUCCESS,
+    DescriptionWritebackResult,
+    StatusWritebackResult,
+)
 from planner.models import PlannerItemState
 
 from providers.asana.client import BASE_URL, AsanaClient
@@ -38,5 +42,32 @@ class AsanaStatusWriter:
             source_status="completed" if actual_completed else "open",
             external_completed=actual_completed,
             message="Saved to Asana.",
+            raw=data,
+        )
+
+    def update_description(
+        self,
+        *,
+        source_entity_id: str,
+        description: str,
+        item=None,
+        source_entity_type: str | None = None,
+    ) -> DescriptionWritebackResult:
+        token = self.client.credentials.get("access_token")
+        if not token:
+            raise RuntimeError("Missing Asana access token.")
+
+        response = requests.put(
+            f"{BASE_URL}/tasks/{source_entity_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"data": {"notes": description}},
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = (response.json() or {}).get("data") or {}
+        return DescriptionWritebackResult(
+            status=STATUS_WRITEBACK_SUCCESS,
+            description=str(data.get("notes") if data.get("notes") is not None else description),
+            message="Description saved to Asana.",
             raw=data,
         )

@@ -15,9 +15,15 @@ class GoogleFitProviderConfig(AppConfig):
     def ready(self) -> None:
         from providers.google_fit.client import GoogleFitClient
         from providers.google_fit.credentials import validate_credentials
+        from providers.google_fit.forms import GoogleFitConnectForm
         from providers.google_fit.normalizer import normalize_google_fit
         from providers.google_fit.sanitizer import sanitize_raw
-        from connectors.forms import GoogleFitConnectForm
+        from providers.google_fit.settings import (
+            apply_credentials,
+            google_fit_form_initial,
+            resolve_masked_credentials,
+        )
+        from providers.google_fit.verify import verify_google_fit
 
         self.provider_spec = ProviderSpec(
             source="google_fit",
@@ -34,5 +40,9 @@ class GoogleFitProviderConfig(AppConfig):
             validate_credentials=validate_credentials,
             form_class=GoogleFitConnectForm,
             icon="bi-activity",
+            connection_verifier=verify_google_fit,
+            credentials_applier=apply_credentials,
+            form_initial_factory=google_fit_form_initial,
+            masked_credentials_resolver=resolve_masked_credentials,
             raw_sanitizer=sanitize_raw,
         )

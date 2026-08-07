@@ -24,6 +24,7 @@ class JiraClient:
         self.timeout = 30
         self.max_attempts = 4
         self.session = requests.Session()
+        self._field_catalog: list[dict[str, Any]] | None = None
 
     def fetch_since(self, since: datetime | None = None) -> list[dict[str, Any]]:
         if not self.base_url:
@@ -78,7 +79,9 @@ class JiraClient:
             "reporter",
             "creator",
             "priority",
+            "parent",
         ]
+        fields.extend(self._planner_context_field_ids())
         if self.config.get("include_comments"):
             fields.append("comment")
         if self.config.get("include_worklogs"):
@@ -90,7 +93,7 @@ class JiraClient:
         return fields
 
     def _expand_fields(self) -> list[str]:
-        expands: list[str] = []
+        expands: list[str] = ["names"]
         if self.config.get("include_changelog"):
             expands.append("changelog")
         if self.config.get("include_sprints"):
@@ -208,6 +211,7 @@ class JiraClient:
         if self.config.get("include_worklogs") and "worklog" not in fields:
             worklogs_payload = self._request("GET", f"{self._issue_path(issue_key)}/worklog")
             issue["_expanded_worklogs"] = worklogs_payload.get("worklogs") or []
+        self._attach_planner_context(issue)
 
     def get_issue_transitions(self, issue_key: str) -> list[dict[str, Any]]:
         payload = self._request("GET", f"{self._issue_path(issue_key)}/transitions")
@@ -218,6 +222,18 @@ class JiraClient:
             "POST",
             f"{self._issue_path(issue_key)}/transitions",
             json={"transition": {"id": transition_id}},
+            headers={"Content-Type": "application/json"},
+        )
+
+    def update_issue_description(self, issue_key: str, description: str) -> dict[str, Any]:
+        if (self.config.get("deployment_type") or "cloud") == "cloud":
+            description_value: Any = _adf_description(description)
+        else:
+            description_value = description
+        return self._request(
+            "PUT",
+            self._issue_path(issue_key),
+            json={"fields": {"description": description_value}},
             headers={"Content-Type": "application/json"},
         )
 
@@ -274,3 +290,106 @@ class JiraClient:
             return response.json()
 
         raise RuntimeError("Jira request exhausted retries.")
+
+    def _planner_context_field_ids(self) -> list[str]:
+        field_ids = []
+        for field in self._get_field_catalog():
+            field_id = str(field.get("id") or "")
+            field_name = str(field.get("name") or "").strip().lower()
+            if not field_id or not field_name:
+                continue
+            if field_name in {"epic link", "parent link", "epic name"}:
+                field_ids.append(field_id)
+        return field_ids
+
+    def _get_field_catalog(self) -> list[dict[str, Any]]:
+        if self._field_catalog is not None:
+            return self._field_catalog
+        self._field_catalog = []
+        for path in ("/rest/api/3/field", "/rest/api/2/field"):
+            try:
+                payload = self._request("GET", path)
+            except RuntimeError:
+                continue
+            if isinstance(payload, list):
+                self._field_catalog = payload
+                break
+        return self._field_catalog
+
+    def _attach_planner_context(self, issue: dict[str, Any]) -> None:
+        fields = issue.get("fields") or {}
+        project = fields.get("project") or {}
+        planner_context: dict[str, str] = {}
+
+        project_key = str(project.get("key") or "").strip()
+        project_name = str(project.get("name") or "").strip()
+        if project_key:
+            planner_context["project"] = project_key
+        elif project_name:
+            planner_context["project"] = project_name
+
+        epic = self._resolve_epic_label(issue)
+        if epic:
+            planner_context["epic"] = epic
+
+        if planner_context:
+            issue["__jira_planner_context"] = planner_context
+
+    def _resolve_epic_label(self, issue: dict[str, Any]) -> str:
+        fields = issue.get("fields") or {}
+        parent = fields.get("parent") or {}
+        if self._is_epic_issue(parent):
+            return self._issue_label(parent)
+
+        names = issue.get("names") or {}
+        for field_id in self._planner_context_field_ids():
+            value = fields.get(field_id)
+            if value in (None, "", []):
+                continue
+            field_name = str(names.get(field_id) or "").strip().lower()
+            if field_name == "epic name" and isinstance(value, str):
+                return value.strip()
+            label = self._custom_field_issue_label(value)
+            if label:
+                return label
+            if isinstance(value, str):
+                return value.strip()
+        return ""
+
+    def _custom_field_issue_label(self, value: Any) -> str:
+        if isinstance(value, dict):
+            return self._issue_label(value)
+        return ""
+
+    def _issue_label(self, issue_like: dict[str, Any]) -> str:
+        key = str(issue_like.get("key") or "").strip()
+        fields = issue_like.get("fields") or {}
+        summary = str(fields.get("summary") or issue_like.get("name") or "").strip()
+        if summary:
+            return summary
+        return key
+
+    def _is_epic_issue(self, issue_like: dict[str, Any]) -> bool:
+        if not isinstance(issue_like, dict):
+            return False
+        fields = issue_like.get("fields") or {}
+        issue_type = fields.get("issuetype") or {}
+        issue_type_name = str(issue_type.get("name") or "").strip().lower()
+        if issue_type_name == "epic":
+            return True
+        hierarchy_level = issue_type.get("hierarchyLevel")
+        return hierarchy_level == 1
+
+
+def _adf_description(description: str) -> dict[str, Any]:
+    return {
+        "type": "doc",
+        "version": 1,
+        "content": [
+            {
+                "type": "paragraph",
+                "content": ([{"type": "text", "text": line}] if line else []),
+            }
+            for line in (description.splitlines() or [""])
+        ],
+    }

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -383,4 +383,3 @@ def _issue_fingerprint(raw: dict[str, Any]) -> str:
             "priority": ((fields.get("priority") or {}).get("name")),
         }
     )
-

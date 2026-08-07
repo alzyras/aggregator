@@ -1,0 +1,322 @@
+.activity-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.activity-kpis > div {
+  display: grid;
+  gap: 7px;
+  min-height: 92px;
+  align-content: center;
+  padding: 14px 18px;
+  border-right: 1px solid var(--line);
+}
+
+.activity-kpis > div:last-child {
+  border-right: 0;
+}
+
+.activity-kpis span {
+  color: var(--ink-faint);
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+.activity-kpis strong {
+  color: var(--ink);
+  font-size: 1.45rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-kpis .is-warning {
+  background: #fffbef;
+}
+
+.activity-kpis .is-warning strong {
+  color: var(--warning-app);
+}
+
+.activity-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 28px 36px;
+  margin-top: 28px;
+}
+
+.activity-section {
+  min-width: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-strong);
+}
+
+.activity-section > header {
+  display: flex;
+  min-height: 31px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.activity-section h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.88rem;
+}
+
+.activity-section header a,
+.activity-section header span {
+  color: var(--ink-faint);
+  font-size: 0.68rem;
+}
+
+.activity-section header a:hover {
+  color: var(--brand-dark);
+}
+
+.activity-status-bar {
+  display: flex;
+  width: 100%;
+  height: 13px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #e8ede9;
+}
+
+.activity-status-bar span {
+  width: var(--segment);
+  min-width: 3px;
+}
+
+.status-inbox { background: #7f8b83; }
+.status-backlog { background: #3f77be; }
+.status-doing { background: #d6922a; }
+.status-done { background: #2b8a5d; }
+
+.activity-legend {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.activity-legend div {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 0.69rem;
+}
+
+.activity-legend strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.legend-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+
+.activity-bars {
+  display: grid;
+  gap: 11px;
+}
+
+.activity-bar-row {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 9px;
+  color: var(--ink-faint);
+  font-size: 0.69rem;
+}
+
+.activity-bar-row > div {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #e8ede9;
+}
+
+.activity-bar-row i {
+  display: block;
+  width: var(--bar);
+  min-width: 2px;
+  height: 100%;
+  border-radius: inherit;
+  background: #497f6d;
+}
+
+.activity-bar-row strong {
+  color: var(--ink);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-provider-section,
+.activity-attention-section {
+  grid-column: 1 / -1;
+}
+
+.activity-provider-table {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.activity-provider-head,
+.activity-provider-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) repeat(5, 80px);
+  align-items: center;
+  min-width: 600px;
+}
+
+.activity-provider-head {
+  min-height: 34px;
+  padding: 0 12px;
+  background: var(--surface-soft);
+  color: var(--ink-faint);
+  font-size: 0.64rem;
+  font-weight: 700;
+}
+
+.activity-provider-row {
+  min-height: 44px;
+  padding: 0 12px;
+  border-top: 1px solid #edf1ee;
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-provider-row:hover {
+  background: #fafcfb;
+}
+
+.activity-provider-row > span:not(.provider-name),
+.activity-provider-row > strong,
+.activity-provider-head > span:not(:first-child) {
+  text-align: right;
+}
+
+.provider-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.provider-name i,
+.attention-source {
+  width: 3px;
+  height: 18px;
+  border-radius: 2px;
+  background: #7f8b83;
+}
+
+.provider-name i.source-asana,
+.attention-source.source-asana { background: #f06a6a; }
+.provider-name i.source-todoist,
+.attention-source.source-todoist { background: #d63d32; }
+.provider-name i.source-jira,
+.attention-source.source-jira { background: #1d6fd8; }
+.provider-name i.source-habitica,
+.attention-source.source-habitica { background: #67518c; }
+.provider-name i.source-github,
+.attention-source.source-github { background: #24292f; }
+.provider-name i.source-linear,
+.attention-source.source-linear { background: #5e6ad2; }
+.provider-name i.source-google_fit,
+.attention-source.source-google_fit { background: #d94f70; }
+
+.attention-list {
+  display: grid;
+  border-top: 1px solid var(--line);
+}
+
+.attention-row {
+  display: grid;
+  grid-template-columns: 3px minmax(0, 1fr) 100px 45px;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-faint);
+  font-size: 0.7rem;
+}
+
+a.attention-row:hover {
+  background: #fafcfb;
+}
+
+.attention-title {
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attention-row strong {
+  color: var(--warning-app);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-empty {
+  padding: 22px 10px;
+  color: var(--ink-faint);
+  font-size: 0.74rem;
+  text-align: center;
+}
+
+@media (max-width: 800px) {
+  .activity-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .activity-kpis > div {
+    min-height: 76px;
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .activity-kpis > div:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .activity-kpis > div:last-child {
+    grid-column: 1 / -1;
+    border-bottom: 0;
+  }
+
+  .activity-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-provider-section,
+  .activity-attention-section {
+    grid-column: auto;
+  }
+
+  .activity-legend {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .attention-row {
+    grid-template-columns: 3px minmax(0, 1fr) 38px;
+  }
+
+  .attention-row > span:nth-child(3) {
+    display: none;
+  }
+}

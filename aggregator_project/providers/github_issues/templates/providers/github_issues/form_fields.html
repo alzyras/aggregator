@@ -1,0 +1,30 @@
+<div class="form-section">
+  <label class="field-label" for="{{ spec.form.api_token.id_for_label }}">{{ spec.form.api_token.label }}</label>
+  {{ spec.form.api_token }}
+  {% for error in spec.form.api_token.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+</div>
+
+<div class="form-section">
+  <label class="field-label" for="{{ spec.form.repositories.id_for_label }}">{{ spec.form.repositories.label }}</label>
+  {{ spec.form.repositories }}
+  <div class="field-help">Leave empty for issues assigned to you, or enter owner/repository names separated by commas or lines.</div>
+  {% for error in spec.form.repositories.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+</div>
+
+<div class="form-section">
+  <div class="form-group-title">Sync scope</div>
+  <div class="checkbox-grid">
+    <label class="checkbox-card">{{ spec.form.include_closed }}<span>Closed issues</span></label>
+    <label class="checkbox-card">{{ spec.form.include_pull_requests }}<span>Pull requests</span></label>
+  </div>
+</div>
+
+<div class="form-section">
+  <div class="form-group-title">Task events</div>
+  <div class="checkbox-grid">
+    <label class="checkbox-card">{{ spec.form.emit_task_created }}<span>Created</span></label>
+    <label class="checkbox-card">{{ spec.form.emit_task_updated }}<span>Updated</span></label>
+    <label class="checkbox-card">{{ spec.form.emit_task_completed }}<span>Closed</span></label>
+    <label class="checkbox-card">{{ spec.form.emit_task_state }}<span>State snapshots</span></label>
+  </div>
+</div>

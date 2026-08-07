@@ -4,6 +4,7 @@ from typing import Any
 
 
 KEEP_KEYS = {
+    "__asana_planner_context",
     "gid",
     "resource_type",
     "name",

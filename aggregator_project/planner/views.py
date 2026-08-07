@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 
 from connectors.models import ConnectorAccount
@@ -16,6 +16,7 @@ from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 from events.models import Event
+from ingestion.providers import get_provider_spec
 
 from planner.models import PlannerItem, PlannerItemState, PlannerPlan
 from planner.services.reconcile import (
@@ -24,8 +25,11 @@ from planner.services.reconcile import (
     ensure_item_state,
 )
 from planner.services.writeback import (
+    description_writeback_payload,
     planned_status_for_planner_status,
+    queue_description_writeback,
     queue_status_writeback,
+    retry_failed_description_writeback,
     retry_failed_status_writeback,
     revert_state_to_source_status,
     writeback_payload,
@@ -35,7 +39,7 @@ PLANNER_EVENT_TYPES = ["task_created", "task_updated", "task_state", "task_compl
 PLANNER_STATUS_LABELS = {
     PlannerItemState.PLANNER_STATUS_INBOX: "Inbox",
     PlannerItemState.PLANNER_STATUS_BACKLOG: "To do",
-    PlannerItemState.PLANNER_STATUS_DOING: "Doing",
+    PlannerItemState.PLANNER_STATUS_DOING: "In progress",
     PlannerItemState.PLANNER_STATUS_DONE: "Done",
 }
 
@@ -50,6 +54,8 @@ class PlannerRow:
     planned_order: int
     writeback_status: str
     last_writeback_error: str
+    context_pills: tuple[str, ...] = ()
+    tag_assignments: tuple = ()
 
 
 @login_required
@@ -69,6 +75,7 @@ def planner_list(request: HttpRequest) -> HttpResponse:
     states = (
         PlannerItemState.objects
         .select_related("item", "item__connector_account")
+        .prefetch_related("item__tag_assignments__tag")
         .filter(plan=plan, item__is_active=True)
         .order_by("planned_order", "id")
     )
@@ -97,6 +104,7 @@ def planner_list(request: HttpRequest) -> HttpResponse:
     )
 
     tab_items = _planner_tab_items(request=request, plan=plan, states=list(states))
+    tab_items = _attach_provider_context_pills(request=request, tab_items=tab_items)
 
     context = {
         "plan": plan,
@@ -180,6 +188,31 @@ def update_planner_status(request: HttpRequest, item_id: str) -> JsonResponse:
 
 
 @login_required
+def update_description(request: HttpRequest, item_id: str) -> JsonResponse:
+    response = _assert_post(request)
+    if response:
+        return response
+    payload = _parse_json(request)
+    description = payload.get("description")
+    if not isinstance(description, str):
+        return JsonResponse({"error": "description must be a string."}, status=400)
+
+    item = _get_description_item(request, item_id)
+    item.description = description
+    item.save(update_fields=["description", "updated_at"])
+    job = queue_description_writeback(item=item, created_by=request.user)
+    from intelligence.services.enrichment import queue_task_enrichment
+
+    queue_task_enrichment(item=item, created_by=request.user)
+    return JsonResponse({
+        "status": "ok",
+        "item_id": item.id,
+        "description": item.description or "",
+        **description_writeback_payload(item, job),
+    })
+
+
+@login_required
 def retry_status_writeback(request: HttpRequest, item_id: str) -> JsonResponse:
     response = _assert_post(request)
     if response:
@@ -192,6 +225,21 @@ def retry_status_writeback(request: HttpRequest, item_id: str) -> JsonResponse:
         "state_id": state.id,
         "planner_status": state.planner_status,
         **writeback_payload(state, job),
+    })
+
+
+@login_required
+def retry_description_writeback(request: HttpRequest, item_id: str) -> JsonResponse:
+    response = _assert_post(request)
+    if response:
+        return response
+    item = _get_description_item(request, item_id)
+    job = retry_failed_description_writeback(item=item, created_by=request.user)
+    return JsonResponse({
+        "status": "ok",
+        "item_id": item.id,
+        "description": item.description or "",
+        **description_writeback_payload(item, job),
     })
 
 
@@ -507,12 +555,12 @@ def _planner_tab_items(*, request: HttpRequest, plan: PlannerPlan, states: list[
         .filter(
             Q(user=request.user) | Q(user__isnull=True),
             is_active=True,
-            external_completed=False,
             last_synced_at__isnull=False,
         )
         .exclude(id__in=states_by_item_id.keys())
         .select_related("connector_account")
-        .order_by("-created_at", "-id")
+        .prefetch_related("tag_assignments__tag")
+        .order_by("-source_created_at", "-created_at", "-id")
     )
     for item in unplanned_items:
         source_key = _planner_item_source_key(item)
@@ -523,7 +571,7 @@ def _planner_tab_items(*, request: HttpRequest, plan: PlannerPlan, states: list[
     inbox_status = PlannerItemState.PLANNER_STATUS_INBOX
     rows_by_status[inbox_status] = sorted(
         rows_by_status[inbox_status],
-        key=lambda row: row.item.created_at,
+        key=lambda row: (row.item.source_created_at or row.item.created_at, row.item.created_at, row.item.id),
         reverse=True,
     )
 
@@ -551,6 +599,8 @@ def _row_from_state(state: PlannerItemState) -> PlannerRow:
         planned_order=state.planned_order,
         writeback_status=state.writeback_status,
         last_writeback_error=state.last_writeback_error,
+        context_pills=(),
+        tag_assignments=tuple(state.item.tag_assignments.all()),
     )
 
 
@@ -564,7 +614,75 @@ def _row_from_item(item: PlannerItem) -> PlannerRow:
         planned_order=0,
         writeback_status=PlannerItemState.WRITEBACK_STATUS_NONE,
         last_writeback_error="",
+        context_pills=(),
+        tag_assignments=tuple(item.tag_assignments.all()),
     )
+
+
+def _attach_provider_context_pills(*, request: HttpRequest, tab_items: list[dict]) -> list[dict]:
+    rows = [row for tab in tab_items for row in tab["items"]]
+    latest_raw_by_key = _latest_event_raw_by_item_key(request=request, rows=rows)
+    enriched_rows: dict[int, PlannerRow] = {}
+
+    for row in rows:
+        item = row.item
+        if not item.connector_account_id:
+            enriched_rows[id(row)] = row
+            continue
+        raw = latest_raw_by_key.get((item.connector_account_id, item.source, item.source_entity_id))
+        if not raw:
+            enriched_rows[id(row)] = row
+            continue
+        spec = get_provider_spec(item.source)
+        if not spec or spec.planner_badge_extractor is None:
+            enriched_rows[id(row)] = row
+            continue
+        pills = tuple(
+            pill
+            for pill in spec.planner_badge_extractor(item, raw)
+            if isinstance(pill, str) and pill.strip()
+        )
+        enriched_rows[id(row)] = replace(row, context_pills=pills)
+
+    enriched_tabs = []
+    for tab in tab_items:
+        enriched_tabs.append({
+            **tab,
+            "items": [enriched_rows.get(id(row), row) for row in tab["items"]],
+        })
+    return enriched_tabs
+
+
+def _latest_event_raw_by_item_key(*, request: HttpRequest, rows: list[PlannerRow]) -> dict[tuple[int, str, str], dict]:
+    keys = {
+        (row.item.connector_account_id, row.item.source, row.item.source_entity_id)
+        for row in rows
+        if row.item.connector_account_id and row.item.source and row.item.source_entity_id
+    }
+    if not keys:
+        return {}
+
+    connector_ids = {connector_id for connector_id, _source, _entity_id in keys}
+    sources = {source for _connector_id, source, _entity_id in keys}
+    entity_ids = {entity_id for _connector_id, _source, entity_id in keys}
+    events = (
+        Event.objects
+        .for_workspace(request.workspace)
+        .filter(
+            connector_account_id__in=connector_ids,
+            source__in=sources,
+            source_entity_id__in=entity_ids,
+            event_type__in=PLANNER_EVENT_TYPES,
+        )
+        .order_by("connector_account_id", "source", "source_entity_id", "-created_at")
+        .distinct("connector_account_id", "source", "source_entity_id")
+        .values("connector_account_id", "source", "source_entity_id", "raw")
+    )
+    return {
+        (event["connector_account_id"], event["source"], event["source_entity_id"]): event["raw"]
+        for event in events
+        if (event["connector_account_id"], event["source"], event["source_entity_id"]) in keys
+    }
 
 
 def _planner_item_source_key(item: PlannerItem) -> tuple[str, str] | None:
@@ -801,6 +919,21 @@ def _get_or_create_state(
         item,
         planner_status=planner_status or PlannerItemState.PLANNER_STATUS_INBOX,
     )
+
+
+def _get_description_item(request: HttpRequest, item_id: str) -> PlannerItem:
+    plan = _get_or_create_plan(request)
+    item = get_object_or_404(
+        PlannerItem.objects
+        .select_related("connector_account")
+        .for_workspace(request.workspace)
+        .filter(Q(user=request.user) | Q(user__isnull=True), is_active=True),
+        id=item_id,
+    )
+    existing_state = _get_state_by_source_identity(plan=plan, item=item)
+    if existing_state:
+        return existing_state.item
+    return item
 
 
 def _get_state_by_source_identity(*, plan: PlannerPlan, item: PlannerItem) -> PlannerItemState | None:

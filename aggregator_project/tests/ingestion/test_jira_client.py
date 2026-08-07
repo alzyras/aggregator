@@ -81,8 +81,9 @@ class JiraClientTests(TestCase):
         )
         since = datetime(2026, 3, 1, 9, 30, tzinfo=timezone.utc)
 
-        with patch.object(client.session, "request", side_effect=[page_1, page_2]) as mocked:
-            issues = client.fetch_since(since=since)
+        with patch.object(client, "_get_field_catalog", return_value=[]):
+            with patch.object(client.session, "request", side_effect=[page_1, page_2]) as mocked:
+                issues = client.fetch_since(since=since)
 
         self.assertEqual(len(issues), 2)
         self.assertEqual(mocked.call_count, 2)
@@ -96,9 +97,10 @@ class JiraClientTests(TestCase):
         limited = _Response(429, {"errorMessages": ["rate limit"]}, headers={"Retry-After": "1"})
         success = _Response(200, {"issues": [], "total": 0})
 
-        with patch("providers.jira.client.time.sleep") as mocked_sleep:
-            with patch.object(client.session, "request", side_effect=[limited, success]) as mocked_request:
-                items = client.fetch_since(since=None)
+        with patch.object(client, "_get_field_catalog", return_value=[]):
+            with patch("providers.jira.client.time.sleep") as mocked_sleep:
+                with patch.object(client.session, "request", side_effect=[limited, success]) as mocked_request:
+                    items = client.fetch_since(since=None)
 
         self.assertEqual(items, [])
         self.assertEqual(mocked_request.call_count, 2)
@@ -112,8 +114,9 @@ class JiraClientTests(TestCase):
         )
         success = _Response(200, {"issues": [], "total": 0})
 
-        with patch.object(client.session, "request", side_effect=[removed, success]) as mocked_request:
-            items = client.fetch_since(since=None)
+        with patch.object(client, "_get_field_catalog", return_value=[]):
+            with patch.object(client.session, "request", side_effect=[removed, success]) as mocked_request:
+                items = client.fetch_since(since=None)
 
         self.assertEqual(items, [])
         self.assertEqual(mocked_request.call_count, 2)

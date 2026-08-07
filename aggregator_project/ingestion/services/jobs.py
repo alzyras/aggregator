@@ -229,6 +229,10 @@ def _handle_job_exception(*, job: Job, attempt: JobAttempt, exc: Exception) -> N
             from planner.services.writeback import mark_status_writeback_job_retrying
 
             mark_status_writeback_job_retrying(job, str(exc))
+        if job.job_type == "planner_description_writeback":
+            from planner.services.writeback import mark_description_writeback_job_retrying
+
+            mark_description_writeback_job_retrying(job, str(exc))
         logger.info(
             "job_retry_scheduled",
             extra={
@@ -247,6 +251,14 @@ def _handle_job_exception(*, job: Job, attempt: JobAttempt, exc: Exception) -> N
         from planner.services.writeback import mark_status_writeback_job_failed
 
         mark_status_writeback_job_failed(job, str(exc))
+    if job.job_type == "planner_description_writeback":
+        from planner.services.writeback import mark_description_writeback_job_failed
+
+        mark_description_writeback_job_failed(job, str(exc))
+    if job.job_type == "task_enrichment":
+        from intelligence.services.enrichment import mark_task_enrichment_failed
+
+        mark_task_enrichment_failed(job, str(exc))
     logger.info(
         "job_failed",
         extra={
@@ -265,6 +277,14 @@ def execute_job(job: Job):
         from planner.services.writeback import execute_status_writeback_job
 
         return execute_status_writeback_job(job)
+    if job.job_type == "planner_description_writeback":
+        from planner.services.writeback import execute_description_writeback_job
+
+        return execute_description_writeback_job(job)
+    if job.job_type == "task_enrichment":
+        from intelligence.services.enrichment import execute_task_enrichment_job
+
+        return execute_task_enrichment_job(job)
     raise NonRetryableJobError(f"Unsupported job type: {job.job_type}")
 
 
@@ -322,6 +342,16 @@ def _default_max_attempts(job_type: str) -> int:
     if job_type == "planner_status_writeback":
         retries = max(int(getattr(settings, "PLANNER_STATUS_WRITEBACK_MAX_RETRIES", 3)), 0)
         return retries + 1
+    if job_type == "planner_description_writeback":
+        retries = max(
+            int(getattr(
+                settings,
+                "PLANNER_DESCRIPTION_WRITEBACK_MAX_RETRIES",
+                getattr(settings, "PLANNER_STATUS_WRITEBACK_MAX_RETRIES", 3),
+            )),
+            0,
+        )
+        return retries + 1
     return max(int(getattr(settings, "JOB_MAX_ATTEMPTS", 3)), 1)
 
 
@@ -371,6 +401,14 @@ def recover_stale_jobs() -> int:
                     from planner.services.writeback import mark_status_writeback_job_failed
 
                     mark_status_writeback_job_failed(job, attempt_error)
+                if job.job_type == "planner_description_writeback":
+                    from planner.services.writeback import mark_description_writeback_job_failed
+
+                    mark_description_writeback_job_failed(job, attempt_error)
+                if job.job_type == "task_enrichment":
+                    from intelligence.services.enrichment import mark_task_enrichment_failed
+
+                    mark_task_enrichment_failed(job, attempt_error)
             else:
                 job.status = Job.STATUS_QUEUED
                 job.next_run_at = now
@@ -380,6 +418,10 @@ def recover_stale_jobs() -> int:
                     from planner.services.writeback import mark_status_writeback_job_retrying
 
                     mark_status_writeback_job_retrying(job, attempt_error)
+                if job.job_type == "planner_description_writeback":
+                    from planner.services.writeback import mark_description_writeback_job_retrying
+
+                    mark_description_writeback_job_retrying(job, attempt_error)
 
             job.error_message = attempt_error
             job.save(

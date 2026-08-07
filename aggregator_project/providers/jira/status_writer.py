@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ingestion.providers import (
+    DescriptionWritebackResult,
     STATUS_WRITEBACK_FAILED,
     STATUS_WRITEBACK_SUCCESS,
     StatusWritebackResult,
@@ -53,6 +54,22 @@ class JiraStatusWriter:
             external_completed=category == "done",
             message="Saved to Jira.",
             raw=transition,
+        )
+
+    def update_description(
+        self,
+        *,
+        source_entity_id: str,
+        description: str,
+        item=None,
+        source_entity_type: str | None = None,
+    ) -> DescriptionWritebackResult:
+        data = self.client.update_issue_description(source_entity_id, description)
+        return DescriptionWritebackResult(
+            status=STATUS_WRITEBACK_SUCCESS,
+            description=description,
+            message="Description saved to Jira.",
+            raw=data,
         )
 
 

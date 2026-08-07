@@ -37,6 +37,7 @@ coverage.xml
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+.playwright-mcp/
 .neptune/
 /cache/*
 !/cache/.gitkeep

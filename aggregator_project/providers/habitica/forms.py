@@ -27,7 +27,7 @@ class HabiticaConnectForm(forms.Form):
         label="Created", required=False, initial=False
     )
     task_state_updated = forms.BooleanField(
-        label="Updated", required=False, initial=False
+        label="Updated", required=False, initial=True
     )
 
     def __init__(self, *args, **kwargs):

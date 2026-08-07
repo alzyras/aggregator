@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'css/intelligence.css' %}?v=20260807" />
+{% endblock %}
+
+{% block content %}
+  <section
+    class="workspace-chat"
+    data-chat-root
+    data-ask-url="{% url 'intelligence:chat_ask' %}"
+    data-chat-url="{% url 'intelligence:chat' %}"
+    data-thread-id="{% if thread %}{{ thread.id }}{% endif %}"
+  >
+    <aside class="chat-sidebar" aria-label="Conversations">
+      <div class="chat-sidebar-header">
+        <div><p class="section-kicker">Workspace</p><h1>Chat</h1></div>
+        <a class="icon-button" href="{% url 'intelligence:chat' %}" title="New conversation" aria-label="New conversation"><i data-lucide="square-pen" aria-hidden="true"></i></a>
+      </div>
+      <nav class="chat-thread-list">
+        {% for chat_thread in threads %}
+          <div class="chat-thread-row{% if thread and chat_thread.id == thread.id %} is-active{% endif %}">
+            <a href="{% url 'intelligence:chat' %}?thread={{ chat_thread.id }}">{{ chat_thread.title }}</a>
+            <form method="post" action="{% url 'intelligence:delete_chat_thread' chat_thread.id %}">
+              {% csrf_token %}
+              <button class="icon-button compact" type="submit" title="Delete conversation" aria-label="Delete conversation"><i data-lucide="trash-2" aria-hidden="true"></i></button>
+            </form>
+          </div>
+        {% empty %}
+          <p class="chat-sidebar-empty">No saved conversations.</p>
+        {% endfor %}
+      </nav>
+      <a class="chat-sidebar-insights" href="{% url 'intelligence:dashboard' %}"><i data-lucide="chart-no-axes-combined" aria-hidden="true"></i>Work patterns</a>
+    </aside>
+
+    <div class="chat-main">
+      <header class="chat-main-header">
+        <div>
+          <p class="section-kicker">Private workspace analysis</p>
+          <h2>{% if thread %}{{ thread.title }}{% else %}New conversation{% endif %}</h2>
+        </div>
+        <span class="ai-state {% if ai_config.configured %}ready{% else %}muted{% endif %}"><i data-lucide="{% if ai_config.configured %}sparkles{% else %}circle-dashed{% endif %}" aria-hidden="true"></i>{% if ai_config.configured %}{{ ai_config.model }}{% else %}Rules only{% endif %}</span>
+      </header>
+
+      <div class="chat-messages" data-chat-messages aria-live="polite">
+        {% if chat_messages %}
+          {% for message in chat_messages %}
+            <article class="chat-message {{ message.role }}">
+              <span class="chat-message-role">{% if message.role == 'assistant' %}Workspace analyst{% else %}You{% endif %}</span>
+              <div class="chat-message-content">{{ message.content|linebreaksbr }}</div>
+              {% if message.model %}<span class="chat-message-model">{{ message.model }}</span>{% endif %}
+            </article>
+          {% endfor %}
+        {% else %}
+          <div class="chat-start-state" data-chat-start-state>
+            <i data-lucide="message-square-text" aria-hidden="true"></i>
+            <h3>Ask about your work</h3>
+            <p>Answers use the imported tasks, tags, summaries, and current Planner state in this workspace.</p>
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="chat-composer-wrap">
+        {% if not ai_config.configured %}
+          <div class="chat-config-notice">AI is not configured. <a href="{% url 'intelligence:settings' %}">Open AI settings</a></div>
+        {% endif %}
+        <div class="chat-suggestions" aria-label="Suggested questions">
+          {% for suggestion in suggestions %}
+            <button type="button" data-chat-suggestion>{{ suggestion }}</button>
+          {% endfor %}
+        </div>
+        <form class="chat-composer" data-chat-form>
+          <textarea data-chat-input rows="2" placeholder="Ask about your work" aria-label="Ask about your work" {% if not ai_config.configured %}disabled{% endif %}></textarea>
+          <button class="icon-button send-chat" type="submit" title="Send message" aria-label="Send message" {% if not ai_config.configured %}disabled{% endif %}><i data-lucide="arrow-up" aria-hidden="true"></i></button>
+        </form>
+        <p class="chat-error" data-chat-error role="alert"></p>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'js/intelligence-chat.js' %}?v=20260807" defer></script>
+{% endblock %}

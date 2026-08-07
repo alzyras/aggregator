@@ -4,6 +4,7 @@ from typing import Any
 
 
 KEEP_KEYS = {
+    "__habitica_planner_context",
     "id",
     "_id",
     "text",

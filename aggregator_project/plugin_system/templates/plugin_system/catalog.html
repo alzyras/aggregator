@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="workspace-page plugin-catalog-page">
+    <header class="workspace-header">
+      <div>
+        <p class="workspace-kicker">Workspace tools</p>
+        <h1>Plugins</h1>
+      </div>
+      <span class="workspace-count">{{ plugin_rows|length }} available</span>
+    </header>
+
+    <div class="plugin-grid">
+      {% for row in plugin_rows %}
+        <article class="plugin-tile{% if row.enabled %} is-enabled{% endif %}" data-plugin-card="{{ row.spec.plugin_id }}">
+          <div class="plugin-tile-icon" aria-hidden="true">{{ row.spec.icon }}</div>
+          <div class="plugin-tile-copy">
+            <div class="plugin-tile-heading">
+              <h2>{{ row.spec.label }}</h2>
+              <span class="plugin-state" data-plugin-state>{{ row.enabled|yesno:"Enabled,Off" }}</span>
+            </div>
+            <p>{{ row.spec.description }}</p>
+          </div>
+          <div class="plugin-tile-actions">
+            <a class="btn ghost small{% if not row.enabled %} is-hidden{% endif %}" href="{{ row.launch_url }}" data-plugin-open>Open</a>
+            <label class="switch-control">
+              <input
+                type="checkbox"
+                data-plugin-toggle="{{ row.spec.plugin_id }}"
+                data-toggle-url="{% url 'plugin_system:toggle' row.spec.plugin_id %}"
+                {% if row.enabled %}checked{% endif %}
+              />
+              <span class="switch-track" aria-hidden="true"><span></span></span>
+              <span class="sr-only">Enable {{ row.spec.label }}</span>
+            </label>
+          </div>
+        </article>
+      {% empty %}
+        <div class="empty-state"><strong>No plugins installed</strong></div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <script>
+    (() => {
+      const csrfToken = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1];
+      const navContainer = document.querySelector("[data-plugin-nav]");
+
+      function setNavItem(pluginId, enabled, nav) {
+        const existing = navContainer?.querySelector(`[data-plugin-nav-id='${pluginId}']`);
+        if (!enabled) {
+          existing?.remove();
+          return;
+        }
+        if (existing || !navContainer || !nav) return;
+        const link = document.createElement("a");
+        link.className = "nav-link";
+        link.href = nav.url;
+        link.dataset.pluginNavId = pluginId;
+        link.textContent = nav.label;
+        navContainer.appendChild(link);
+      }
+
+      document.querySelectorAll("[data-plugin-toggle]").forEach((input) => {
+        input.addEventListener("change", async () => {
+          const card = input.closest("[data-plugin-card]");
+          const desired = input.checked;
+          input.disabled = true;
+          card?.classList.add("is-updating");
+          try {
+            const response = await fetch(input.dataset.toggleUrl, {
+              method: "POST",
+              credentials: "same-origin",
+              headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
+              body: JSON.stringify({enabled: desired}),
+            });
+            const payload = await response.json();
+            if (!response.ok) throw new Error(payload.error || "Could not update plugin.");
+            card?.classList.toggle("is-enabled", payload.enabled);
+            const state = card?.querySelector("[data-plugin-state]");
+            if (state) state.textContent = payload.enabled ? "Enabled" : "Off";
+            card?.querySelector("[data-plugin-open]")?.classList.toggle("is-hidden", !payload.enabled);
+            setNavItem(payload.plugin_id, payload.enabled, payload.nav);
+          } catch (error) {
+            input.checked = !desired;
+            window.dispatchEvent(new CustomEvent("app:toast", {detail: {message: error.message, tone: "error"}}));
+          } finally {
+            input.disabled = false;
+            card?.classList.remove("is-updating");
+          }
+        });
+      });
+    })();
+  </script>
+{% endblock %}

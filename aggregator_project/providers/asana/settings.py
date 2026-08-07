@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from connectors.models import ConnectorAccount
+
 DEFAULT_SETTINGS: dict[str, bool] = {
     "sync_tasks": True,
     "sync_subtasks": True,
@@ -84,12 +86,33 @@ def asana_form_initial(account) -> dict[str, Any]:
         workspace_gids = [str(account.external_account_id)]
     if workspace_gids:
         settings["workspace_gids"] = ",".join(workspace_gids)
-    if getattr(account, "get_access_token", None):
-        existing = account.get_access_token()
-        if existing:
-            settings["access_token"] = MASKED_TOKEN
+    if getattr(account, "encrypted_access_token", None):
+        settings["access_token"] = MASKED_TOKEN
     return settings
 
 
 def is_masked_token(value: Any) -> bool:
     return isinstance(value, str) and value.strip() == MASKED_TOKEN
+
+
+def resolve_masked_credentials(account, cleaned_data: dict[str, Any]) -> dict[str, Any]:
+    if is_masked_token(cleaned_data.get("access_token")):
+        return {**cleaned_data, "access_token": account.get_access_token()}
+    return cleaned_data
+
+
+def apply_credentials(account, cleaned_data: dict[str, Any]) -> None:
+    token = cleaned_data.get("access_token") or cleaned_data.get("api_token")
+    if token and not is_masked_token(token):
+        account.set_access_token(token)
+    account.set_refresh_token(None)
+    workspace_gids = extract_asana_workspaces(cleaned_data)
+    account.external_account_id = workspace_gids[0] if workspace_gids else None
+    account.auth_type = ConnectorAccount.AUTH_API_TOKEN
+    account.token_expires_at = None
+    apply_asana_settings(account, cleaned_data)
+
+
+def source_url(raw: dict[str, Any]) -> str | None:
+    value = raw.get("permalink_url")
+    return str(value) if value else None

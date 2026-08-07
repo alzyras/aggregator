@@ -102,14 +102,14 @@ def jira_form_initial(account) -> dict[str, Any]:
     initial = get_jira_config(getattr(account, "config", None))
     auth_method = initial.get("auth_method")
 
-    if auth_method == "cloud_api_token" and account.get_access_token():
+    if auth_method == "cloud_api_token" and account.encrypted_access_token:
         initial["api_token"] = MASKED_SECRET
-    elif auth_method == "personal_access_token" and account.get_access_token():
+    elif auth_method == "personal_access_token" and account.encrypted_access_token:
         initial["pat_token"] = MASKED_SECRET
     elif auth_method == "oauth2":
-        if account.get_access_token():
+        if account.encrypted_access_token:
             initial["client_secret"] = MASKED_SECRET
-        if account.get_refresh_token():
+        if account.encrypted_refresh_token:
             initial["refresh_token"] = MASKED_SECRET
 
     return initial
@@ -118,3 +118,54 @@ def jira_form_initial(account) -> dict[str, Any]:
 def is_masked_secret(value: Any) -> bool:
     return isinstance(value, str) and value.strip() == MASKED_SECRET
 
+
+def resolve_masked_credentials(account, cleaned_data: dict[str, Any]) -> dict[str, Any]:
+    stored_auth_method = get_jira_config(account.config).get("auth_method")
+    auth_method = cleaned_data.get("auth_method") or stored_auth_method
+    resolved = dict(cleaned_data)
+
+    if auth_method == "cloud_api_token" and is_masked_secret(resolved.get("api_token")):
+        resolved["api_token"] = account.get_access_token()
+    if auth_method == "personal_access_token" and is_masked_secret(resolved.get("pat_token")):
+        resolved["pat_token"] = account.get_access_token()
+    if auth_method == "oauth2":
+        if is_masked_secret(resolved.get("client_secret")):
+            resolved["client_secret"] = account.get_access_token()
+        if is_masked_secret(resolved.get("refresh_token")):
+            resolved["refresh_token"] = account.get_refresh_token()
+    return resolved
+
+
+def apply_credentials(account, cleaned_data: dict[str, Any]) -> None:
+    auth_method = cleaned_data.get("auth_method")
+    if auth_method == "cloud_api_token":
+        token = cleaned_data.get("api_token")
+        if token and not is_masked_secret(token):
+            account.set_access_token(token)
+        account.set_refresh_token(None)
+    elif auth_method == "personal_access_token":
+        token = cleaned_data.get("pat_token")
+        if token and not is_masked_secret(token):
+            account.set_access_token(token)
+        account.set_refresh_token(None)
+    elif auth_method == "oauth2":
+        client_secret = cleaned_data.get("client_secret")
+        refresh_token = cleaned_data.get("refresh_token")
+        if client_secret and not is_masked_secret(client_secret):
+            account.set_access_token(client_secret)
+        if refresh_token and not is_masked_secret(refresh_token):
+            account.set_refresh_token(refresh_token)
+
+    apply_jira_settings(account, cleaned_data)
+    account.token_expires_at = None
+
+
+def source_url(raw: dict[str, Any]) -> str | None:
+    issue_key = raw.get("key")
+    api_url = raw.get("self")
+    if not issue_key or not api_url:
+        return None
+    base_url = str(api_url).split("/rest/api/", 1)[0].rstrip("/")
+    if not base_url:
+        return None
+    return f"{base_url}/browse/{issue_key}"

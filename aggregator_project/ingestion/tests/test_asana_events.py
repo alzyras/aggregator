@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from unittest.mock import patch
 
 from cryptography.fernet import Fernet
@@ -59,7 +58,7 @@ class AsanaEventTests(TestCase):
         account.save(update_fields=["scopes"])
         return account
 
-    def test_occurrence_and_state_events(self):
+    def test_lifecycle_events_are_arbitrated_per_timestamp(self):
         workspace = Workspace.objects.create(name="Workspace")
         account = self._build_account(workspace)
 
@@ -82,14 +81,15 @@ class AsanaEventTests(TestCase):
             return []
 
         spec = self._build_spec()
+        task["__asana_settings"] = get_asana_settings(account.scopes)
 
         with patch("ingestion.services.sync.get_provider_spec", return_value=spec):
             with patch.object(AsanaClient, "fetch_since", return_value=[task]):
                 sync_connector_account(workspace, account)
 
         events = Event.objects.for_workspace(workspace)
-        self.assertGreaterEqual(events.count(), 4)
-        self.assertEqual(events.filter(event_type="task_state").count(), 1)
+        self.assertEqual(events.count(), 3)
+        self.assertEqual(events.filter(event_type="task_state").count(), 0)
         self.assertEqual(events.filter(event_type="task_completed").count(), 1)
         self.assertEqual(events.filter(event_type="task_created").count(), 1)
         self.assertEqual(events.filter(event_type="task_updated").count(), 1)
@@ -98,7 +98,7 @@ class AsanaEventTests(TestCase):
         self.assertEqual(completed_event.external_actor_id, "u2")
         self.assertEqual(completed_event.external_actor_display_name, "Completer")
 
-    def test_dedupe_allows_distinct_occurrences(self):
+    def test_dedupe_keeps_one_updated_event_per_timestamp(self):
         workspace = Workspace.objects.create(name="Workspace")
         account = self._build_account(workspace)
 
@@ -114,6 +114,7 @@ class AsanaEventTests(TestCase):
         }
 
         spec = self._build_spec()
+        task["__asana_settings"] = get_asana_settings(account.scopes)
 
         with patch("ingestion.services.sync.get_provider_spec", return_value=spec):
             with patch.object(AsanaClient, "fetch_since", return_value=[task]):
@@ -122,7 +123,7 @@ class AsanaEventTests(TestCase):
 
         events = Event.objects.for_workspace(workspace)
         self.assertEqual(events.filter(event_type="task_updated").count(), 1)
-        self.assertEqual(events.filter(event_type="task_state").count(), 1)
+        self.assertEqual(events.filter(event_type="task_state").count(), 0)
 
     def test_source_entity_type(self):
         workspace = Workspace.objects.create(name="Workspace")

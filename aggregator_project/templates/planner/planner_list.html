@@ -2,511 +2,267 @@
 {% load static %}
 
 {% block content %}
-<section class="panel">
-  <div class="panel-header">
-    <div>
-      <h2>{{ plan.name }}</h2>
-    </div>
-    <div class="panel-actions">
-      <button class="btn ghost" type="button" id="add-from-sources-btn">Refresh from sources</button>
-      <a class="btn primary" href="{% url 'planner_calendar' %}">Calendar</a>
-    </div>
-  </div>
-
-  <div class="planner-banner">
-    <div>
-      <strong>Last synced</strong>
-      {% if last_synced_at %}
-        <span title="{{ last_synced_at|date:'Y-m-d H:i:s T' }}">{{ last_synced_at|timesince }} ago</span>
-      {% else %}
-        <span>Never</span>
-      {% endif %}
-    </div>
-    <div class="planner-stale">
-      {% if stale_warning %}
-        <span class="badge warning">Data stale &gt; 24h</span>
-      {% elif last_synced_at %}
-        <span class="badge">Fresh</span>
-      {% else %}
-        <span class="badge warning">No sync yet</span>
-      {% endif %}
-    </div>
-  </div>
-
-  <div class="planner-error" id="planner-error" role="alert" aria-live="polite"></div>
-
-  <div class="planner-tabs" role="tablist" aria-label="Planner statuses">
-    {% for tab in tab_items %}
-      <button
-        class="planner-tab{% if tab.value == 'inbox' %} is-active{% endif %}"
-        type="button"
-        role="tab"
-        data-tab="{{ tab.value }}"
-        aria-selected="{% if tab.value == 'inbox' %}true{% else %}false{% endif %}"
-      >
-        {{ tab.label }}
-        <span class="badge" data-count-status="{{ tab.value }}">{{ tab.count }}</span>
-      </button>
-    {% endfor %}
-  </div>
-
-  {% for tab in tab_items %}
-    <div
-      class="planner-tab-panel{% if tab.value == 'inbox' %} is-active{% endif %}"
-      data-tab-panel="{{ tab.value }}"
-      role="tabpanel"
-    >
-      <div class="planner-list" data-status="{{ tab.value }}">
-        {% for row in tab.items %}
-          <article
-            class="planner-row"
-            draggable="true"
-            data-state-id="{{ row.state_id }}"
-            data-item-id="{{ row.item.id }}"
-            data-pinned="{{ row.pinned|yesno:'true,false' }}"
-            data-status="{{ row.planner_status }}"
-            data-writeback-status="{{ row.writeback_status }}"
-          >
-            <button class="planner-handle" type="button" aria-label="Drag task">⋮⋮</button>
-            <div class="planner-content">
-              <div class="planner-title">{{ row.item.title }}</div>
-              <div class="planner-meta">
-                <span class="badge source">{{ row.item.get_source_display }}</span>
-                {% if row.item.connector_account %}
-                  <span class="badge">{{ row.item.connector_account.display_name }}</span>
-                {% endif %}
-                <span class="badge">External: {{ row.item.source_status|default:"unknown" }}</span>
-                {% if row.item.external_completed %}
-                  <span class="badge success">Completed externally</span>
-                {% endif %}
-                <span class="badge writeback-badge {{ row.writeback_status }}{% if row.writeback_status == 'synced' %} is-hidden{% endif %}" data-writeback-badge>
-                  {% if row.writeback_status == "pending" %}
-                    Saving
-                  {% elif row.writeback_status == "synced" %}
-                  {% elif row.writeback_status == "failed" %}
-                    Failed sync
-                  {% elif row.writeback_status == "unsupported" %}
-                    Local only
-                  {% else %}
-                    Local
-                  {% endif %}
-                </span>
-                <span class="badge" title="{{ row.item.created_at|date:'Y-m-d H:i:s T' }}">
-                  Created {{ row.item.created_at|date:'Y-m-d' }}
-                </span>
-              </div>
-              <div class="planner-writeback-message{% if row.writeback_status == 'failed' and row.last_writeback_error %} is-visible{% endif %}" data-writeback-message>
-                {{ row.last_writeback_error }}
-              </div>
-            </div>
-            <div class="planner-actions">
-              <select class="status-select" data-planner-status-id="{{ row.item.id }}" aria-label="Move task">
-                {% for status_value,status_label in planner_status_choices %}
-                  <option value="{{ status_value }}" {% if status_value == row.planner_status %}selected{% endif %}>{{ status_label }}</option>
-                {% endfor %}
-              </select>
-              {% if row.state_id %}
-                <button class="btn ghost small planner-retry{% if row.writeback_status != 'failed' %} is-hidden{% endif %}" type="button" data-retry-id="{{ row.item.id }}">Retry</button>
-                <button class="btn ghost small planner-revert{% if row.writeback_status != 'failed' %} is-hidden{% endif %}" type="button" data-revert-id="{{ row.item.id }}">Revert</button>
-                <button class="btn ghost small" type="button" data-pin-id="{{ row.item.id }}">{% if row.pinned %}Unpin{% else %}Pin{% endif %}</button>
-              {% endif %}
-            </div>
-          </article>
-        {% endfor %}
+  <section
+    class="inbox-page"
+    data-planner-root
+    data-batch-size="32"
+    data-reorder-url="{% url 'planner_item_reorder' %}"
+    data-refresh-url="{% url 'planner_add_from_sources' %}"
+  >
+    <header class="inbox-header">
+      <div class="inbox-heading">
+        <p class="workspace-kicker">{{ plan.name }}</p>
+        <h1>Inbox</h1>
       </div>
-      <div class="empty-state planner-empty{% if tab.items %} is-hidden{% endif %}" data-empty-status="{{ tab.value }}">
-        {% if tab.value == 'inbox' %}
-          <strong>No new tasks</strong>
-        {% elif tab.value == 'backlog' %}
-          <strong>Nothing to do</strong>
-        {% elif tab.value == 'doing' %}
-          <strong>No active work</strong>
-        {% else %}
-          <strong>Nothing completed yet</strong>
-        {% endif %}
+      <div class="inbox-header-actions">
+        <div class="sync-presence{% if stale_warning or not last_synced_at %} is-stale{% endif %}">
+          <span class="sync-presence-dot" aria-hidden="true"></span>
+          {% if last_synced_at %}
+            <span title="{{ last_synced_at|date:'Y-m-d H:i:s T' }}">Synced {{ last_synced_at|timesince }} ago</span>
+          {% else %}
+            <span>Not synced</span>
+          {% endif %}
+        </div>
+        <button class="icon-text-button" type="button" data-refresh-sources>
+          <i class="button-icon" data-lucide="refresh-cw" aria-hidden="true">↻</i>
+          <span>Refresh</span>
+        </button>
+        <a class="icon-text-button" href="{% url 'connectors_view' %}">
+          <i class="button-icon" data-lucide="plug" aria-hidden="true">+</i>
+          <span>Connect</span>
+        </a>
+        <a class="icon-button" href="{% url 'planner_calendar' %}" title="Open calendar" aria-label="Open calendar"><i data-lucide="calendar-days" aria-hidden="true">▦</i></a>
       </div>
+    </header>
+
+    <div class="inbox-toolbar" role="search">
+      <label class="task-search">
+        <i class="task-search-icon" data-lucide="search" aria-hidden="true">⌕</i>
+        <span class="sr-only">Search tasks</span>
+        <input type="search" placeholder="Search tasks" autocomplete="off" data-task-search />
+      </label>
+      <label class="toolbar-select">
+        <span class="sr-only">Filter by provider</span>
+        <select data-source-filter>
+          <option value="">All providers</option>
+          {% for source_value,source_label in source_choices %}
+            <option value="{{ source_value }}">{{ source_label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="toolbar-select">
+        <span class="sr-only">Sort tasks</span>
+        <select data-sort-control>
+          <option value="default">Default order</option>
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="title">Title A-Z</option>
+          <option value="source">Provider</option>
+        </select>
+      </label>
+      <button class="icon-button toolbar-clear is-hidden" type="button" data-clear-filters title="Clear filters" aria-label="Clear filters"><i data-lucide="x" aria-hidden="true">×</i></button>
+      <span class="toolbar-result-count" data-result-count></span>
     </div>
-  {% endfor %}
-</section>
 
-<script>
-  const csrfToken = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1];
-  let dragItem = null;
-  let dragList = null;
-  let dragOriginalNext = null;
-  let reorderTimer = null;
-  let reorderInFlight = false;
-  let reorderDirty = false;
-  let pendingPayload = null;
-  const plannerTabs = Array.from(document.querySelectorAll(".planner-tab"));
+    <div class="planner-error" data-planner-error role="alert" aria-live="polite"></div>
 
-  function postJson(url, payload) {
-    return fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRFToken": csrfToken,
-      },
-      credentials: "same-origin",
-      body: JSON.stringify(payload || {}),
-    });
-  }
+    <div class="planner-tabs" role="tablist" aria-label="Task status">
+      {% for tab in tab_items %}
+        <button
+          class="planner-tab{% if tab.value == 'inbox' %} is-active{% endif %}"
+          type="button"
+          role="tab"
+          data-tab="{{ tab.value }}"
+          aria-selected="{% if tab.value == 'inbox' %}true{% else %}false{% endif %}"
+          {% if tab.value != 'inbox' %}tabindex="-1"{% endif %}
+        >
+          <span>{{ tab.label }}</span>
+          <span class="tab-count" data-count-status="{{ tab.value }}">{{ tab.count }}</span>
+        </button>
+      {% endfor %}
+    </div>
 
-  function showPlannerError(message) {
-    const errorBox = document.getElementById("planner-error");
-    if (!errorBox) return;
-    errorBox.textContent = message;
-    errorBox.classList.add("is-visible");
-  }
+    <div class="inbox-content">
+      {% for tab in tab_items %}
+        <div
+          class="planner-tab-panel{% if tab.value == 'inbox' %} is-active{% endif %}"
+          data-tab-panel="{{ tab.value }}"
+          role="tabpanel"
+        >
+          <div class="planner-list" data-status="{{ tab.value }}">
+            {% for row in tab.items %}
+              <article
+                class="planner-row source-{{ row.item.source }}"
+                data-state-id="{{ row.state_id }}"
+                data-item-id="{{ row.item.id }}"
+                data-pinned="{{ row.pinned|yesno:'true,false' }}"
+                data-status="{{ row.planner_status }}"
+                data-source="{{ row.item.source }}"
+                data-connector="{% if row.item.connector_account %}{{ row.item.connector_account.display_name }}{% endif %}"
+                data-title="{{ row.item.title }}"
+                data-search="{{ row.item.title }} {{ row.item.description|default_if_none:'' }} {{ row.item.source }} {% if row.item.connector_account %}{{ row.item.connector_account.display_name }}{% endif %}"
+                data-created-sort="{% if row.item.source_created_at %}{{ row.item.source_created_at|date:'U' }}{% else %}{{ row.item.created_at|date:'U' }}{% endif %}"
+                data-writeback-status="{{ row.writeback_status }}"
+              >
+                <div class="task-rail" aria-hidden="true"></div>
+                <button
+                  class="task-drag-handle"
+                  type="button"
+                  data-drag-handle
+                  title="Drag to reorder"
+                  aria-label="Drag to reorder"
+                  {% if not row.state_id or row.planner_status == 'inbox' %}disabled{% endif %}
+                ><i data-lucide="grip-vertical" aria-hidden="true">⋮</i></button>
 
-  function clearPlannerError() {
-    const errorBox = document.getElementById("planner-error");
-    if (!errorBox) return;
-    errorBox.textContent = "";
-    errorBox.classList.remove("is-visible");
-  }
+                <div class="task-body">
+                  <div class="task-heading-row">
+                    <div class="task-heading-copy">
+                      <h2 class="task-title">
+                        {% if row.item.source_url %}
+                          <a href="{{ row.item.source_url }}" target="_blank" rel="noopener noreferrer">{{ row.item.title }}</a>
+                        {% else %}
+                          {{ row.item.title }}
+                        {% endif %}
+                      </h2>
+                      <div class="task-meta">
+                        <span class="source-chip source-{{ row.item.source }}">{{ row.item.get_source_display }}</span>
+                        {% if row.item.connector_account %}
+                          <span>{{ row.item.connector_account.display_name }}</span>
+                        {% endif %}
+                        {% for pill in row.context_pills %}
+                          <span>{{ pill }}</span>
+                        {% endfor %}
+                        {% if row.item.source_status %}
+                          <span>{{ row.item.source_status }}</span>
+                        {% endif %}
+                        {% if row.item.external_completed %}
+                          <span class="task-completed-flag">Completed at source</span>
+                        {% endif %}
+                        <span title="{% if row.item.source_created_at %}{{ row.item.source_created_at|date:'Y-m-d H:i:s T' }}{% else %}{{ row.item.created_at|date:'Y-m-d H:i:s T' }}{% endif %}">
+                          Created {% if row.item.source_created_at %}{{ row.item.source_created_at|date:'Y-m-d' }}{% else %}{{ row.item.created_at|date:'Y-m-d' }}{% endif %}
+                        </span>
+                        <span class="task-sync-state {{ row.writeback_status }}{% if row.writeback_status == 'synced' %} is-hidden{% endif %}" data-writeback-badge>
+                          {% if row.writeback_status == 'pending' %}Saving{% elif row.writeback_status == 'failed' %}Sync failed{% elif row.writeback_status == 'unsupported' %}Local only{% elif row.writeback_status == 'none' %}Local{% endif %}
+                        </span>
+                      </div>
+                    </div>
+                    <div class="task-heading-actions">
+                      {% if row.item.source_url %}
+                        <a class="icon-button compact" href="{{ row.item.source_url }}" target="_blank" rel="noopener noreferrer" title="Open at source" aria-label="Open at source"><i data-lucide="external-link" aria-hidden="true">↗</i></a>
+                      {% endif %}
+                      <button
+                        class="icon-button compact task-pin"
+                        type="button"
+                        data-pin-id="{{ row.item.id }}"
+                        {% if not row.state_id %}disabled{% endif %}
+                      ><i data-lucide="{% if row.pinned %}pin-off{% else %}pin{% endif %}" aria-hidden="true">{% if row.pinned %}★{% else %}☆{% endif %}</i></button>
+                    </div>
+                  </div>
 
-  function moveRowToList(row, targetList, insertAtTop = true) {
-    if (!row || !targetList) return;
-    if (insertAtTop) {
-      targetList.prepend(row);
-    } else {
-      targetList.appendChild(row);
-    }
-  }
+                  <div class="task-tag-list{% if not row.tag_assignments %} is-hidden{% endif %}" data-task-tags aria-label="Task tags">
+                    {% for assignment in row.tag_assignments %}
+                      <span class="task-tag" style="--task-tag-color: {{ assignment.tag.color }}">{{ assignment.tag.name }}</span>
+                    {% endfor %}
+                  </div>
 
-  function restoreRow(row, originalList, originalNext) {
-    if (!row || !originalList) return;
-    if (originalNext && originalNext.parentElement === originalList) {
-      originalList.insertBefore(row, originalNext);
-    } else {
-      originalList.appendChild(row);
-    }
-  }
+                  <div class="task-writeback-message{% if row.writeback_status == 'failed' and row.last_writeback_error %} is-visible{% endif %}" data-writeback-message>
+                    {{ row.last_writeback_error }}
+                  </div>
 
-  function updateTabCounts() {
-    document.querySelectorAll(".planner-tab").forEach((tab) => {
-      const status = tab.dataset.tab;
-      const count = document.querySelectorAll(`.planner-list[data-status='${status}'] .planner-row`).length;
-      const badge = tab.querySelector(".badge");
-      if (!badge) return;
-      const previous = Number(badge.dataset.count || badge.textContent || 0);
-      badge.textContent = count;
-      badge.dataset.count = String(count);
-      if (count !== previous) {
-        badge.classList.remove("count-bump");
-        void badge.offsetWidth;
-        badge.classList.add("count-bump");
-      }
-    });
-  }
+                  <details class="task-details">
+                    <summary>
+                      <span class="task-details-label">Description</span>
+                      <span class="task-description-preview">
+                        {% if row.item.description %}{{ row.item.description|truncatechars:96 }}{% else %}Add description{% endif %}
+                      </span>
+                    </summary>
+                    <div class="task-description-editor">
+                      <textarea
+                        class="task-description-input"
+                        data-description-input="{{ row.item.id }}"
+                        rows="3"
+                        aria-label="Task description"
+                        placeholder="Add description"
+                      >{{ row.item.description|default_if_none:"" }}</textarea>
+                      <div class="task-description-footer">
+                        <div class="task-description-state">
+                          <span
+                            class="task-sync-state description {{ row.item.description_writeback_status }}{% if row.item.description_writeback_status == 'none' %} is-hidden{% endif %}"
+                            data-description-writeback-badge
+                          >
+                            {% if row.item.description_writeback_status == 'pending' %}Saving{% elif row.item.description_writeback_status == 'synced' %}Saved{% elif row.item.description_writeback_status == 'failed' %}Sync failed{% elif row.item.description_writeback_status == 'unsupported' %}Local only{% endif %}
+                          </span>
+                          <span class="task-writeback-message{% if row.item.description_writeback_status == 'failed' and row.item.last_description_writeback_error %} is-visible{% endif %}" data-description-writeback-message>
+                            {{ row.item.last_description_writeback_error }}
+                          </span>
+                        </div>
+                        <div class="task-description-actions">
+                          <button class="text-button{% if row.item.description_writeback_status != 'failed' %} is-hidden{% endif %}" type="button" data-description-retry-id="{{ row.item.id }}">Retry</button>
+                          <button class="btn primary small" type="button" data-description-save-id="{{ row.item.id }}" disabled>Save</button>
+                        </div>
+                      </div>
+                    </div>
+                  </details>
+                  <details class="task-tags-details">
+                    <summary><span class="task-details-label">Manual tags</span></summary>
+                    <div class="task-tags-editor">
+                      <input
+                        class="task-tags-input"
+                        data-tags-input="{{ row.item.id }}"
+                        type="text"
+                        aria-label="Manual task tags"
+                        placeholder="Add tags separated by commas"
+                        value="{% for assignment in row.tag_assignments %}{% if assignment.source == 'manual' %}{{ assignment.tag.name }}, {% endif %}{% endfor %}"
+                      />
+                      <div class="task-tags-footer">
+                        <span class="task-tags-message" data-tags-message></span>
+                        <button class="btn primary small" type="button" data-tags-save-id="{{ row.item.id }}" disabled>Save</button>
+                      </div>
+                    </div>
+                  </details>
+                </div>
 
-  function updateEmptyStates() {
-    document.querySelectorAll(".planner-empty").forEach((empty) => {
-      const status = empty.dataset.emptyStatus;
-      const count = document.querySelectorAll(`.planner-list[data-status='${status}'] .planner-row`).length;
-      empty.classList.toggle("is-hidden", count > 0);
-    });
-  }
+                <div class="task-status-area">
+                  <div class="status-segmented" role="group" aria-label="Task status">
+                    {% for status_value,status_label in planner_status_choices %}
+                      <button
+                        class="status-option{% if status_value == row.planner_status %} is-active{% endif %}"
+                        type="button"
+                        data-status-choice="{{ status_value }}"
+                        aria-pressed="{% if status_value == row.planner_status %}true{% else %}false{% endif %}"
+                      >{{ status_label }}</button>
+                    {% endfor %}
+                  </div>
+                  <select class="status-select-mobile" data-planner-status-id="{{ row.item.id }}" aria-label="Task status">
+                    {% for status_value,status_label in planner_status_choices %}
+                      <option value="{{ status_value }}" {% if status_value == row.planner_status %}selected{% endif %}>{{ status_label }}</option>
+                    {% endfor %}
+                  </select>
+                  <div class="task-recovery-actions">
+                    <button class="text-button{% if row.writeback_status != 'failed' %} is-hidden{% endif %}" type="button" data-retry-id="{{ row.item.id }}">Retry</button>
+                    <button class="text-button{% if row.writeback_status != 'failed' %} is-hidden{% endif %}" type="button" data-revert-id="{{ row.item.id }}">Revert</button>
+                  </div>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
 
-  function updateWriteback(row, status, message) {
-    if (!row) return;
-    const normalized = status || "none";
-    row.dataset.writebackStatus = normalized;
-    const badge = row.querySelector("[data-writeback-badge]");
-    const messageEl = row.querySelector("[data-writeback-message]");
-    const retry = row.querySelector("[data-retry-id]");
-    const revert = row.querySelector("[data-revert-id]");
-    const labels = {
-      pending: "Saving",
-      synced: "",
-      failed: "Failed sync",
-      unsupported: "Local only",
-      none: "Local",
-    };
-    if (badge) {
-      badge.className = `badge writeback-badge ${normalized}`;
-      badge.textContent = Object.prototype.hasOwnProperty.call(labels, normalized) ? labels[normalized] : labels.none;
-      badge.classList.toggle("is-hidden", normalized === "synced");
-    }
-    if (messageEl) {
-      const visibleMessage = normalized === "failed" ? (message || "") : "";
-      messageEl.textContent = visibleMessage;
-      messageEl.classList.toggle("is-visible", Boolean(visibleMessage));
-    }
-    const failed = normalized === "failed";
-    retry?.classList.toggle("is-hidden", !failed);
-    revert?.classList.toggle("is-hidden", !failed);
-  }
+          <div class="planner-empty{% if tab.items %} is-hidden{% endif %}" data-empty-status="{{ tab.value }}">
+            {% if tab.value == 'inbox' %}
+              <strong>Inbox clear</strong>
+            {% elif tab.value == 'backlog' %}
+              <strong>No tasks to do</strong>
+            {% elif tab.value == 'doing' %}
+              <strong>No work in progress</strong>
+            {% else %}
+              <strong>No completed tasks</strong>
+            {% endif %}
+          </div>
+          <button class="load-more-button is-hidden" type="button" data-load-more></button>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
 
-  function applyStatusPayload(row, payload) {
-    if (!row || !payload) return;
-    if (payload.item_id) {
-      const itemId = String(payload.item_id);
-      row.dataset.itemId = itemId;
-      const statusSelect = row.querySelector("[data-planner-status-id]");
-      const retry = row.querySelector("[data-retry-id]");
-      const revert = row.querySelector("[data-revert-id]");
-      const pin = row.querySelector("[data-pin-id]");
-      if (statusSelect) statusSelect.dataset.plannerStatusId = itemId;
-      if (retry) retry.dataset.retryId = itemId;
-      if (revert) revert.dataset.revertId = itemId;
-      if (pin) pin.dataset.pinId = itemId;
-    }
-    if (payload.state_id) {
-      row.dataset.stateId = String(payload.state_id);
-    }
-    if (payload.planner_status) {
-      row.dataset.status = payload.planner_status;
-      const select = row.querySelector("[data-planner-status-id]");
-      if (select) select.value = payload.planner_status;
-    }
-    if (typeof payload.pinned === "boolean") {
-      row.dataset.pinned = payload.pinned ? "true" : "false";
-    }
-    updateWriteback(row, payload.writeback_status, payload.writeback_message);
-  }
-
-  function buildBlockPayloadForList(listEl, pinned) {
-    if (!listEl) return null;
-    const blockIds = Array.from(listEl.querySelectorAll(".planner-row"))
-      .filter((row) => row.dataset.stateId)
-      .filter((row) => (row.dataset.pinned === "true") === pinned)
-      .map((row) => row.dataset.stateId);
-    if (!blockIds.length) return null;
-    return { block_order: blockIds, planner_status: listEl.dataset.status };
-  }
-
-  function scheduleReorder(payload) {
-    if (!payload) return;
-    pendingPayload = payload;
-    if (reorderTimer) {
-      clearTimeout(reorderTimer);
-    }
-    reorderTimer = setTimeout(() => {
-      reorderTimer = null;
-      void sendReorder();
-    }, 300);
-  }
-
-  async function sendReorder() {
-    if (!pendingPayload) return;
-    if (reorderInFlight) {
-      reorderDirty = true;
-      return;
-    }
-    reorderInFlight = true;
-    reorderDirty = false;
-    clearPlannerError();
-    const payload = pendingPayload;
-    pendingPayload = null;
-    try {
-      const response = await postJson("/planner/reorder", payload);
-      if (!response.ok) {
-        showPlannerError("Reorder failed. Refresh and try again.");
-      }
-    } catch (error) {
-      showPlannerError("Reorder failed due to a network error.");
-    } finally {
-      reorderInFlight = false;
-      if (reorderDirty && pendingPayload) {
-        reorderDirty = false;
-        await sendReorder();
-      }
-    }
-  }
-
-  async function persistStatusMove(row, targetStatus, originalList, originalNext, originalStatus) {
-    const targetList = document.querySelector(`.planner-list[data-status='${targetStatus}']`);
-    const itemId = row?.dataset.itemId;
-    const select = row?.querySelector("[data-planner-status-id]");
-    if (!row || !targetList || !itemId) return;
-
-    const originalWritebackStatus = row.dataset.writebackStatus || "none";
-    const originalWritebackMessage = row.querySelector("[data-writeback-message]")?.textContent || "";
-
-    row.dataset.status = targetStatus;
-    if (select) select.value = targetStatus;
-    moveRowToList(row, targetList);
-    row.classList.add("just-moved");
-    updateWriteback(row, "pending", "Saving to source...");
-    updateTabCounts();
-    updateEmptyStates();
-    clearPlannerError();
-
-    try {
-      const response = await postJson(`/planner/item/${itemId}/planner-status`, { planner_status: targetStatus });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error || "Planner update failed.");
-      }
-      applyStatusPayload(row, payload);
-      const pinned = row.dataset.pinned === "true";
-      scheduleReorder(buildBlockPayloadForList(targetList, pinned));
-      if (originalList && originalList !== targetList) {
-        scheduleReorder(buildBlockPayloadForList(originalList, pinned));
-      }
-    } catch (error) {
-      row.dataset.status = originalStatus;
-      if (select) select.value = originalStatus;
-      restoreRow(row, originalList, originalNext);
-      updateWriteback(row, originalWritebackStatus, originalWritebackMessage);
-      updateTabCounts();
-      updateEmptyStates();
-      showPlannerError(error.message || "Move failed. Please try again.");
-    }
-  }
-
-  function activateTab(tab) {
-    if (!tab) return;
-    document.querySelectorAll(".planner-tab").forEach((button) => {
-      const active = button === tab;
-      button.classList.toggle("is-active", active);
-      button.setAttribute("aria-selected", active ? "true" : "false");
-    });
-    document.querySelectorAll(".planner-tab-panel").forEach((panel) => {
-      panel.classList.toggle("is-active", panel.dataset.tabPanel === tab.dataset.tab);
-    });
-  }
-
-  function setupList(listEl) {
-    listEl.addEventListener("dragstart", (event) => {
-      const target = event.target.closest(".planner-row");
-      if (!target) return;
-      dragItem = target;
-      dragList = listEl;
-      dragOriginalNext = target.nextElementSibling;
-      target.classList.add("dragging");
-      plannerTabs.forEach((tab) => tab.classList.add("is-dragging"));
-      if (event.dataTransfer) {
-        event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData("text/plain", target.dataset.stateId || target.dataset.itemId || "");
-      }
-    });
-
-    listEl.addEventListener("dragover", (event) => {
-      if (!dragItem || dragList !== listEl) return;
-      event.preventDefault();
-      const target = event.target.closest(".planner-row");
-      if (!target || target === dragItem) return;
-      if (target.dataset.pinned !== dragItem.dataset.pinned) return;
-      const rect = target.getBoundingClientRect();
-      const after = event.clientY > rect.top + rect.height / 2;
-      target.parentNode.insertBefore(dragItem, after ? target.nextSibling : target);
-    });
-
-    listEl.addEventListener("drop", (event) => {
-      if (!dragItem || dragList !== listEl) return;
-      event.preventDefault();
-      if (!dragItem.dataset.stateId) return;
-      scheduleReorder(buildBlockPayloadForList(listEl, dragItem.dataset.pinned === "true"));
-    });
-
-    listEl.addEventListener("dragend", () => {
-      dragItem?.classList.remove("dragging");
-      plannerTabs.forEach((tab) => tab.classList.remove("is-dragging", "is-drop-target"));
-      dragItem = null;
-      dragList = null;
-      dragOriginalNext = null;
-    });
-  }
-
-  document.querySelectorAll(".planner-list").forEach((listEl) => setupList(listEl));
-
-  plannerTabs.forEach((tab) => {
-    tab.addEventListener("click", () => activateTab(tab));
-    tab.addEventListener("dragenter", (event) => {
-      event.preventDefault();
-      tab.classList.add("is-drop-target");
-    });
-    tab.addEventListener("dragover", (event) => {
-      event.preventDefault();
-      if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = "move";
-      }
-      tab.classList.add("is-drop-target");
-    });
-    tab.addEventListener("dragleave", () => {
-      tab.classList.remove("is-drop-target");
-    });
-    tab.addEventListener("drop", async (event) => {
-      event.preventDefault();
-      tab.classList.remove("is-drop-target");
-      tab.classList.remove("tab-drop-animate");
-      void tab.offsetWidth;
-      tab.classList.add("tab-drop-animate");
-      if (!dragItem) return;
-      const originalStatus = dragItem.dataset.status;
-      if (originalStatus === tab.dataset.tab) return;
-      await persistStatusMove(dragItem, tab.dataset.tab, dragList, dragOriginalNext, originalStatus);
-    });
-  });
-
-  document.querySelectorAll("[data-planner-status-id]").forEach((select) => {
-    select.addEventListener("change", async (event) => {
-      const row = event.target.closest(".planner-row");
-      const targetStatus = event.target.value;
-      if (!row || row.dataset.status === targetStatus) return;
-      const originalList = row.parentElement;
-      const originalNext = row.nextElementSibling;
-      const originalStatus = row.dataset.status;
-      await persistStatusMove(row, targetStatus, originalList, originalNext, originalStatus);
-    });
-  });
-
-  document.querySelectorAll("[data-retry-id]").forEach((button) => {
-    button.addEventListener("click", async (event) => {
-      event.preventDefault();
-      const row = event.target.closest(".planner-row");
-      const itemId = event.target.dataset.retryId;
-      updateWriteback(row, "pending", "Saving to source...");
-      const response = await postJson(`/planner/item/${itemId}/writeback/retry`, {});
-      const payload = await response.json();
-      if (!response.ok) {
-        updateWriteback(row, "failed", payload.error || "Retry failed.");
-        return;
-      }
-      applyStatusPayload(row, payload);
-    });
-  });
-
-  document.querySelectorAll("[data-revert-id]").forEach((button) => {
-    button.addEventListener("click", async (event) => {
-      event.preventDefault();
-      const row = event.target.closest(".planner-row");
-      const itemId = event.target.dataset.revertId;
-      const response = await postJson(`/planner/item/${itemId}/writeback/revert`, {});
-      const payload = await response.json();
-      if (!response.ok) {
-        showPlannerError(payload.error || "Revert failed.");
-        return;
-      }
-      const targetList = document.querySelector(`.planner-list[data-status='${payload.planner_status}']`);
-      moveRowToList(row, targetList);
-      applyStatusPayload(row, payload);
-      updateTabCounts();
-      updateEmptyStates();
-    });
-  });
-
-  document.querySelectorAll("[data-pin-id]").forEach((button) => {
-    button.addEventListener("click", async (event) => {
-      event.preventDefault();
-      const itemId = event.target.dataset.pinId;
-      await postJson(`/planner/item/${itemId}/pin`, {});
-      window.location.reload();
-    });
-  });
-
-  const addBtn = document.getElementById("add-from-sources-btn");
-  addBtn?.addEventListener("click", async () => {
-    addBtn.disabled = true;
-    addBtn.classList.add("is-loading");
-    await postJson("/planner/add-from-sources", {});
-    window.location.reload();
-  });
-
-  updateTabCounts();
-  updateEmptyStates();
-</script>
+  <script src="{% static 'js/planner-inbox.js' %}?v=20260717b" defer></script>
 {% endblock %}

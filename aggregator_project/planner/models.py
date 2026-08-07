@@ -15,6 +15,20 @@ class WorkspaceQuerySet(models.QuerySet):
 
 
 class PlannerItem(TimestampedModel):
+    DESCRIPTION_WRITEBACK_STATUS_NONE = "none"
+    DESCRIPTION_WRITEBACK_STATUS_PENDING = "pending"
+    DESCRIPTION_WRITEBACK_STATUS_SYNCED = "synced"
+    DESCRIPTION_WRITEBACK_STATUS_FAILED = "failed"
+    DESCRIPTION_WRITEBACK_STATUS_UNSUPPORTED = "unsupported"
+
+    DESCRIPTION_WRITEBACK_STATUS_CHOICES = [
+        (DESCRIPTION_WRITEBACK_STATUS_NONE, "none"),
+        (DESCRIPTION_WRITEBACK_STATUS_PENDING, "pending"),
+        (DESCRIPTION_WRITEBACK_STATUS_SYNCED, "synced"),
+        (DESCRIPTION_WRITEBACK_STATUS_FAILED, "failed"),
+        (DESCRIPTION_WRITEBACK_STATUS_UNSUPPORTED, "unsupported"),
+    ]
+
     workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -35,10 +49,21 @@ class PlannerItem(TimestampedModel):
     description = models.TextField(null=True, blank=True)
     source_url = models.URLField(null=True, blank=True)
     source_status = models.CharField(max_length=100, null=True, blank=True)
+    source_created_at = models.DateTimeField(null=True, blank=True)
     source_updated_at = models.DateTimeField(null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     external_completed = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    description_external_requested = models.TextField(blank=True)
+    description_writeback_status = models.CharField(
+        max_length=20,
+        choices=DESCRIPTION_WRITEBACK_STATUS_CHOICES,
+        default=DESCRIPTION_WRITEBACK_STATUS_NONE,
+    )
+    last_description_writeback_job_id = models.UUIDField(null=True, blank=True)
+    last_description_writeback_error = models.TextField(blank=True)
+    last_description_writeback_attempted_at = models.DateTimeField(null=True, blank=True)
+    last_description_writeback_succeeded_at = models.DateTimeField(null=True, blank=True)
 
     objects = WorkspaceQuerySet.as_manager()
 
@@ -46,7 +71,9 @@ class PlannerItem(TimestampedModel):
         indexes = [
             models.Index(fields=["workspace", "source", "source_entity_id"]),
             models.Index(fields=["workspace", "connector_account", "source_entity_id"]),
+            models.Index(fields=["workspace", "source_created_at"]),
             models.Index(fields=["workspace", "last_synced_at"]),
+            models.Index(fields=["workspace", "description_writeback_status"]),
         ]
         constraints = [
             models.UniqueConstraint(

@@ -42,6 +42,9 @@ def plugins_view(request):
 def connect_provider(request, source: str):
     if request.method != "POST":
         return redirect("plugins_view")
+    if not _connector_enabled(source):
+        messages.error(request, "This connector is disabled in server configuration.")
+        return redirect("plugins_view")
 
     spec = _get_provider_spec(source)
     if not spec:
@@ -146,6 +149,9 @@ def update_connector_account(request, account_id: int):
     ).first()
     if not account:
         messages.info(request, "Connector account not found.")
+        return redirect("plugins_view")
+    if not _connector_enabled(account.source):
+        messages.error(request, "This connector is disabled in server configuration.")
         return redirect("plugins_view")
 
     spec = _get_provider_spec(account.source)
@@ -283,6 +289,9 @@ def sync_connector_account_view(request, account_id: int):
     if not account:
         messages.info(request, "No connector to sync.")
         return redirect("plugins_view")
+    if not _connector_enabled(account.source):
+        messages.error(request, "This connector is disabled in server configuration.")
+        return redirect("plugins_view")
 
     full_sync = request.POST.get("full_sync") in {"1", "true", "on"}
     jobs = queue_sync_jobs(
@@ -298,9 +307,14 @@ def sync_connector_account_view(request, account_id: int):
     return redirect(f"{reverse('plugins_view')}?highlight={account.id}")
 
 
-def _enabled_plugins() -> set[str]:
-    raw = os.getenv("ENABLED_PLUGINS", "")
+def _enabled_connectors() -> set[str]:
+    raw = os.getenv("ENABLED_CONNECTORS", "")
     return {value.strip().lower() for value in raw.split(",") if value.strip()}
+
+
+def _connector_enabled(source: str) -> bool:
+    enabled = _enabled_connectors()
+    return not enabled or source.lower() in enabled
 
 
 def _get_provider_spec(source: str):
@@ -327,7 +341,7 @@ def _render_plugins_view(
     edit_account: ConnectorAccount | None = None,
 ):
     overrides = overrides or {}
-    enabled_set = _enabled_plugins()
+    enabled_set = _enabled_connectors()
 
     provider_specs = []
     spec_map = {}
@@ -335,24 +349,12 @@ def _render_plugins_view(
         enabled = True if not enabled_set else spec.source in enabled_set
         form = overrides.get(spec.source)
         if not form and edit_account and spec.source == edit_account.source:
-            if spec.source == "habitica":
-                from providers.habitica.settings import habitica_form_initial
-
-                form = spec.form_class(initial=habitica_form_initial(edit_account))
-            elif spec.source == "asana":
-                from providers.asana.settings import asana_form_initial
-
-                form = spec.form_class(initial=asana_form_initial(edit_account))
-            elif spec.source == "todoist":
-                from providers.todoist.settings import todoist_form_initial
-
-                form = spec.form_class(initial=todoist_form_initial(edit_account))
-            elif spec.source == "jira":
-                from providers.jira.settings import jira_form_initial
-
-                form = spec.form_class(initial=jira_form_initial(edit_account))
-            else:
-                form = spec.form_class()
+            initial = (
+                spec.form_initial_factory(edit_account)
+                if spec.form_initial_factory is not None
+                else {}
+            )
+            form = spec.form_class(initial=initial)
         if not form:
             form = spec.form_class()
         provider_specs.append(
@@ -363,6 +365,7 @@ def _render_plugins_view(
                 "icon": spec.icon,
                 "enabled": enabled,
                 "form": form,
+                "form_template": spec.form_template,
             }
         )
         spec_map[spec.source] = spec
@@ -404,41 +407,11 @@ def _render_plugins_view(
                 status_key = ConnectorAccount.STATUS_CONNECTED
         status_label = STATUS_LABELS.get(status_key, status_key.title())
         last_sync_status = SYNC_RESULT_LABELS.get(account.last_sync_status, "—")
-        edit_settings = {}
-        edit_workspaces = ""
-        edit_user_id = ""
-        edit_token = ""
-        edit_credentials = {}
-        if account.source == "asana":
-            from providers.asana.settings import (
-                MASKED_TOKEN as ASANA_MASK,
-                get_asana_settings,
-                get_asana_workspace_gids,
-            )
-
-            edit_settings = get_asana_settings(account.scopes)
-            edit_workspaces = ",".join(get_asana_workspace_gids(account.scopes))
-            edit_token = ASANA_MASK
-        elif account.source == "habitica":
-            from providers.habitica.settings import (
-                MASKED_TOKEN as HABITICA_MASK,
-                get_habitica_settings,
-            )
-
-            edit_settings = get_habitica_settings(account.scopes)
-            edit_user_id = account.external_account_id or ""
-            edit_token = HABITICA_MASK
-        elif account.source == "jira":
-            from providers.jira.settings import jira_form_initial
-
-            initial = jira_form_initial(account)
-            secret_fields = {"api_token", "pat_token", "client_secret", "refresh_token"}
-            edit_settings = {k: v for k, v in initial.items() if k not in secret_fields}
-            edit_credentials = {
-                field: initial[field]
-                for field in secret_fields
-                if initial.get(field)
-            }
+        edit_initial = (
+            spec.form_initial_factory(account)
+            if spec and spec.form_initial_factory is not None
+            else {}
+        )
 
         connector_rows.append(
             {
@@ -448,11 +421,8 @@ def _render_plugins_view(
                 "status_label": status_label,
                 "last_sync_status": last_sync_status,
                 "event_count": event_counts.get(account.id, 0),
-                "edit_settings_json": json.dumps(edit_settings),
-                "edit_workspaces": edit_workspaces,
-                "edit_user_id": edit_user_id,
-                "edit_token": edit_token,
-                "edit_credentials_json": json.dumps(edit_credentials),
+                "enabled": _connector_enabled(account.source),
+                "edit_initial_json": json.dumps(edit_initial),
             }
         )
 
@@ -467,118 +437,16 @@ def _render_plugins_view(
 
 
 def _apply_credentials(account: ConnectorAccount, provider: str, credentials: dict) -> None:
-    if provider in {"asana", "todoist"}:
-        if provider == "asana":
-            from providers.asana.settings import apply_asana_settings, is_masked_token
-
-            token = credentials.get("access_token") or credentials.get("api_token")
-            if token and not is_masked_token(token):
-                account.set_access_token(token)
-            account.set_refresh_token(None)
-            workspace_gids = credentials.get("workspace_gids") or []
-            account.external_account_id = workspace_gids[0] if workspace_gids else None
-            apply_asana_settings(account, credentials)
-            account.token_expires_at = None
-            return
-
-        if provider == "todoist":
-            from providers.todoist.settings import apply_todoist_settings, is_masked_token
-
-            token = credentials.get("api_token") or credentials.get("access_token")
-            if token and not is_masked_token(token):
-                account.set_access_token(token)
-            account.set_refresh_token(None)
-            account.external_account_id = None
-            apply_todoist_settings(account, credentials)
-            account.token_expires_at = None
-            return
-    if provider == "jira":
-        from providers.jira.settings import apply_jira_settings
-
-        auth_method = credentials.get("auth_method")
-        if auth_method == "cloud_api_token":
-            token = credentials.get("api_token")
-            if token:
-                account.set_access_token(token)
-            account.set_refresh_token(None)
-        elif auth_method == "personal_access_token":
-            token = credentials.get("pat_token")
-            if token:
-                account.set_access_token(token)
-            account.set_refresh_token(None)
-        elif auth_method == "oauth2":
-            client_secret = credentials.get("client_secret")
-            refresh_token = credentials.get("refresh_token")
-            if client_secret:
-                account.set_access_token(client_secret)
-            account.set_refresh_token(refresh_token or None)
-
-        apply_jira_settings(account, credentials)
-        account.token_expires_at = None
-        return
-    if provider == "habitica":
-        from providers.habitica.settings import apply_habitica_settings, is_masked_token
-
-        token = credentials.get("api_token")
-        if token and not is_masked_token(token):
-            account.set_access_token(token)
-        account.set_refresh_token(None)
-        account.external_account_id = credentials.get("user_id")
-        apply_habitica_settings(account, credentials)
-        account.token_expires_at = None
-        return
-    if provider == "google_fit":
-        access_token = credentials.get("access_token")
-        refresh_token = credentials.get("refresh_token")
-        client_id = credentials.get("client_id")
-        client_secret = credentials.get("client_secret")
-        if access_token:
-            account.set_access_token(access_token)
-        if refresh_token:
-            account.set_refresh_token(refresh_token)
-        account.external_account_id = None
-        account.scopes = {
-            "client_id": client_id,
-            "client_secret": client_secret,
-        }
-        account.token_expires_at = None
-        return
+    spec = _get_provider_spec(provider)
+    if not spec or spec.credentials_applier is None:
+        raise ValueError(f"Provider {provider!r} cannot persist credentials.")
+    spec.credentials_applier(account, credentials)
 
 
 def _resolve_masked_credentials(
     account: ConnectorAccount, provider: str, credentials: dict
 ) -> dict:
-    if provider == "habitica":
-        from providers.habitica.settings import is_masked_token
-
-        token = credentials.get("api_token")
-        if is_masked_token(token):
-            credentials = {**credentials, "api_token": account.get_access_token()}
-    if provider == "asana":
-        from providers.asana.settings import is_masked_token
-
-        token = credentials.get("access_token")
-        if is_masked_token(token):
-            credentials = {**credentials, "access_token": account.get_access_token()}
-    if provider == "todoist":
-        from providers.todoist.settings import is_masked_token
-
-        token = credentials.get("api_token")
-        if is_masked_token(token):
-            credentials = {**credentials, "api_token": account.get_access_token()}
-    if provider == "jira":
-        from providers.jira.settings import get_jira_config, is_masked_secret
-
-        stored_auth_method = get_jira_config(account.config).get("auth_method")
-        auth_method = credentials.get("auth_method") or stored_auth_method
-
-        if auth_method == "cloud_api_token" and is_masked_secret(credentials.get("api_token")):
-            credentials = {**credentials, "api_token": account.get_access_token()}
-        if auth_method == "personal_access_token" and is_masked_secret(credentials.get("pat_token")):
-            credentials = {**credentials, "pat_token": account.get_access_token()}
-        if auth_method == "oauth2":
-            if is_masked_secret(credentials.get("client_secret")):
-                credentials = {**credentials, "client_secret": account.get_access_token()}
-            if is_masked_secret(credentials.get("refresh_token")):
-                credentials = {**credentials, "refresh_token": account.get_refresh_token()}
-    return credentials
+    spec = _get_provider_spec(provider)
+    if not spec or spec.masked_credentials_resolver is None:
+        return credentials
+    return spec.masked_credentials_resolver(account, credentials)

@@ -5,9 +5,12 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from plugin_system.discovery import discover_plugin_apps
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = BASE_DIR.parent
+BUILT_IN_PLUGIN_APPS = discover_plugin_apps(BASE_DIR / "plugins")
 
 load_dotenv(REPO_ROOT / ".env")
 
@@ -56,11 +59,18 @@ INSTALLED_APPS = [
     "ingestion",
     "events",
     "planner",
+    "intelligence.apps.IntelligenceConfig",
+    "plugin_system.apps.PluginSystemConfig",
     "providers.asana.apps.AsanaProviderConfig",
     "providers.todoist.apps.TodoistProviderConfig",
     "providers.google_fit.apps.GoogleFitProviderConfig",
     "providers.habitica.apps.HabiticaProviderConfig",
     "providers.jira.apps.JiraProviderConfig",
+    "providers.github_issues.apps.GitHubIssuesProviderConfig",
+    "providers.linear.apps.LinearProviderConfig",
+    "providers.clickup.apps.ClickUpProviderConfig",
+    "providers.trello.apps.TrelloProviderConfig",
+    *BUILT_IN_PLUGIN_APPS,
 ]
 
 MIDDLEWARE = [
@@ -89,6 +99,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "plugin_system.context_processors.plugin_navigation",
             ],
         },
     }
@@ -165,7 +176,7 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 LOGIN_URL = "account_login"
-LOGIN_REDIRECT_URL = "plugins_view"
+LOGIN_REDIRECT_URL = "planner_list"
 LOGOUT_REDIRECT_URL = "account_login"
 
 ACCOUNT_AUTHENTICATION_METHOD = "username_email"

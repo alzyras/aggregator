@@ -113,11 +113,11 @@ class HabiticaOccurrenceTests(TestCase):
                     sync_connector_account(workspace, account)
 
         events = Event.objects.for_workspace(workspace)
-        self.assertEqual(events.count(), 6)
+        self.assertEqual(events.count(), 7)
         self.assertEqual(events.filter(event_type="task_state").count(), 3)
         self.assertEqual(events.filter(source_entity_type="habit").count(), 3)
         self.assertEqual(events.filter(source_entity_type="daily").count(), 2)
-        self.assertEqual(events.filter(source_entity_type="todo").count(), 1)
+        self.assertEqual(events.filter(source_entity_type="todo").count(), 2)
 
         habit_events = events.filter(event_type="metric_recorded")
         self.assertEqual(habit_events.count(), 2)
@@ -127,7 +127,10 @@ class HabiticaOccurrenceTests(TestCase):
         }
         self.assertEqual({e.start_time for e in habit_events}, expected_habit_times)
 
-        daily_event = events.get(event_type="task_completed")
+        daily_event = events.get(
+            event_type="task_completed",
+            source_entity_type="daily",
+        )
         self.assertEqual(
             daily_event.start_time,
             datetime.fromtimestamp(1700007200000 / 1000, tz=timezone.utc),

@@ -6,6 +6,7 @@ from django.test import TestCase
 
 from ingestion.normalizers.base import build_dedupe_hash
 from ingestion.normalizers.utils import parse_timestamp
+from providers.todoist.normalizer import normalize_todoist
 
 
 class NormalizerUtilsTests(TestCase):
@@ -30,6 +31,14 @@ class NormalizerUtilsTests(TestCase):
             parsed, datetime(2025, 1, 1, 12, 0, tzinfo=timezone.utc)
         )
 
+    def test_parse_timestamp_date_string_is_utc_aware(self):
+        parsed = parse_timestamp("2025-01-01")
+
+        self.assertEqual(
+            parsed,
+            datetime(2025, 1, 1, 0, 0, tzinfo=timezone.utc),
+        )
+
     def test_parse_timestamp_invalid(self):
         self.assertIsNone(parse_timestamp("not-a-date"))
 
@@ -49,3 +58,51 @@ class NormalizerUtilsTests(TestCase):
 
         self.assertEqual(hash_a, hash_b)
         self.assertNotEqual(hash_a, hash_c)
+
+    def test_todoist_normalizer_honors_embedded_provider_settings(self):
+        events = normalize_todoist(
+            {
+                "id": "todoist-1",
+                "content": "Completed task",
+                "completed": True,
+                "completed_at": "2025-03-01T10:00:00Z",
+                "__todoist_settings": {
+                    "include_completed": False,
+                },
+            }
+        )
+
+        self.assertEqual(events, [])
+
+    def test_todoist_checked_task_emits_completion(self):
+        timestamp = "2026-03-01T09:00:00Z"
+
+        events = normalize_todoist(
+            {
+                "id": "todoist-checked",
+                "content": "Completed task",
+                "added_at": timestamp,
+                "completed_at": timestamp,
+                "checked": True,
+            }
+        )
+
+        self.assertEqual(
+            {event["event_type"] for event in events},
+            {"task_completed"},
+        )
+
+    def test_todoist_deleted_event_wins_over_same_timestamp_update(self):
+        events = normalize_todoist(
+            {
+                "id": "todoist-deleted",
+                "content": "Deleted task",
+                "is_deleted": True,
+                "updated_at": "2026-03-01T09:00:00Z",
+            }
+        )
+
+        self.assertEqual(
+            {event["event_type"] for event in events},
+            {"task_deleted"},
+        )

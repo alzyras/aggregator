@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'plugins/data_chat.css' %}?v=20260717" />
+{% endblock %}
+
+{% block content %}
+  <section
+    class="workspace-page data-chat-page"
+    data-chat-root
+    data-chat-url="{% url 'data_chat:ask' %}"
+    data-chat-configured="{{ chat_configured|yesno:'true,false' }}"
+  >
+    <header class="workspace-header data-chat-header">
+      <div>
+        <p class="workspace-kicker">Plugin</p>
+        <h1>Data Chat</h1>
+      </div>
+      <span class="data-chat-model">{{ chat_model }}</span>
+    </header>
+
+    <div class="data-chat-shell">
+      <aside class="data-chat-context">
+        <div class="data-chat-context-title">Current snapshot</div>
+        <dl class="data-chat-counts">
+          <div><dt>Tasks</dt><dd>{{ snapshot.task_count_in_snapshot }}</dd></div>
+          {% for status,count in snapshot.status_counts.items %}
+            <div><dt>{% if status == 'backlog' %}To do{% elif status == 'doing' %}In progress{% else %}{{ status|title }}{% endif %}</dt><dd>{{ count }}</dd></div>
+          {% endfor %}
+        </dl>
+        <div class="data-chat-provider-list">
+          {% for source,count in snapshot.provider_counts.items %}
+            <span><strong>{{ source|title }}</strong>{{ count }}</span>
+          {% endfor %}
+        </div>
+      </aside>
+
+      <div class="data-chat-main">
+        {% if not chat_configured %}
+          <div class="data-chat-config-alert" role="status">
+            <strong>Server setup required</strong>
+            <span>Add <code>OPENAI_API_KEY</code> to enable questions.</span>
+          </div>
+        {% endif %}
+
+        <div class="data-chat-thread" data-chat-thread aria-live="polite">
+          <div class="data-chat-empty" data-chat-empty>
+            <div class="data-chat-mark" aria-hidden="true">AI</div>
+            <h2>Ask about your work</h2>
+            <div class="data-chat-suggestions">
+              {% for suggestion in suggestions %}
+                <button type="button" data-chat-suggestion="{{ suggestion }}" {% if not chat_configured %}disabled{% endif %}>{{ suggestion }}</button>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+
+        <form class="data-chat-composer" data-chat-form>
+          <label class="sr-only" for="data-chat-input">Question</label>
+          <textarea id="data-chat-input" rows="1" maxlength="4000" placeholder="Ask about tasks, priorities, or workload" data-chat-input {% if not chat_configured %}disabled{% endif %}></textarea>
+          <button class="btn primary" type="submit" data-chat-send {% if not chat_configured %}disabled{% endif %}>Send</button>
+        </form>
+        <div class="data-chat-privacy">Workspace snapshot is sent only when you ask. API responses are requested without storage.</div>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'plugins/data_chat.js' %}?v=20260717"></script>
+{% endblock %}

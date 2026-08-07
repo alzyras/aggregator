@@ -16,17 +16,21 @@ def normalize_todoist(raw: dict[str, Any]) -> list[dict[str, Any]]:
     if not settings.get("sync_tasks"):
         return []
 
-    if not settings.get("include_completed") and raw.get("completed"):
+    completed = is_completed_task(raw)
+    deleted = bool(raw.get("is_deleted"))
+    if not settings.get("include_completed") and completed:
         return []
-    if not settings.get("include_archived") and raw.get("is_archived"):
+    if not settings.get("include_archived") and raw.get("is_archived") and not deleted:
         return []
 
-    external_status = raw.get("status") or ("completed" if raw.get("completed") else "open")
-    due = raw.get("due") or {}
-    due_date = due.get("date") or due.get("datetime") or raw.get("due_date")
+    external_status = raw.get("status") or (
+        "deleted" if deleted else "completed" if completed else "open"
+    )
     created_at = parse_timestamp(raw.get("added_at") or raw.get("created_at"))
     completed_at = parse_timestamp(raw.get("completed_at"))
-    updated_at = parse_timestamp(raw.get("updated_at") or raw.get("sync_updated_at") or raw.get("date_updated"))
+    updated_at = parse_timestamp(
+        raw.get("updated_at") or raw.get("sync_updated_at") or raw.get("date_updated")
+    )
 
     events: list[dict[str, Any]] = []
 
@@ -45,7 +49,7 @@ def normalize_todoist(raw: dict[str, Any]) -> list[dict[str, Any]]:
         )
 
     completion_emitted = False
-    if completed_at and settings.get("emit_task_completed") and raw.get("completed"):
+    if completed_at and settings.get("emit_task_completed") and completed:
         events.append(
             _base_event(
                 raw=raw,
@@ -57,7 +61,7 @@ def normalize_todoist(raw: dict[str, Any]) -> list[dict[str, Any]]:
         )
         completion_emitted = True
 
-    if settings.get("emit_task_deleted") and raw.get("is_deleted"):
+    if settings.get("emit_task_deleted") and deleted:
         ts = updated_at or completed_at or created_at
         if ts:
             events.append(
@@ -128,7 +132,14 @@ def normalize_todoist(raw: dict[str, Any]) -> list[dict[str, Any]]:
     return arbitrate_events(deduped)
 
 
-def _base_event(*, raw: dict[str, Any], event_type: str, occurred_at: Any, external_status: str | None, source_event_version: str | None) -> dict[str, Any]:
+def _base_event(
+    *,
+    raw: dict[str, Any],
+    event_type: str,
+    occurred_at: Any,
+    external_status: str | None,
+    source_event_version: str | None,
+) -> dict[str, Any]:
     return {
         "source": "todoist",
         "source_entity_type": raw.get("resource_type") or raw.get("type") or "task",
@@ -152,7 +163,7 @@ def _change_fingerprint(task: dict[str, Any]) -> str:
         {
             "content": task.get("content") or task.get("title"),
             "description": task.get("description"),
-            "completed": task.get("completed"),
+            "completed": is_completed_task(task),
             "due": due.get("date") or due.get("datetime") or task.get("due_date"),
             "priority": task.get("priority"),
             "labels": sorted(task.get("labels") or []),
@@ -162,4 +173,13 @@ def _change_fingerprint(task: dict[str, Any]) -> str:
             "project_id": task.get("project_id"),
             "section_id": task.get("section_id"),
         }
+    )
+
+
+def is_completed_task(task: dict[str, Any]) -> bool:
+    return bool(
+        task.get("completed")
+        or task.get("is_completed")
+        or task.get("checked")
+        or task.get("completed_at")
     )

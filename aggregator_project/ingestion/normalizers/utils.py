@@ -13,7 +13,7 @@ def parse_timestamp(value: Any) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
     if isinstance(value, (int, float)):
         # Assume milliseconds if larger than year 3000 in seconds
         seconds = value / 1000 if value > 32503680000 else value
@@ -21,7 +21,7 @@ def parse_timestamp(value: Any) -> datetime | None:
     if isinstance(value, str):
         parsed = parse_datetime(value)
         if parsed:
-            return parsed
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
     return None
 
 
@@ -32,7 +32,9 @@ def fingerprint_from_fields(fields: dict[str, Any]) -> str:
 
 
 PRIORITY_ORDER = {
+    "task_deleted": 0,
     "task_completed": 1,
+    "task_reopened": 1,
     "task_updated": 2,
     "task_created": 3,
     "task_state": 4,

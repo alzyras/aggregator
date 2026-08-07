@@ -1,0 +1,1 @@
+"""Workspace data chat plugin."""

@@ -9,7 +9,6 @@ from ingestion.normalizers.utils import (
     build_actor_fields,
     canonical_event_type,
     parse_timestamp,
-    fingerprint_from_fields,
     arbitrate_events,
 )
 from providers.habitica.settings import get_habitica_settings
@@ -20,8 +19,6 @@ def normalize_habitica(raw: dict[str, Any]) -> list[dict[str, Any]]:
     task_type = task.get("type") or "todo"
     actor = task.get("actor")
     settings = get_habitica_settings(task.get("_habitica_settings"))
-    prev_hash = task.get("__prev_change_hash")
-
     if task_type == "habit" and not settings.get("sync_habits"):
         return []
     if task_type == "daily" and not settings.get("sync_dailies"):

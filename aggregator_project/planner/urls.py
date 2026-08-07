@@ -9,7 +9,13 @@ urlpatterns = [
     path("calendar/", views.planner_calendar, name="planner_calendar"),
     path("item/<int:item_id>/status", views.update_planned_status, name="planner_item_status"),
     path("item/<int:item_id>/planner-status", views.update_planner_status, name="planner_item_planner_status"),
+    path("item/<int:item_id>/description", views.update_description, name="planner_item_description"),
     path("item/<int:item_id>/writeback/retry", views.retry_status_writeback, name="planner_item_writeback_retry"),
+    path(
+        "item/<int:item_id>/description/writeback/retry",
+        views.retry_description_writeback,
+        name="planner_item_description_writeback_retry",
+    ),
     path("item/<int:item_id>/writeback/revert", views.revert_status_writeback, name="planner_item_writeback_revert"),
     path("item/<int:item_id>/pin", views.toggle_pin, name="planner_item_pin"),
     path("item/<int:item_id>/schedule", views.update_planned_schedule, name="planner_item_schedule"),

@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'plugins/activity_pulse.css' %}?v=20260717" />
+{% endblock %}
+
+{% block content %}
+  <section class="workspace-page activity-page">
+    <header class="workspace-header">
+      <div>
+        <p class="workspace-kicker">Plugin</p>
+        <h1>Activity Pulse</h1>
+      </div>
+      <span class="workspace-count">Updated {{ activity.generated_at|date:'H:i' }}</span>
+    </header>
+
+    <div class="activity-kpis">
+      <div><span>Active tasks</span><strong>{{ activity.total }}</strong></div>
+      <div><span>Inbox</span><strong>{{ activity.status_counts.inbox|default:0 }}</strong></div>
+      <div><span>In progress</span><strong>{{ activity.status_counts.doing|default:0 }}</strong></div>
+      <div><span>Completion</span><strong>{{ activity.completion_percent }}%</strong></div>
+      <div class="{% if activity.stale_count %}is-warning{% endif %}"><span>Needs attention</span><strong>{{ activity.stale_count }}</strong></div>
+    </div>
+
+    <div class="activity-layout">
+      <section class="activity-section activity-status-section">
+        <header><h2>Status</h2><a href="{% url 'planner_list' %}">Open inbox</a></header>
+        <div class="activity-status-bar" aria-label="Tasks by status">
+          {% for row in activity.status_rows %}
+            {% if row.count %}<span class="status-{{ row.status }}" style="--segment: {{ row.percent }}%" title="{{ row.label }}: {{ row.count }}"></span>{% endif %}
+          {% endfor %}
+        </div>
+        <div class="activity-legend">
+          {% for row in activity.status_rows %}
+            <div><span class="legend-dot status-{{ row.status }}"></span><span>{{ row.label }}</span><strong>{{ row.count }}</strong></div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="activity-section activity-age-section">
+        <header><h2>Task age</h2></header>
+        <div class="activity-bars">
+          {% for row in activity.age_rows %}
+            <div class="activity-bar-row">
+              <span>{{ row.label }}</span>
+              <div><i style="--bar: {{ row.percent }}%"></i></div>
+              <strong>{{ row.count }}</strong>
+            </div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="activity-section activity-provider-section">
+        <header><h2>Providers</h2></header>
+        <div class="activity-provider-table">
+          <div class="activity-provider-head"><span>Provider</span><span>Inbox</span><span>To do</span><span>Progress</span><span>Done</span><span>Total</span></div>
+          {% for provider in activity.providers %}
+            <a class="activity-provider-row" href="{% url 'planner_list' %}?source={{ provider.source }}">
+              <span class="provider-name"><i class="source-{{ provider.source }}"></i>{{ provider.label }}</span>
+              <span>{{ provider.inbox }}</span><span>{{ provider.backlog }}</span><span>{{ provider.doing }}</span><span>{{ provider.done }}</span><strong>{{ provider.total }}</strong>
+            </a>
+          {% empty %}
+            <div class="activity-empty">No task data yet.</div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="activity-section activity-attention-section">
+        <header><h2>Needs attention</h2><span>{{ activity.stale_count }} aged 14+ days</span></header>
+        <div class="attention-list">
+          {% for task in activity.attention %}
+            {% if task.source_url %}<a href="{{ task.source_url }}" target="_blank" rel="noopener noreferrer" class="attention-row">{% else %}<div class="attention-row">{% endif %}
+              <span class="attention-source source-{{ task.source }}"></span>
+              <span class="attention-title">{{ task.title }}</span>
+              <span>{{ task.status_label }}</span>
+              <strong>{{ task.age_days }}d</strong>
+            {% if task.source_url %}</a>{% else %}</div>{% endif %}
+          {% empty %}
+            <div class="activity-empty">Nothing is aging past 14 days.</div>
+          {% endfor %}
+        </div>
+      </section>
+    </div>
+  </section>
+{% endblock %}

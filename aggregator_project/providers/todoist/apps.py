@@ -19,8 +19,16 @@ class TodoistProviderConfig(AppConfig):
         from providers.todoist.credentials import validate_credentials
         from providers.todoist.forms import TodoistConnectForm
         from providers.todoist.normalizer import normalize_todoist
+        from providers.todoist.planner_badges import planner_badges
         from providers.todoist.sanitizer import sanitize_raw
+        from providers.todoist.settings import (
+            apply_credentials,
+            resolve_masked_credentials,
+            source_url,
+            todoist_form_initial,
+        )
         from providers.todoist.status_writer import TodoistStatusWriter
+        from providers.todoist.verify import verify_todoist
 
         template_dir = Path(__file__).resolve().parent / "templates"
         template_dirs = settings.TEMPLATES[0].setdefault("DIRS", [])
@@ -39,6 +47,14 @@ class TodoistProviderConfig(AppConfig):
             validate_credentials=validate_credentials,
             form_class=TodoistConnectForm,
             icon="bi-check2-square",
+            connection_verifier=verify_todoist,
+            credentials_applier=apply_credentials,
+            form_initial_factory=todoist_form_initial,
+            masked_credentials_resolver=resolve_masked_credentials,
+            form_template="providers/todoist/form_fields.html",
             status_writer_factory=lambda account: TodoistStatusWriter(account),
+            description_writer_factory=lambda account: TodoistStatusWriter(account),
             raw_sanitizer=sanitize_raw,
+            planner_badge_extractor=planner_badges,
+            source_url_extractor=source_url,
         )

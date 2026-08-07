@@ -19,8 +19,15 @@ class HabiticaProviderConfig(AppConfig):
         from providers.habitica.credentials import validate_credentials
         from providers.habitica.forms import HabiticaConnectForm
         from providers.habitica.normalizer import normalize_habitica
+        from providers.habitica.planner_badges import planner_badges
         from providers.habitica.sanitizer import sanitize_raw
+        from providers.habitica.settings import (
+            apply_credentials,
+            habitica_form_initial,
+            resolve_masked_credentials,
+        )
         from providers.habitica.status_writer import HabiticaStatusWriter
+        from providers.habitica.verify import verify_habitica
 
         template_dir = Path(__file__).resolve().parent / "templates"
         template_dirs = settings.TEMPLATES[0].setdefault("DIRS", [])
@@ -40,6 +47,13 @@ class HabiticaProviderConfig(AppConfig):
             validate_credentials=validate_credentials,
             form_class=HabiticaConnectForm,
             icon="bi-heart-pulse",
+            connection_verifier=verify_habitica,
+            credentials_applier=apply_credentials,
+            form_initial_factory=habitica_form_initial,
+            masked_credentials_resolver=resolve_masked_credentials,
+            form_template="providers/habitica/form_fields.html",
             status_writer_factory=lambda account: HabiticaStatusWriter(account),
+            description_writer_factory=lambda account: HabiticaStatusWriter(account),
             raw_sanitizer=sanitize_raw,
+            planner_badge_extractor=planner_badges,
         )

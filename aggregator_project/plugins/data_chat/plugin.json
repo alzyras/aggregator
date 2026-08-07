@@ -1,0 +1,4 @@
+{
+  "id": "data-chat",
+  "app_config": "plugins.data_chat.apps.DataChatConfig"
+}

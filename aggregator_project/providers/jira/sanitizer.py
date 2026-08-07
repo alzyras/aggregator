@@ -15,11 +15,13 @@ FIELD_KEEP_KEYS = {
     "assignee",
     "reporter",
     "project",
+    "parent",
 }
 
 
 def sanitize_raw(raw: dict[str, Any]) -> dict[str, Any]:
     sanitized = {
+        "__jira_planner_context": raw.get("__jira_planner_context"),
         "id": raw.get("id"),
         "key": raw.get("key"),
         "self": raw.get("self"),

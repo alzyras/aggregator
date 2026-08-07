@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'plugins/sql_explorer.css' %}?v=20260717" />
+{% endblock %}
+
+{% block content %}
+  <section class="workspace-page sql-page">
+    <header class="workspace-header">
+      <div>
+        <p class="workspace-kicker">Plugin</p>
+        <h1>SQL Explorer</h1>
+      </div>
+      <div class="snapshot-stats" aria-label="Snapshot records">
+        <span><strong>{{ snapshot_counts.events }}</strong> events</span>
+        <span><strong>{{ snapshot_counts.tasks }}</strong> tasks</span>
+        <span><strong>{{ snapshot_counts.connectors }}</strong> connectors</span>
+      </div>
+    </header>
+
+    <div class="sql-workspace">
+      <aside class="sql-schema" aria-label="Available tables">
+        <div class="sql-schema-title">Tables</div>
+        {% for table in tables %}
+          <button class="sql-table" type="button" data-table-name="{{ table.name }}">
+            <strong>{{ table.name }}</strong>
+            <span>{{ table.columns }}</span>
+          </button>
+        {% endfor %}
+      </aside>
+
+      <div class="sql-main">
+        <div class="sql-editor-shell">
+          <div class="sql-editor-bar">
+            <span>Workspace snapshot</span>
+            <div class="sql-editor-actions">
+              <span class="sql-shortcut">⌘ Enter</span>
+              <button class="btn primary small" type="button" data-run-query>Run</button>
+            </div>
+          </div>
+          <textarea class="sql-editor" spellcheck="false" aria-label="SQL query" data-sql-editor>{{ default_query }}</textarea>
+        </div>
+
+        <div class="sql-result" data-sql-result>
+          <div class="sql-result-header">
+            <span data-result-summary>Ready</span>
+            <span data-result-duration></span>
+          </div>
+          <div class="sql-result-empty" data-result-empty>Run a query to inspect your data.</div>
+          <div class="sql-result-table-shell is-hidden" data-result-table-shell>
+            <table class="sql-result-table">
+              <thead data-result-head></thead>
+              <tbody data-result-body></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    (() => {
+      const editor = document.querySelector("[data-sql-editor]");
+      const runButton = document.querySelector("[data-run-query]");
+      const empty = document.querySelector("[data-result-empty]");
+      const tableShell = document.querySelector("[data-result-table-shell]");
+      const head = document.querySelector("[data-result-head]");
+      const body = document.querySelector("[data-result-body]");
+      const summary = document.querySelector("[data-result-summary]");
+      const duration = document.querySelector("[data-result-duration]");
+      const csrfToken = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1];
+
+      function cell(value, tag = "td") {
+        const element = document.createElement(tag);
+        element.textContent = value === null ? "null" : String(value);
+        element.title = element.textContent;
+        return element;
+      }
+
+      function renderResult(payload) {
+        head.replaceChildren();
+        body.replaceChildren();
+        const headerRow = document.createElement("tr");
+        payload.columns.forEach((column) => headerRow.appendChild(cell(column, "th")));
+        head.appendChild(headerRow);
+        payload.rows.forEach((row) => {
+          const tr = document.createElement("tr");
+          row.forEach((value) => tr.appendChild(cell(value)));
+          body.appendChild(tr);
+        });
+        empty.classList.add("is-hidden");
+        tableShell.classList.remove("is-hidden");
+        summary.textContent = `${payload.rows.length}${payload.truncated ? "+" : ""} rows`;
+        duration.textContent = `${payload.duration_ms} ms`;
+      }
+
+      async function runQuery() {
+        runButton.disabled = true;
+        runButton.classList.add("is-loading");
+        summary.textContent = "Running";
+        duration.textContent = "";
+        try {
+          const response = await fetch("{% url 'sql_explorer:query' %}", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {"Content-Type": "application/json", "X-CSRFToken": csrfToken},
+            body: JSON.stringify({query: editor.value}),
+          });
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.error || "Query failed.");
+          renderResult(payload);
+        } catch (error) {
+          tableShell.classList.add("is-hidden");
+          empty.classList.remove("is-hidden");
+          empty.textContent = error.message;
+          summary.textContent = "Query error";
+          window.dispatchEvent(new CustomEvent("app:toast", {detail: {message: error.message, tone: "error"}}));
+        } finally {
+          runButton.disabled = false;
+          runButton.classList.remove("is-loading");
+        }
+      }
+
+      runButton.addEventListener("click", runQuery);
+      editor.addEventListener("keydown", (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+          event.preventDefault();
+          runQuery();
+        }
+      });
+      document.querySelectorAll("[data-table-name]").forEach((button) => {
+        button.addEventListener("click", () => {
+          editor.value = `SELECT *\nFROM ${button.dataset.tableName}\nLIMIT 100`;
+          editor.focus();
+        });
+      });
+    })();
+  </script>
+{% endblock %}

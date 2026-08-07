@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'css/intelligence.css' %}?v=20260807" />
+{% endblock %}
+
+{% block content %}
+  <section class="insights-page ai-settings-page">
+    <header class="insights-page-header">
+      <div>
+        <p class="section-kicker">Workspace controls</p>
+        <h1>AI settings</h1>
+        <p class="page-lede">Choose the model service used for task enrichment and workspace chat.</p>
+      </div>
+      <div class="insights-header-actions">
+        <a class="btn ghost icon-label" href="{% url 'intelligence:dashboard' %}"><i data-lucide="arrow-left" aria-hidden="true"></i><span>Insights</span></a>
+      </div>
+    </header>
+
+    <div class="settings-layout">
+      <form method="post" class="insights-panel ai-settings-form">
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="settings-toggle-row">
+          <div>
+            <h2>Use AI enrichment</h2>
+            <p>Rule tags remain available when this is off.</p>
+          </div>
+          {{ form.is_enabled }}
+        </div>
+        <div class="settings-fields">
+          <label class="field-group" for="{{ form.backend.id_for_label }}"><span>Backend</span>{{ form.backend }}{{ form.backend.errors }}</label>
+          <label class="field-group" for="{{ form.model.id_for_label }}"><span>Model</span>{{ form.model }}{{ form.model.errors }}</label>
+          <label class="field-group field-group-wide" for="{{ form.base_url.id_for_label }}"><span>Local server URL</span>{{ form.base_url }}{{ form.base_url.errors }}</label>
+          <label class="field-group field-group-wide" for="{{ form.api_key.id_for_label }}"><span>{{ form.api_key.label }}</span>{{ form.api_key }}<small>{{ form.api_key.help_text }}</small>{{ form.api_key.errors }}</label>
+        </div>
+        <div class="settings-form-footer">
+          <span class="ai-state {% if ai_config.configured %}ready{% else %}muted{% endif %}"><i data-lucide="{% if ai_config.configured %}circle-check{% else %}circle-dashed{% endif %}" aria-hidden="true"></i>{% if ai_config.configured %}{{ ai_config.model }} ready{% else %}{{ ai_config.message }}{% endif %}</span>
+          <button class="btn primary icon-label" type="submit" data-loading-text="Saving"><i data-lucide="save" aria-hidden="true"></i><span>Save settings</span></button>
+        </div>
+      </form>
+
+      <aside class="ai-backend-notes">
+        <section>
+          <i data-lucide="server" aria-hidden="true"></i>
+          <h2>Local Qwen</h2>
+          <p>Use an OpenAI-compatible endpoint reachable from the Aggregator server, such as a local model gateway.</p>
+        </section>
+        <section>
+          <i data-lucide="bot" aria-hidden="true"></i>
+          <h2>OpenAI Responses</h2>
+          <p>Uses the approved OpenAI API model configured for this workspace or the server environment.</p>
+        </section>
+      </aside>
+    </div>
+  </section>
+{% endblock %}

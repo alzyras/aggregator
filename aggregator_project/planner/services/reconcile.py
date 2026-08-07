@@ -7,12 +7,19 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from connectors.models import ConnectorAccount
 from events.models import Event
+from ingestion.providers import get_provider_spec
 from planner.models import PlannerItem, PlannerItemState, PlannerPlan
 
 
-TASK_EVENT_TYPES = {"task_state", "task_completed"}
+TASK_EVENT_TYPES = {
+    "task_created",
+    "task_updated",
+    "task_state",
+    "task_completed",
+    "task_reopened",
+    "task_deleted",
+}
 
 
 @dataclass
@@ -35,6 +42,7 @@ def reconcile_from_event(event: Event) -> PlannerReconcileResult:
 
     now = timezone.now()
     connector_account = event.connector_account
+    source_created_at = _source_created_at_for_event(event)
     defaults = {
         "workspace": event.workspace,
         "user": None,
@@ -42,12 +50,13 @@ def reconcile_from_event(event: Event) -> PlannerReconcileResult:
         "source_entity_id": event.source_entity_id,
         "title": event.title or event.source_entity_id,
         "description": event.description,
-        "source_url": None,
+        "source_url": _source_url_for_event(event),
         "source_status": event.external_status or event.event_type,
+        "source_created_at": source_created_at,
         "source_updated_at": event.start_time or event.created_at,
         "last_synced_at": now,
-        "external_completed": event.event_type == "task_completed",
-        "is_active": True,
+        "external_completed": _is_completed_event(event),
+        "is_active": event.event_type != "task_deleted",
     }
 
     item = (
@@ -66,11 +75,14 @@ def reconcile_from_event(event: Event) -> PlannerReconcileResult:
             return PlannerReconcileResult(item=None, created=False)
         item = PlannerItem(**defaults, connector_account=connector_account)
         item.save()
+        _queue_task_enrichment(item)
         return PlannerReconcileResult(item=item, created=True)
 
     updated_fields: list[str] = []
     for field, value in defaults.items():
         current = getattr(item, field)
+        if field == "source_created_at" and item.source_created_at and event.event_type != "task_created":
+            continue
         if value is not None and current != value:
             setattr(item, field, value)
             updated_fields.append(field)
@@ -81,6 +93,8 @@ def reconcile_from_event(event: Event) -> PlannerReconcileResult:
 
     if defaults["external_completed"] and _should_auto_complete():
         _auto_complete_item(item)
+
+    _queue_task_enrichment(item)
 
     return PlannerReconcileResult(item=item, created=False)
 
@@ -159,6 +173,7 @@ def add_items_from_events(
             if not item:
                 continue
             ensure_item_state(plan, item, planner_status=PlannerItemState.PLANNER_STATUS_INBOX)
+            _queue_task_enrichment(item, created_by=user)
             if created:
                 created_count += 1
     return created_count
@@ -170,8 +185,6 @@ def _get_or_create_item_from_event(
     user,
 ) -> tuple[PlannerItem | None, bool]:
     external_completed = _is_completed_event(event)
-    if external_completed:
-        return None, False
 
     item = (
         PlannerItem.objects
@@ -187,6 +200,19 @@ def _get_or_create_item_from_event(
         if item.user is None:
             item.user = user
             item.save(update_fields=["user"])
+        source_created_at = _source_created_at_for_event(event)
+        source_url = _source_url_for_event(event)
+        update_fields = []
+        if source_created_at and (
+            not item.source_created_at or event.event_type == "task_created"
+        ):
+            item.source_created_at = source_created_at
+            update_fields.append("source_created_at")
+        if source_url and item.source_url != source_url:
+            item.source_url = source_url
+            update_fields.append("source_url")
+        if update_fields:
+            item.save(update_fields=update_fields + ["updated_at"])
         return item, False
 
     return (
@@ -198,8 +224,9 @@ def _get_or_create_item_from_event(
             source_entity_id=event.source_entity_id,
             title=event.title or event.source_entity_id,
             description=event.description,
-            source_url=None,
+            source_url=_source_url_for_event(event),
             source_status=event.external_status or event.event_type,
+            source_created_at=_source_created_at_for_event(event),
             source_updated_at=event.start_time or event.created_at,
             last_synced_at=timezone.now(),
             external_completed=external_completed,
@@ -214,3 +241,41 @@ def _is_completed_event(event: Event) -> bool:
         return True
     status = (event.external_status or "").lower()
     return status in {"completed", "done", "closed", "resolved"}
+
+
+def _source_created_at_for_event(event: Event):
+    if event.event_type == "task_created":
+        return event.start_time or event.created_at
+    created_at = (
+        Event.objects
+        .for_workspace(event.workspace)
+        .filter(
+            connector_account=event.connector_account,
+            source=event.source,
+            source_entity_id=event.source_entity_id,
+            event_type="task_created",
+        )
+        .order_by("start_time", "created_at")
+        .values_list("start_time", "created_at")
+        .first()
+    )
+    if created_at:
+        return created_at[0] or created_at[1]
+    return event.start_time or event.created_at
+
+
+def _source_url_for_event(event: Event) -> str | None:
+    spec = get_provider_spec(event.source)
+    if not spec or spec.source_url_extractor is None or not isinstance(event.raw, dict):
+        return None
+    try:
+        return spec.source_url_extractor(event.raw)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _queue_task_enrichment(item: PlannerItem, created_by=None) -> None:
+    """Keep imported task taxonomy current without blocking provider syncs."""
+    from intelligence.services.enrichment import queue_task_enrichment
+
+    queue_task_enrichment(item=item, created_by=created_by)

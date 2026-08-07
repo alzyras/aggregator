@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from connectors.models import ConnectorAccount
+
 DEFAULT_SETTINGS: dict[str, bool] = {
     "sync_tasks": True,
     "include_completed": True,
@@ -23,7 +25,7 @@ def get_todoist_settings(scopes: dict[str, Any] | list[Any] | None) -> dict[str,
         return DEFAULT_SETTINGS.copy()
     stored = scopes.get("todoist")
     if not isinstance(stored, dict):
-        return DEFAULT_SETTINGS.copy()
+        stored = scopes
     merged = DEFAULT_SETTINGS.copy()
     for key, value in stored.items():
         if key in merged:
@@ -53,12 +55,35 @@ def apply_todoist_settings(account, cleaned_data: dict[str, Any]) -> None:
 
 def todoist_form_initial(account) -> dict[str, Any]:
     settings = get_todoist_settings(getattr(account, "scopes", None))
-    if getattr(account, "get_access_token", None):
-        existing = account.get_access_token()
-        if existing:
-            settings["api_token"] = MASKED_TOKEN
+    if getattr(account, "encrypted_access_token", None):
+        settings["api_token"] = MASKED_TOKEN
     return settings
 
 
 def is_masked_token(value: Any) -> bool:
     return isinstance(value, str) and value.strip() == MASKED_TOKEN
+
+
+def resolve_masked_credentials(account, cleaned_data: dict[str, Any]) -> dict[str, Any]:
+    if is_masked_token(cleaned_data.get("api_token")):
+        return {**cleaned_data, "api_token": account.get_access_token()}
+    return cleaned_data
+
+
+def apply_credentials(account, cleaned_data: dict[str, Any]) -> None:
+    token = cleaned_data.get("api_token") or cleaned_data.get("access_token")
+    if token and not is_masked_token(token):
+        account.set_access_token(token)
+    account.set_refresh_token(None)
+    account.external_account_id = None
+    account.auth_type = ConnectorAccount.AUTH_API_TOKEN
+    account.token_expires_at = None
+    apply_todoist_settings(account, cleaned_data)
+
+
+def source_url(raw: dict[str, Any]) -> str | None:
+    value = raw.get("url")
+    if value:
+        return str(value)
+    task_id = raw.get("id") or raw.get("gid")
+    return f"https://app.todoist.com/app/task/{task_id}" if task_id else None

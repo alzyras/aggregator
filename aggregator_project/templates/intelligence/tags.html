@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'css/intelligence.css' %}?v=20260807" />
+{% endblock %}
+
+{% block content %}
+  <section class="insights-page tag-catalog-page">
+    <header class="insights-page-header">
+      <div>
+        <p class="section-kicker">Unified taxonomy</p>
+        <h1>Tags</h1>
+        <p class="page-lede">The same tag vocabulary is used across every imported task source.</p>
+      </div>
+      <div class="insights-header-actions">
+        {% if can_manage_ai %}
+          <form action="{% url 'intelligence:queue_analysis' %}" method="post" class="inline-form">
+            {% csrf_token %}
+            <button class="btn ghost icon-label" type="submit" data-loading-text="Queueing"><i data-lucide="scan-text" aria-hidden="true"></i><span>Analyze tasks</span></button>
+          </form>
+        {% endif %}
+        <a class="btn primary icon-label" href="{% url 'intelligence:dashboard' %}"><i data-lucide="chart-no-axes-combined" aria-hidden="true"></i><span>Insights</span></a>
+      </div>
+    </header>
+
+    <section class="insights-panel tag-catalog-panel">
+      {% if tags %}
+        <div class="tag-catalog-table" role="table" aria-label="Unified tags">
+          <div class="tag-catalog-head" role="row">
+            <span role="columnheader">Tag</span>
+            <span role="columnheader">Type</span>
+            <span role="columnheader">Tasks</span>
+            <span role="columnheader">Origin</span>
+          </div>
+          {% for tag in tags %}
+            <div class="tag-catalog-row" role="row">
+              <span role="cell" class="tag-catalog-name"><i style="--tag-color: {{ tag.color }}"></i>{{ tag.name }}</span>
+              <span role="cell">{{ tag.kind }}</span>
+              <strong role="cell">{{ tag.task_count }}</strong>
+              <span role="cell">{% if tag.is_system %}System{% else %}Manual{% endif %}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="insights-empty">Tags appear once tasks are imported into the workspace.</div>
+      {% endif %}
+    </section>
+  </section>
+{% endblock %}

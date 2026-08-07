@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'css/intelligence.css' %}?v=20260807" />
+{% endblock %}
+
+{% block content %}
+  <section class="insights-page">
+    <header class="insights-page-header">
+      <div>
+        <p class="section-kicker">Personal workspace</p>
+        <h1>Work patterns</h1>
+        <p class="page-lede">A shared view of imported work across every connected provider.</p>
+      </div>
+      <div class="insights-header-actions">
+        {% if ai_config.configured %}
+          <span class="ai-state ready"><i data-lucide="sparkles" aria-hidden="true"></i>{{ ai_config.model }}</span>
+          {% if can_manage_ai %}
+            <form action="{% url 'intelligence:queue_analysis' %}" method="post" class="inline-form">
+              {% csrf_token %}
+              <button class="btn ghost icon-label" type="submit" data-loading-text="Queueing"><i data-lucide="scan-text" aria-hidden="true"></i><span>Analyze tasks</span></button>
+            </form>
+          {% endif %}
+        {% else %}
+          <span class="ai-state muted"><i data-lucide="circle-dashed" aria-hidden="true"></i>Rules active</span>
+          {% if can_manage_ai %}
+            <a class="btn ghost icon-label" href="{% url 'intelligence:settings' %}"><i data-lucide="settings-2" aria-hidden="true"></i><span>Set up AI</span></a>
+          {% endif %}
+        {% endif %}
+        <a class="btn primary icon-label" href="{% url 'intelligence:chat' %}"><i data-lucide="message-square" aria-hidden="true"></i><span>Ask your workspace</span></a>
+      </div>
+    </header>
+
+    <section class="insights-metric-band" aria-label="Workspace summary">
+      <div class="insights-metric">
+        <span>Imported tasks</span>
+        <strong>{{ insights.total }}</strong>
+      </div>
+      <div class="insights-metric">
+        <span>Tag coverage</span>
+        <strong>{{ insights.tag_coverage }}%</strong>
+        <small>{{ insights.tagged_items }} tagged</small>
+      </div>
+      <div class="insights-metric">
+        <span>AI enriched</span>
+        <strong>{{ insights.ai_coverage }}%</strong>
+        <small>{{ insights.enriched_items }} summarized</small>
+      </div>
+      <div class="insights-metric">
+        <span>Completed</span>
+        <strong>{{ insights.completion_rate }}%</strong>
+        <small>{{ insights.completed }} tasks</small>
+      </div>
+      <div class="insights-metric">
+        <span>Carrying over</span>
+        <strong>{{ insights.stale_items }}</strong>
+        <small>14+ days open</small>
+      </div>
+    </section>
+
+    <div class="insights-layout">
+      <section class="insights-panel insights-trend-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">Eight-week flow</p>
+            <h2>Incoming and completed work</h2>
+          </div>
+          <span class="panel-note">Latest {{ insights.generated_at|date:"j M" }}</span>
+        </div>
+        {% if insights.total %}
+          <div class="weekly-chart" aria-label="Eight week incoming and completed task chart">
+            {% for week in insights.weekly %}
+              <div class="weekly-column">
+                <div class="weekly-bars" aria-label="{{ week.label }}: {{ week.incoming }} incoming, {{ week.completed }} completed">
+                  <span class="weekly-bar incoming" style="height: {{ week.incoming_percent }}%"></span>
+                  <span class="weekly-bar completed" style="height: {{ week.completed_percent }}%"></span>
+                </div>
+                <span class="weekly-label">{{ week.label }}</span>
+              </div>
+            {% endfor %}
+          </div>
+          <div class="chart-legend"><span><i class="legend-dot incoming"></i>Incoming</span><span><i class="legend-dot completed"></i>Completed</span></div>
+        {% else %}
+          <div class="insights-empty">Connect a provider and sync tasks to see work patterns here.</div>
+        {% endif %}
+      </section>
+
+      <section class="insights-panel insights-provider-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">Sources</p>
+            <h2>Where work arrives</h2>
+          </div>
+          <a class="panel-link" href="{% url 'connectors_view' %}">Manage connectors</a>
+        </div>
+        {% if insights.source_rows %}
+          <div class="breakdown-list">
+            {% for row in insights.source_rows %}
+              <div class="breakdown-row">
+                <span>{{ row.label }}</span>
+                <div class="breakdown-meter"><i style="width: {{ row.percent }}%"></i></div>
+                <strong>{{ row.count }}</strong>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="insights-empty">No connected task sources yet.</div>
+        {% endif %}
+      </section>
+
+      <section class="insights-panel insights-tags-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">Unified taxonomy</p>
+            <h2>Most common work</h2>
+          </div>
+          <a class="panel-link" href="{% url 'intelligence:tags' %}">All tags</a>
+        </div>
+        {% if insights.tag_rows %}
+          <div class="tag-overview-list">
+            {% for row in insights.tag_rows|slice:":8" %}
+              <div class="tag-overview-row">
+                <span class="tag-color" style="--tag-color: {{ row.color }}"></span>
+                <span class="tag-name">{{ row.name }}</span>
+                <span class="tag-kind">{{ row.kind }}</span>
+                <strong>{{ row.total }}</strong>
+                <div class="tag-meter"><i style="width: {{ row.completion_rate }}%"></i></div>
+                <span class="tag-rate">{{ row.completion_rate }}%</span>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="insights-empty">Tags appear as tasks are imported.</div>
+        {% endif %}
+      </section>
+
+      <section class="insights-panel insights-pattern-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">Observed outcomes</p>
+            <h2>Patterns in your work</h2>
+          </div>
+        </div>
+        <div class="pattern-columns">
+          <div class="pattern-group">
+            <h3>Often completed</h3>
+            {% for row in insights.strengths %}
+              <div class="pattern-row"><span>{{ row.name }}</span><strong>{{ row.completion_rate }}%</strong></div>
+            {% empty %}
+              <p>No repeat pattern yet.</p>
+            {% endfor %}
+          </div>
+          <div class="pattern-group">
+            <h3>Needs attention</h3>
+            {% for row in insights.growth %}
+              <div class="pattern-row"><span>{{ row.name }}</span><strong>{{ row.active }} open</strong></div>
+            {% empty %}
+              <p>No open tag pattern yet.</p>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <section class="insights-panel insights-classification-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">AI classification</p>
+            <h2>Work type and energy</h2>
+          </div>
+        </div>
+        <div class="classification-columns">
+          <div>
+            <h3>Work types</h3>
+            {% for row in insights.task_type_rows %}
+              <div class="classification-row"><span>{{ row.label }}</span><strong>{{ row.count }}</strong></div>
+            {% empty %}
+              <p>Run analysis to add task-level summaries.</p>
+            {% endfor %}
+          </div>
+          <div>
+            <h3>Estimated energy</h3>
+            {% for row in insights.energy_rows %}
+              <div class="classification-row"><span>{{ row.label }}</span><strong>{{ row.count }}</strong></div>
+            {% empty %}
+              <p>Energy estimates appear after AI analysis.</p>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+    </div>
+  </section>
+{% endblock %}

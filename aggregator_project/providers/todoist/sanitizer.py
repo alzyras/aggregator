@@ -4,10 +4,16 @@ from typing import Any
 
 
 KEEP_KEYS = {
+    "__todoist_planner_context",
     "id",
     "content",
     "description",
+    "checked",
+    "completed",
     "is_completed",
+    "is_deleted",
+    "is_archived",
+    "added_at",
     "created_at",
     "updated_at",
     "completed_at",

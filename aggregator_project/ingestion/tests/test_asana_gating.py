@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from providers.asana.normalizer import normalize_asana
 
 

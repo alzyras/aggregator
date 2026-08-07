@@ -1,0 +1,32 @@
+<div class="form-section">
+  <label class="field-label" for="{{ spec.form.api_key.id_for_label }}">{{ spec.form.api_key.label }}</label>
+  {{ spec.form.api_key }}
+  {% for error in spec.form.api_key.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+</div>
+
+<div class="form-section">
+  <label class="field-label" for="{{ spec.form.team_keys.id_for_label }}">{{ spec.form.team_keys.label }}</label>
+  {{ spec.form.team_keys }}
+  <div class="field-help">Optional. Enter team keys separated by commas or lines.</div>
+  {% for error in spec.form.team_keys.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+</div>
+
+<div class="form-section">
+  <div class="form-group-title">Sync scope</div>
+  <div class="checkbox-grid">
+    <label class="checkbox-card">{{ spec.form.only_assigned_to_me }}<span>Assigned to me</span></label>
+    <label class="checkbox-card">{{ spec.form.include_completed }}<span>Completed</span></label>
+    <label class="checkbox-card">{{ spec.form.include_canceled }}<span>Canceled</span></label>
+    <label class="checkbox-card">{{ spec.form.include_archived }}<span>Archived</span></label>
+  </div>
+</div>
+
+<div class="form-section">
+  <div class="form-group-title">Task events</div>
+  <div class="checkbox-grid">
+    <label class="checkbox-card">{{ spec.form.emit_task_created }}<span>Created</span></label>
+    <label class="checkbox-card">{{ spec.form.emit_task_updated }}<span>Updated</span></label>
+    <label class="checkbox-card">{{ spec.form.emit_task_completed }}<span>Completed</span></label>
+    <label class="checkbox-card">{{ spec.form.emit_task_state }}<span>State snapshots</span></label>
+  </div>
+</div>

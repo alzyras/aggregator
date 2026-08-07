@@ -533,8 +533,71 @@ a {
   display: block;
 }
 
+.planner-description-editor {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+}
+
+.planner-description-input {
+  width: 100%;
+  min-height: 64px;
+  resize: vertical;
+  border-radius: 8px;
+  border: 1px solid rgba(210, 220, 245, 0.9);
+  padding: 0.55rem 0.65rem;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  background: rgba(248, 250, 255, 0.9);
+}
+
+.planner-description-input:focus-visible {
+  outline: 3px solid rgba(59, 130, 246, 0.25);
+  outline-offset: 2px;
+}
+
+.planner-description-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.description-writeback-badge.pending {
+  background: rgba(37, 99, 235, 0.14);
+  color: #1d4ed8;
+}
+
+.description-writeback-badge.failed {
+  background: rgba(220, 38, 38, 0.12);
+  color: #991b1b;
+}
+
+.description-writeback-badge.unsupported {
+  background: rgba(100, 116, 139, 0.14);
+  color: #475569;
+}
+
+.description-writeback-badge.is-hidden {
+  display: none;
+}
+
+.planner-description-message {
+  display: none;
+  color: #991b1b;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.planner-description-message.is-visible {
+  display: block;
+}
+
 .planner-retry.is-hidden,
-.planner-revert.is-hidden {
+.planner-revert.is-hidden,
+.planner-description-retry.is-hidden {
   display: none;
 }
 

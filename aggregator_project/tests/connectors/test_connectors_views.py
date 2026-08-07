@@ -61,7 +61,7 @@ class ConnectorViewsTests(TestCase):
                 data={
                     "display_name": "Work",
                     "access_token": "token",
-                    "workspace_gid": "workspace-1",
+                    "workspace_gids": "12345",
                 },
             )
 
@@ -84,7 +84,7 @@ class ConnectorViewsTests(TestCase):
                     data={
                         "display_name": "Work",
                         "access_token": "token",
-                        "workspace_gid": "workspace-1",
+                        "workspace_gids": "12345",
                     },
                 )
 
@@ -108,7 +108,7 @@ class ConnectorViewsTests(TestCase):
                     data={
                         "display_name": "Work",
                         "access_token": "token",
-                        "workspace_gid": "workspace-1",
+                        "workspace_gids": "12345",
                     },
                 )
 
@@ -132,7 +132,7 @@ class ConnectorViewsTests(TestCase):
                     data={
                         "display_name": "Work",
                         "access_token": "token",
-                        "workspace_gid": "workspace-1",
+                        "workspace_gids": "12345",
                     },
                 )
                 self.client.post(
@@ -140,7 +140,7 @@ class ConnectorViewsTests(TestCase):
                     data={
                         "display_name": "Personal",
                         "access_token": "token-2",
-                        "workspace_gid": "workspace-2",
+                        "workspace_gids": "67890",
                     },
                 )
 

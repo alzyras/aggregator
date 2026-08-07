@@ -1,0 +1,4 @@
+{
+  "id": "activity-pulse",
+  "app_config": "plugins.activity_pulse.apps.ActivityPulseConfig"
+}

@@ -5,14 +5,14 @@
     <div class="panel">
       <div class="panel-header">
         <div>
-          <h2>Add a plugin</h2>
+          <h2>Add a connector</h2>
         </div>
-        <button class="btn primary" type="button" data-open-modal>Add plugin</button>
+        <button class="btn primary" type="button" data-open-modal>Add connector</button>
       </div>
       <div class="provider-strip">
         {% for spec in provider_specs %}
           <div class="provider-chip{% if not spec.enabled %} is-disabled{% endif %}">
-            <span class="provider-chip-dot">{{ spec.label|slice:":1" }}</span>
+            <span class="provider-chip-dot source-{{ spec.source }}">{{ spec.label|slice:":1" }}</span>
             <span>{{ spec.label }}</span>
           </div>
         {% endfor %}
@@ -24,14 +24,14 @@
     <div class="panel">
       <div class="panel-header">
         <div>
-          <h2>Connected plugins</h2>
+          <h2>Connected accounts</h2>
         </div>
       </div>
       <div class="table-shell">
         <table class="data-table plugins-table">
           <thead>
             <tr>
-              <th>Plugin</th>
+              <th>Provider</th>
               <th>Instance</th>
               <th>Status</th>
               <th>Last sync</th>
@@ -43,29 +43,29 @@
           <tbody>
             {% for row in connector_rows %}
               <tr>
-                <td>
+                <td data-label="Provider">
                   <div class="plugin-cell">
-                    <span class="plugin-icon">{{ row.spec.label|slice:":1" }}</span>
+                    <span class="plugin-icon source-{{ row.spec.source }}">{{ row.spec.label|slice:":1" }}</span>
                     <div>
                       <div class="plugin-name">{{ row.spec.label }}</div>
                       <div class="plugin-subtitle">{{ row.spec.source }}</div>
                     </div>
                   </div>
                 </td>
-                <td id="row-{{ row.account.id }}">{{ row.account.display_name }}</td>
-                <td>
+                <td data-label="Instance" id="row-{{ row.account.id }}">{{ row.account.display_name }}</td>
+                <td data-label="Status">
                   <span class="status-badge {{ row.status_key }}">{{ row.status_label }}</span>
                 </td>
-                <td>
+                <td data-label="Last sync">
                   {% if row.account.last_sync_at %}
                     <span title="{{ row.account.last_sync_at|date:'Y-m-d H:i:s T' }}">{{ row.account.last_sync_at|date:"Y-m-d" }}</span>
                   {% else %}
                     —
                   {% endif %}
                 </td>
-                <td>{{ row.last_sync_status }}</td>
-                <td>{{ row.event_count }}</td>
-                <td>
+                <td data-label="Result">{{ row.last_sync_status }}</td>
+                <td data-label="Data points">{{ row.event_count }}</td>
+                <td data-label="Actions">
                   <div class="table-actions">
                     <form method="post" action="{% url 'sync_connector_account' row.account.id %}">
                       {% csrf_token %}
@@ -73,7 +73,7 @@
                         <input type="checkbox" name="full_sync" value="1" />
                         <span>Full sync</span>
                       </label>
-                      <button class="btn ghost small" type="submit" data-loading-text="Syncing…" {% if row.status_key != "connected" %}disabled{% endif %}>Sync now</button>
+                      <button class="btn ghost small" type="submit" data-loading-text="Syncing…" {% if row.status_key != "connected" or not row.enabled %}disabled{% endif %}>Sync now</button>
                     </form>
                     <button
                       class="btn ghost small"
@@ -82,11 +82,8 @@
                       data-edit-source="{{ row.account.source }}"
                       data-edit-name="{{ row.account.display_name }}"
                       data-edit-action="{% url 'update_connector_account' row.account.id %}"
-                      data-edit-settings='{{ row.edit_settings_json|escapejs }}'
-                      data-edit-workspaces="{{ row.edit_workspaces }}"
-                      data-edit-user-id="{{ row.edit_user_id }}"
-                      data-edit-token="{{ row.edit_token }}"
-                      data-edit-credentials='{{ row.edit_credentials_json|escapejs }}'
+                      data-edit-initial='{{ row.edit_initial_json|escapejs }}'
+                      {% if not row.enabled %}disabled{% endif %}
                     >
                       Edit
                     </button>
@@ -101,8 +98,8 @@
               <tr>
                 <td colspan="7">
                   <div class="empty-state">
-                    <strong>No plugins connected yet.</strong>
-                    <span>Start by adding a provider above.</span>
+                    <strong>No connectors yet.</strong>
+                    <span>Add a provider to start receiving tasks.</span>
                   </div>
                 </td>
               </tr>
@@ -128,10 +125,10 @@
     <div class="modal-panel">
       <div class="modal-header">
         <div>
-          <div class="modal-title">Add a plugin</div>
+          <div class="modal-title">Add a connector</div>
           <div class="modal-subtitle" data-modal-subtitle>Choose a provider to begin.</div>
         </div>
-        <button class="modal-close" type="button" data-close-modal>Close</button>
+        <button class="modal-close" type="button" data-close-modal title="Close" aria-label="Close"><i data-lucide="x" aria-hidden="true">×</i></button>
       </div>
 
       <div class="wizard" data-wizard>
@@ -145,7 +142,7 @@
                 {% if not spec.enabled %}disabled{% endif %}
               >
                 <div class="provider-card-header">
-                  <span class="provider-card-icon">{{ spec.label|slice:":1" }}</span>
+                  <span class="provider-card-icon source-{{ spec.source }}">{{ spec.label|slice:":1" }}</span>
                   <span class="provider-card-title">{{ spec.label }}</span>
                 </div>
                 <p class="provider-card-body">{{ spec.description }}</p>
@@ -182,14 +179,8 @@
                 {% endfor %}
               {% endif %}
 
-              {% if spec.source == "habitica" %}
-                {% include "providers/habitica/form_fields.html" %}
-              {% elif spec.source == "asana" %}
-                {% include "providers/asana/form_fields.html" %}
-              {% elif spec.source == "todoist" %}
-                {% include "providers/todoist/form_fields.html" %}
-              {% elif spec.source == "jira" %}
-                {% include "providers/jira/form_fields.html" %}
+              {% if spec.form_template %}
+                {% include spec.form_template %}
               {% else %}
                 {% for field in spec.form %}
                   <div class="form-section">
@@ -217,7 +208,7 @@
             <div class="spinner"></div>
             <div>
               <strong>Validating credentials…</strong>
-              <p>We’re verifying this plugin. You can close this dialog and check status on reload.</p>
+              <p>We’re verifying this connector. You can close this dialog and check status on reload.</p>
             </div>
           </div>
         </div>
@@ -247,6 +238,7 @@
         wizard.querySelectorAll(".wizard-step").forEach((pane) => {
           pane.classList.toggle("is-active", pane.dataset.step === step);
         });
+        wizard.scrollTop = 0;
       }
 
       function openModal() {
@@ -337,22 +329,13 @@
           const source = btn.dataset.editSource;
           const displayName = btn.dataset.editName;
           const action = btn.dataset.editAction;
-          const settingsRaw = btn.dataset.editSettings || "";
-          const credentialsRaw = btn.dataset.editCredentials || "";
-          let settings = {};
-          let editCredentials = {};
-          if (settingsRaw) {
+          const initialRaw = btn.dataset.editInitial || "";
+          let initial = {};
+          if (initialRaw) {
             try {
-              settings = JSON.parse(settingsRaw);
+              initial = JSON.parse(initialRaw);
             } catch (err) {
-              settings = {};
-            }
-          }
-          if (credentialsRaw) {
-            try {
-              editCredentials = JSON.parse(credentialsRaw);
-            } catch (err) {
-              editCredentials = {};
+              initial = {};
             }
           }
           openModal();
@@ -362,33 +345,7 @@
           const form = Array.from(forms).find((item) => item.dataset.provider === source);
           if (!form) return;
 
-          const tokenValue = btn.dataset.editToken;
-          if (tokenValue) {
-            const tokenField = form.querySelector("[name='api_token'], [name='access_token']");
-            if (tokenField) tokenField.value = tokenValue;
-          }
-          Object.entries(editCredentials).forEach(([key, value]) => {
-            const tokenField = form.querySelector(`[name='${key}']`);
-            if (tokenField && value) tokenField.value = value;
-          });
-
-          const userId = btn.dataset.editUserId;
-          if (userId) {
-            const userField = form.querySelector("[name='user_id']");
-            if (userField) userField.value = userId;
-          }
-
-          const workspaces = btn.dataset.editWorkspaces;
-          if (workspaces) {
-            const hidden = form.querySelector("input[name='workspace_gids']");
-            if (hidden) hidden.value = workspaces;
-            const pillInput = form.querySelector("[data-pill-input]");
-            if (pillInput && typeof pillInput.pillInputUpdate === "function") {
-              pillInput.pillInputUpdate(workspaces.split(",").map((v) => v.trim()).filter(Boolean));
-            }
-          }
-
-          Object.entries(settings).forEach(([key, value]) => {
+          Object.entries(initial).forEach(([key, value]) => {
             const field = form.querySelector(`[name='${key}']`);
             if (!field) return;
             if (field.type === "checkbox") {
@@ -399,6 +356,14 @@
               });
             } else if (value !== null && value !== undefined) {
               field.value = value;
+            }
+          });
+
+          form.querySelectorAll("[data-pill-input]").forEach((pillInput) => {
+            const hidden = pillInput.querySelector("input[type='hidden']");
+            const value = hidden?.value || "";
+            if (typeof pillInput.pillInputUpdate === "function") {
+              pillInput.pillInputUpdate(value.split(",").map((part) => part.trim()).filter(Boolean));
             }
           });
         });

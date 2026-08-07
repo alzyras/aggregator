@@ -16,7 +16,7 @@ from ingestion.models import Job
 from ingestion.providers import STATUS_WRITEBACK_SUCCESS, StatusWritebackResult
 from ingestion.services.jobs import run_job
 from planner.models import PlannerItem, PlannerItemState, PlannerPlan, PlannerStatusIntent
-from planner.services.reconcile import reconcile_from_event
+from planner.services.reconcile import add_items_from_events, reconcile_from_event
 from workspaces.models import Workspace, WorkspaceMember
 
 
@@ -62,6 +62,27 @@ class PlannerTests(TestCase):
         self.assertEqual(result.item.source_status, "open")
         self.assertFalse(result.item.external_completed)
 
+    def test_reconcile_sets_source_created_at_from_task_created_event(self):
+        source_created_at = timezone.now() - timedelta(days=3)
+        event = Event.objects.create(
+            workspace=self.workspace,
+            connector_account=self.account,
+            source="asana",
+            source_entity_type="task",
+            source_entity_id="task-created-at",
+            event_type="task_created",
+            title="Created Task",
+            start_time=source_created_at,
+            external_status="open",
+            raw={},
+            dedupe_hash="hash-created-at",
+        )
+
+        result = reconcile_from_event(event)
+
+        self.assertTrue(result.created)
+        self.assertEqual(result.item.source_created_at, source_created_at)
+
     def test_reconcile_updates_existing_item(self):
         item = PlannerItem.objects.create(
             workspace=self.workspace,
@@ -87,6 +108,123 @@ class PlannerTests(TestCase):
         item.refresh_from_db()
         self.assertEqual(item.title, "New")
         self.assertTrue(item.external_completed)
+
+    def test_reconcile_captures_provider_source_url(self):
+        event = Event.objects.create(
+            workspace=self.workspace,
+            connector_account=self.account,
+            source="asana",
+            source_entity_type="task",
+            source_entity_id="task-linked",
+            event_type="task_created",
+            title="Linked task",
+            external_status="open",
+            raw={"permalink_url": "https://app.asana.com/0/1/task-linked"},
+            dedupe_hash="hash-source-url",
+        )
+
+        result = reconcile_from_event(event)
+
+        self.assertEqual(
+            result.item.source_url,
+            "https://app.asana.com/0/1/task-linked",
+        )
+
+    def test_source_import_updates_source_url_on_existing_item(self):
+        plan = PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-existing-link",
+            title="Existing task",
+        )
+        event = Event.objects.create(
+            workspace=self.workspace,
+            connector_account=self.account,
+            source="asana",
+            source_entity_type="task",
+            source_entity_id="task-existing-link",
+            event_type="task_updated",
+            title="Existing task",
+            raw={"permalink_url": "https://app.asana.com/0/1/task-existing-link"},
+            dedupe_hash="hash-existing-source-url",
+        )
+
+        add_items_from_events(
+            workspace=self.workspace,
+            user=self.user,
+            events=[event],
+            plan=plan,
+        )
+
+        item.refresh_from_db()
+        self.assertEqual(
+            item.source_url,
+            "https://app.asana.com/0/1/task-existing-link",
+        )
+
+    def test_reconcile_reopened_task_clears_external_completion(self):
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-reopened",
+            title="Reopened task",
+            source_status="completed",
+            external_completed=True,
+        )
+        event = Event.objects.create(
+            workspace=self.workspace,
+            connector_account=self.account,
+            source="asana",
+            source_entity_type="task",
+            source_entity_id="task-reopened",
+            event_type="task_reopened",
+            title="Reopened task",
+            external_status="open",
+            raw={},
+            dedupe_hash="hash-reopened",
+        )
+
+        reconcile_from_event(event)
+
+        item.refresh_from_db()
+        self.assertFalse(item.external_completed)
+        self.assertEqual(item.source_status, "open")
+
+    def test_reconcile_deleted_task_hides_item(self):
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-deleted",
+            title="Deleted task",
+            is_active=True,
+        )
+        event = Event.objects.create(
+            workspace=self.workspace,
+            connector_account=self.account,
+            source="asana",
+            source_entity_type="task",
+            source_entity_id="task-deleted",
+            event_type="task_deleted",
+            title="Deleted task",
+            external_status="deleted",
+            raw={},
+            dedupe_hash="hash-deleted",
+        )
+
+        reconcile_from_event(event)
+
+        item.refresh_from_db()
+        self.assertFalse(item.is_active)
 
     def test_status_endpoint_isolated(self):
         plan = PlannerPlan.objects.create(
@@ -173,6 +311,134 @@ class PlannerTests(TestCase):
         self.assertNotContains(response, "Never synced")
         self.assertNotContains(response, "Synced ")
 
+    def test_planner_rows_render_provider_context_pills_for_planned_and_inbox_items(self):
+        plan = PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        jira_account = ConnectorAccount.objects.create(
+            workspace=self.workspace,
+            source="jira",
+            display_name="Jira Main",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"",
+            status=ConnectorAccount.STATUS_CONNECTED,
+        )
+        todoist_account = ConnectorAccount.objects.create(
+            workspace=self.workspace,
+            source="todoist",
+            display_name="Todoist Main",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"",
+            status=ConnectorAccount.STATUS_CONNECTED,
+        )
+        planned_item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=jira_account,
+            source="jira",
+            source_entity_id="ABC-1",
+            title="Planned Jira Task",
+            last_synced_at=timezone.now(),
+        )
+        PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=None,
+            connector_account=todoist_account,
+            source="todoist",
+            source_entity_id="task-42",
+            title="Inbox Todoist Task",
+            last_synced_at=timezone.now(),
+        )
+        PlannerItemState.objects.create(
+            plan=plan,
+            item=planned_item,
+            planner_status=PlannerItemState.PLANNER_STATUS_BACKLOG,
+        )
+        Event.objects.create(
+            workspace=self.workspace,
+            connector_account=jira_account,
+            source="jira",
+            source_entity_type="issue",
+            source_entity_id="ABC-1",
+            event_type="task_state",
+            title="Planned Jira Task",
+            external_status="To Do",
+            raw={"__jira_planner_context": {"project": "DEVT", "epic": "Competition mode"}},
+            dedupe_hash="jira-badge-1",
+        )
+        Event.objects.create(
+            workspace=self.workspace,
+            connector_account=todoist_account,
+            source="todoist",
+            source_entity_type="task",
+            source_entity_id="task-42",
+            event_type="task_state",
+            title="Inbox Todoist Task",
+            external_status="open",
+            raw={"__todoist_planner_context": {"project_name": "Ops", "section_name": "Today"}},
+            dedupe_hash="todoist-badge-1",
+        )
+
+        response = self.client.get(reverse("planner_list"))
+
+        self.assertContains(response, "DEVT")
+        self.assertContains(response, "Competition mode")
+        self.assertContains(response, "Ops")
+        self.assertContains(response, "Today")
+
+    def test_planner_rows_use_latest_event_raw_for_context_pills(self):
+        plan = PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-context-latest",
+            title="Latest Context Task",
+            last_synced_at=timezone.now(),
+        )
+        PlannerItemState.objects.create(plan=plan, item=item)
+        older = Event.objects.create(
+            workspace=self.workspace,
+            connector_account=self.account,
+            source="asana",
+            source_entity_type="task",
+            source_entity_id="task-context-latest",
+            event_type="task_state",
+            title="Latest Context Task",
+            external_status="open",
+            raw={"__asana_planner_context": {"workspace_name": "Workspace", "project_name": "Old Project"}},
+            dedupe_hash="asana-badge-old",
+        )
+        newer = Event.objects.create(
+            workspace=self.workspace,
+            connector_account=self.account,
+            source="asana",
+            source_entity_type="task",
+            source_entity_id="task-context-latest",
+            event_type="task_state",
+            title="Latest Context Task",
+            external_status="open",
+            raw={"__asana_planner_context": {"workspace_name": "Workspace", "project_name": "New Project"}},
+            dedupe_hash="asana-badge-new",
+        )
+        Event.objects.filter(id=older.id).update(created_at=timezone.now() - timedelta(hours=1))
+        Event.objects.filter(id=newer.id).update(created_at=timezone.now())
+
+        response = self.client.get(reverse("planner_list"))
+
+        self.assertContains(response, "Workspace")
+        self.assertContains(response, "New Project")
+        self.assertNotContains(response, "Old Project")
+
     def test_planner_inbox_includes_unplanned_synced_tasks_newest_first(self):
         todoist_account = ConnectorAccount.objects.create(
             workspace=self.workspace,
@@ -207,6 +473,52 @@ class PlannerTests(TestCase):
 
         inbox = next(tab for tab in response.context["tab_items"] if tab["value"] == PlannerItemState.PLANNER_STATUS_INBOX)
         self.assertEqual([row.item.id for row in inbox["items"][:2]], [newer.id, older.id])
+
+    def test_planner_inbox_includes_unplanned_completed_tasks(self):
+        completed = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=None,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-completed-inbox",
+            title="Completed Inbox Task",
+            external_completed=True,
+            last_synced_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse("planner_list"))
+
+        inbox = next(tab for tab in response.context["tab_items"] if tab["value"] == PlannerItemState.PLANNER_STATUS_INBOX)
+        self.assertIn(completed.id, [row.item.id for row in inbox["items"]])
+
+    def test_planner_inbox_sorts_by_source_created_at_newest_first(self):
+        local_newer = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=None,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-local-newer",
+            title="Local Newer",
+            source_created_at=timezone.now() - timedelta(days=2),
+            last_synced_at=timezone.now(),
+        )
+        source_newer = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=None,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-source-newer",
+            title="Source Newer",
+            source_created_at=timezone.now(),
+            last_synced_at=timezone.now(),
+        )
+        PlannerItem.objects.filter(id=local_newer.id).update(created_at=timezone.now())
+        PlannerItem.objects.filter(id=source_newer.id).update(created_at=timezone.now() - timedelta(days=1))
+
+        response = self.client.get(reverse("planner_list"))
+
+        inbox = next(tab for tab in response.context["tab_items"] if tab["value"] == PlannerItemState.PLANNER_STATUS_INBOX)
+        self.assertEqual([row.item.id for row in inbox["items"][:2]], [source_newer.id, local_newer.id])
 
     def test_planner_inbox_excludes_items_assigned_to_status_tabs(self):
         plan = PlannerPlan.objects.create(
@@ -422,6 +734,229 @@ class PlannerTests(TestCase):
         self.assertEqual(state.planner_status, PlannerItemState.PLANNER_STATUS_DONE)
         self.assertEqual(state.writeback_status, PlannerItemState.WRITEBACK_STATUS_UNSUPPORTED)
         self.assertEqual(Job.objects.filter(job_type="planner_status_writeback").count(), 0)
+
+    def test_description_endpoint_updates_local_item_and_queues_writeback(self):
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-description",
+            title="Description Task",
+        )
+
+        response = self.client.post(
+            reverse("planner_item_description", args=[item.id]),
+            data=json.dumps({"description": "New notes"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        item.refresh_from_db()
+        self.assertEqual(item.description, "New notes")
+        self.assertEqual(item.description_writeback_status, PlannerItem.DESCRIPTION_WRITEBACK_STATUS_PENDING)
+        self.assertTrue(Job.objects.filter(job_type="planner_description_writeback").exists())
+
+    def test_description_endpoint_reuses_state_for_duplicate_source_identity(self):
+        plan = PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        assigned = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-description-duplicate",
+            title="Assigned",
+            last_synced_at=timezone.now(),
+        )
+        duplicate = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=None,
+            connector_account=None,
+            source="asana",
+            source_entity_id="task-description-duplicate",
+            title="Duplicate",
+            last_synced_at=timezone.now(),
+        )
+        PlannerItemState.objects.create(plan=plan, item=assigned)
+
+        response = self.client.post(
+            reverse("planner_item_description", args=[duplicate.id]),
+            data=json.dumps({"description": "Canonical notes"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        assigned.refresh_from_db()
+        duplicate.refresh_from_db()
+        self.assertEqual(response.json()["item_id"], assigned.id)
+        self.assertEqual(assigned.description, "Canonical notes")
+        self.assertIsNone(duplicate.description)
+
+    def test_description_endpoint_denies_other_workspace(self):
+        other_user = self._create_user("description_other")
+        other_workspace = Workspace.objects.create(name="Other Description Workspace")
+        WorkspaceMember.objects.create(
+            workspace=other_workspace,
+            user=other_user,
+            role=WorkspaceMember.ROLE_OWNER,
+        )
+        other_item = PlannerItem.objects.create(
+            workspace=other_workspace,
+            user=other_user,
+            connector_account=None,
+            source="asana",
+            source_entity_id="task-description-other",
+            title="Other Description Task",
+        )
+
+        response = self.client.post(
+            reverse("planner_item_description", args=[other_item.id]),
+            data=json.dumps({"description": "Nope"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_description_endpoint_marks_disconnected_account_unsupported(self):
+        self.account.status = ConnectorAccount.STATUS_ERROR
+        self.account.save(update_fields=["status"])
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-description-disconnected",
+            title="Disconnected Description Task",
+        )
+
+        response = self.client.post(
+            reverse("planner_item_description", args=[item.id]),
+            data=json.dumps({"description": "Local notes"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        item.refresh_from_db()
+        self.assertEqual(item.description_writeback_status, PlannerItem.DESCRIPTION_WRITEBACK_STATUS_UNSUPPORTED)
+        self.assertEqual(Job.objects.filter(job_type="planner_description_writeback").count(), 0)
+
+    def test_description_writeback_job_updates_status(self):
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-description-writeback",
+            title="Description Writeback Task",
+            description="Queued notes",
+            description_external_requested="Queued notes",
+            description_writeback_status=PlannerItem.DESCRIPTION_WRITEBACK_STATUS_PENDING,
+        )
+        job = Job.objects.create(
+            workspace=self.workspace,
+            connector_account=self.account,
+            job_type="planner_description_writeback",
+            job_name="planner_description_writeback",
+            input_params={
+                "planner_item_id": item.id,
+                "description": "Queued notes",
+            },
+            created_by=self.user,
+        )
+        writer = Mock()
+        writer.update_description.return_value = SimpleNamespace(
+            status=STATUS_WRITEBACK_SUCCESS,
+            description="Queued notes",
+            message="ok",
+            raw={},
+        )
+        spec = SimpleNamespace(description_writer_factory=lambda account: writer)
+
+        with patch("planner.services.writeback.get_provider_spec", return_value=spec):
+            run_job(job.id)
+
+        item.refresh_from_db()
+        job.refresh_from_db()
+        self.assertEqual(job.status, Job.STATUS_SUCCESS)
+        self.assertEqual(item.description_writeback_status, PlannerItem.DESCRIPTION_WRITEBACK_STATUS_SYNCED)
+        writer.update_description.assert_called_once()
+
+    @override_settings(PLANNER_DESCRIPTION_WRITEBACK_MAX_RETRIES=0)
+    def test_description_writeback_job_failure_marks_item_after_retries_exhausted(self):
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-description-failure",
+            title="Description Failure Task",
+            description="Queued notes",
+            description_external_requested="Queued notes",
+            description_writeback_status=PlannerItem.DESCRIPTION_WRITEBACK_STATUS_PENDING,
+        )
+        job = Job.objects.create(
+            workspace=self.workspace,
+            connector_account=self.account,
+            job_type="planner_description_writeback",
+            job_name="planner_description_writeback",
+            input_params={
+                "planner_item_id": item.id,
+                "description": "Queued notes",
+            },
+            created_by=self.user,
+        )
+        writer = Mock()
+        writer.update_description.side_effect = RuntimeError("provider down")
+        spec = SimpleNamespace(description_writer_factory=lambda account: writer)
+
+        with patch("planner.services.writeback.get_provider_spec", return_value=spec):
+            run_job(job.id)
+
+        item.refresh_from_db()
+        job.refresh_from_db()
+        self.assertEqual(job.status, Job.STATUS_FAILED)
+        self.assertEqual(item.description_writeback_status, PlannerItem.DESCRIPTION_WRITEBACK_STATUS_FAILED)
+        self.assertIn("provider down", item.last_description_writeback_error)
+
+    def test_description_writeback_job_ignores_stale_description(self):
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-description-stale",
+            title="Description Stale Task",
+            description="Newer notes",
+            description_external_requested="Old notes",
+            description_writeback_status=PlannerItem.DESCRIPTION_WRITEBACK_STATUS_PENDING,
+        )
+        job = Job.objects.create(
+            workspace=self.workspace,
+            connector_account=self.account,
+            job_type="planner_description_writeback",
+            job_name="planner_description_writeback",
+            input_params={
+                "planner_item_id": item.id,
+                "description": "Old notes",
+            },
+            created_by=self.user,
+        )
+        writer = Mock()
+        spec = SimpleNamespace(description_writer_factory=lambda account: writer)
+
+        with patch("planner.services.writeback.get_provider_spec", return_value=spec):
+            run_job(job.id)
+
+        item.refresh_from_db()
+        job.refresh_from_db()
+        self.assertEqual(job.status, Job.STATUS_SUCCESS)
+        self.assertEqual(item.description, "Newer notes")
+        writer.update_description.assert_not_called()
 
     def test_planner_writeback_job_updates_external_fields(self):
         plan = PlannerPlan.objects.create(

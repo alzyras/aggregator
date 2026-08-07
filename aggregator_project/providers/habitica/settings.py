@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from connectors.models import ConnectorAccount
+
 DEFAULT_SETTINGS: dict[str, bool] = {
     "sync_habits": True,
     "sync_todos": True,
@@ -9,7 +11,7 @@ DEFAULT_SETTINGS: dict[str, bool] = {
     "emit_history_occurrences": True,
     "emit_completion_occurrences": True,
     "task_state_created": False,
-    "task_state_updated": False,
+    "task_state_updated": True,
     "task_state_completed": False,
 }
 MASKED_TOKEN = "*********************"
@@ -51,12 +53,27 @@ def habitica_form_initial(account) -> dict[str, Any]:
     user_id = getattr(account, "external_account_id", None)
     if user_id:
         settings["user_id"] = user_id
-    if getattr(account, "get_access_token", None):
-        existing = account.get_access_token()
-        if existing:
-            settings["api_token"] = MASKED_TOKEN
+    if getattr(account, "encrypted_access_token", None):
+        settings["api_token"] = MASKED_TOKEN
     return settings
 
 
 def is_masked_token(value: Any) -> bool:
     return isinstance(value, str) and value.strip() == MASKED_TOKEN
+
+
+def resolve_masked_credentials(account, cleaned_data: dict[str, Any]) -> dict[str, Any]:
+    if is_masked_token(cleaned_data.get("api_token")):
+        return {**cleaned_data, "api_token": account.get_access_token()}
+    return cleaned_data
+
+
+def apply_credentials(account, cleaned_data: dict[str, Any]) -> None:
+    token = cleaned_data.get("api_token")
+    if token and not is_masked_token(token):
+        account.set_access_token(token)
+    account.set_refresh_token(None)
+    account.external_account_id = cleaned_data.get("user_id")
+    account.auth_type = ConnectorAccount.AUTH_API_TOKEN
+    account.token_expires_at = None
+    apply_habitica_settings(account, cleaned_data)

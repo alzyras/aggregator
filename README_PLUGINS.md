@@ -1,186 +1,141 @@
-# Aggregator Plugins
+# Connectors and Plugins
 
-This document provides detailed information about each plugin in the Aggregator application, including their data schemas and configuration requirements.
+Aggregator has two deliberately separate extension systems.
 
-## Table of Contents
-- [Asana Plugin](#asana-plugin)
-- [Habitica Plugin](#habitica-plugin)
-- [Toggl Plugin](#toggl-plugin)
-- [Google Fit Plugin](#google-fit-plugin)
+- **Connectors** communicate with external services. They authenticate, fetch,
+  normalize, and optionally write task changes back to the source.
+- **Plugins** are workspace tools that operate on data already stored in
+  Aggregator. Enabling a plugin can add its own navigation entry and UI.
 
-## Asana Plugin
+## Connectors
 
-Collects completed tasks and subtasks from Asana projects.
+Connector availability is controlled by `ENABLED_CONNECTORS`. Leave it empty to
+enable every installed connector, or use a comma-separated allowlist such as:
 
-### Configuration
-To enable the Asana plugin, add `asana` to the `ENABLED_PLUGINS` list in your `.env` file and set the following variables:
+```dotenv
+ENABLED_CONNECTORS=asana,todoist,jira,habitica,github,linear,clickup,trello
+```
 
-- `ASANA_ACCESS_TOKEN`: Asana personal access token (preferred method)
+Users add and edit accounts from `/connectors/`; credentials are encrypted with
+`ENCRYPTION_KEY`. The current connectors are:
 
-### Setup Instructions
-1. Go to Asana > My Profile Settings > Apps > Manage Developer Apps
-2. Click "+ Create new personal access token"
-3. Give it a name (e.g., "Aggregator")
-4. Copy the token and add it to your `.env` file as `ASANA_ACCESS_TOKEN`
+| Connector | Ingests tasks | Status writeback | Description writeback |
+| --- | --- | --- | --- |
+| Asana | Yes | Yes | Yes |
+| Todoist | Yes | Yes | Yes |
+| Jira Cloud / Server | Yes | Yes | Yes |
+| Habitica | Yes | Yes | Yes |
+| GitHub Issues | Yes | Open / close | Yes |
+| Linear | Yes | Workflow-state mapping | Yes |
+| ClickUp | Yes | Configured list statuses | Yes |
+| Trello | Yes | Archive / configured lists | Yes |
+| Google Fit | Activity events | No | No |
 
-### Data Schema
+Every provider is an installed Django app under
+`aggregator_project/providers/<provider>/`. Its `AppConfig.ready()` registers a
+single `ProviderSpec`. A complete task provider owns these capabilities inside
+its folder:
 
-| Column | Type | Description |
-|--------|------|-------------|
-| task_id | VARCHAR(255) | Unique task identifier |
-| task_name | TEXT | Name of the task |
-| time_to_completion | REAL | Time taken to complete the task |
-| project | TEXT | Project the task belongs to |
-| workspace_id | TEXT | ID of the workspace the task belongs to |
-| workspace_name | TEXT | Name of the workspace the task belongs to |
-| project_created_at | DATETIME | When the project was created |
-| project_notes | TEXT | Notes about the project |
-| project_owner | TEXT | Owner of the project |
-| completed_by_name | TEXT | Name of who completed the task |
-| completed_by_email | TEXT | Email of who completed the task |
-| completed | BOOLEAN | Whether the task is completed |
-| task_description | TEXT | Description of the task |
-| date | DATETIME | Date of the task |
-| created_by_name | TEXT | Name of who created the task |
-| created_by_email | TEXT | Email of who created the task |
-| type | VARCHAR(10) | Type of the item |
+```text
+providers/example/
+  apps.py                  # registers ProviderSpec
+  client.py                # fetches source records
+  forms.py                 # account configuration
+  normalizer.py            # emits canonical events
+  settings.py              # credentials, preferences, source links
+  verify.py                # verifies credentials
+  sanitizer.py             # strips unsafe raw payload data
+  status_writer.py         # status and description writeback
+  planner_badges.py        # source-specific planner context
+  templates/providers/example/
+```
 
-## Habitica Plugin
+The central ingestion and connector apps consume the contract; they do not need
+provider-specific branches. Provider tests should assert normalization,
+pagination and filtering, exact writeback requests, verification, sanitization,
+and connector form behavior.
 
-Collects completed habits, dailies, and todos from Habitica.
+## Workspace Intelligence
 
-### Configuration
-To enable the Habitica plugin, add `habitica` to the `ENABLED_PLUGINS` list in your `.env` file and set the following variables:
+The first-class workspace intelligence area is not a plugin. It lives at
+`/insights/` and keeps the cross-provider taxonomy in one place:
 
-- `HABITICA_USER_ID`: Habitica user ID
-- `HABITICA_API_TOKEN`: Habitica API token
+- imported tasks receive deterministic rule tags immediately;
+- an owner or admin can select an OpenAI Responses model or a reachable
+  OpenAI-compatible local Qwen endpoint for summaries and richer tags;
+- `task_enrichment` jobs only send the current task content and use a content
+  hash so stale jobs are ignored;
+- manual tags are preserved when rules or AI classify a task again;
+- `/insights/chat/` persists conversations per workspace and user, grounded in
+  that user's visible tasks, tags, Planner state, and aggregate insight data.
 
-### Setup Instructions
-1. Get your Habitica User ID and API Token from Habitica settings
-2. Add them to your `.env` file
+OpenAI Responses requests set `store=false`. The local backend calls an
+OpenAI-compatible `/v1/chat/completions` endpoint, so it works with common
+Qwen serving stacks without embedding a model runtime in this application.
 
-### Data Schema
+## Plugins
 
-| Column | Type | Description |
-|--------|------|-------------|
-| item_id | VARCHAR(36) | Unique item identifier |
-| item_name | VARCHAR(255) | Name of the item |
-| item_type | VARCHAR(50) | Type of the item (habit, daily, todo) |
-| value | DECIMAL(10, 8) | Value of the item |
-| date_created | DATETIME | When the item was created |
-| date_completed | DATETIME | When the item was completed |
-| notes | TEXT | Notes about the item |
-| priority | DECIMAL(3, 1) | Priority level of the item |
-| tags | TEXT | Tags associated with the item |
-| completed | BOOLEAN | Whether the item is completed |
+Plugin availability comes from installed `plugin.json` manifests. Installation
+does not enable a plugin: a workspace owner enables each tool from `/plugins/`,
+and its navigation entry appears only in that workspace.
 
-## Toggl Plugin
+### Built-in Plugins
 
-Fetches time tracking data from the Toggl API.
+**SQL Explorer** creates an isolated, read-only SQLite snapshot of the current
+workspace's tasks. Queries are limited to one read statement and cannot access
+the application database or another workspace.
 
-### Configuration
-To enable the Toggl plugin, add `toggl` to the `ENABLED_PLUGINS` list in your `.env` file and set the following variables:
+**Data Chat** sends a size-capped task snapshot to the OpenAI Responses API only
+after a user submits a question. Requests use `store=false`; task text is marked
+as untrusted data. Configure it with:
 
-- `TOGGL_API_TOKEN`: Toggl API token
+```dotenv
+OPENAI_API_KEY=...
+OPENAI_CHAT_MODEL=...
+```
 
-### Setup Instructions
-1. Obtain a Toggl API token from your Toggl account settings
-2. Set the environment variable in your `.env` file
+**Activity Pulse** calculates provider distribution, planner workload,
+completion, and task-aging signals locally without an external service.
 
-### Data Schema
+### Plugin Contract
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | BIGINT | Unique identifier |
-| user_id | BIGINT | ID of the user |
-| user_name | VARCHAR(255) | Name of the user |
-| project_id | BIGINT | ID of the project |
-| project_name | VARCHAR(255) | Name of the project |
-| client_id | BIGINT | ID of the client |
-| client_name | VARCHAR(255) | Name of the client |
-| description | TEXT | Description of the time entry |
-| start_time | DATETIME | When the time entry started |
-| end_time | DATETIME | When the time entry ended |
-| duration_minutes | DECIMAL(10, 2) | Duration in minutes |
-| tags | TEXT | Tags associated with the time entry |
-| billable | BOOLEAN | Whether the time entry is billable |
-| created_at | DATETIME | When the record was created |
+A plugin is self-contained under `aggregator_project/plugins/<plugin>/`:
 
-## Google Fit Plugin
+```text
+plugins/example/
+  plugin.json
+  apps.py
+  urls.py
+  views.py
+  services.py
+  templates/plugins/example/
+  static/plugins/example/
+  tests/
+```
 
-Collects health and fitness data directly from Google Fit.
+`plugin.json` identifies the Django app config. `AppConfig.ready()` registers a
+`PluginSpec` with an ID, label, description, URL name, icon, order, and optional
+configuration check. The platform discovers the manifest, installs the app,
+mounts its URL configuration, enforces workspace activation, and builds the
+navigation entry from that spec.
 
-### Configuration
-To enable the Google Fit plugin, add `google_fit` to the `ENABLED_PLUGINS` list in your `.env` file and set the following variables:
+Plugin code must scope every query to `request.workspace`. Plugins should not
+import another plugin's implementation or add special cases to the platform.
+Cross-plugin capability belongs in a stable core service instead.
 
-- `GOOGLE_FIT_CLIENT_ID`: Google Fit client ID
-- `GOOGLE_FIT_CLIENT_SECRET`: Google Fit client secret
+## Adding an Extension
 
-### How It Works
-The plugin uses the Google Fit REST API to access health and fitness data directly from your Google account.
+For a connector:
 
-### Setup Instructions
-1. **Google API Console Setup**:
-   - Go to the [Google API Console](https://console.developers.google.com/)
-   - Create a new project or select an existing one
-   - Enable the Fitness API
-   - Create OAuth 2.0 credentials (Client ID and Client Secret)
-   - Make sure to add `http://localhost:8080/oauth2callback` as an authorized redirect URI
+1. Create the provider folder and `AppConfig`.
+2. Implement and register one complete `ProviderSpec`.
+3. Add the source choice and install the app.
+4. Add provider-focused sync, lifecycle, writeback, and UI contract tests.
 
-2. Set the environment variables in your `.env` file
+For a plugin:
 
-3. **OAuth Flow**:
-   - The plugin will automatically start the OAuth flow when run for the first time
-   - The plugin will open your browser and ask you to authorize access to your Google Fit data
-   - After authorization, the plugin will automatically obtain both access and refresh tokens
-   - Tokens will be stored in `aggregator_project/providers/google_fit/data/google_fit_tokens.json`
-
-### Data Types Collected
-- **Steps**: Daily step counts
-- **Heart Rate**: Hourly heart rate readings
-- **General Health**: Weight, height, and body fat percentage
-
-### Steps Data Schema
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | VARCHAR(255) | Unique identifier |
-| user_id | VARCHAR(255) | ID of the user |
-| timestamp | DATETIME | Date of the steps (time component is 00:00:00) |
-| steps | INT | Number of steps |
-
-### Heart Rate Data Schema
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | VARCHAR(255) | Unique identifier |
-| user_id | VARCHAR(255) | ID of the user |
-| timestamp | DATETIME | When the data was recorded |
-| heart_rate | DECIMAL(5, 2) | Heart rate in BPM |
-
-### General Health Data Schema
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | VARCHAR(255) | Unique identifier |
-| user_id | VARCHAR(255) | ID of the user |
-| date | DATE | Date of the measurement |
-| data_type | VARCHAR(50) | Type of data (weight, height, body_fat_percentage) |
-| value | DECIMAL(10, 2) | Measurement value |
-| unit | VARCHAR(20) | Measurement unit (kg, cm, %) |
-| source | VARCHAR(100) | Data source |
-## LLM Focus Analysis
-
-The `llm_summary` plugin supports topic-focused analysis across all sources. Ask queries like “learning Portuguese”, “programming”, “client deadlines”, or “health”.
-
-How it works:
-- Interprets your query into concepts/keywords (without touching your activity data).
-- Searches Asana (projects/tasks/descriptions), Toggl (projects/clients/descriptions), Habitica (items/notes/tags), and Google Fit (data_type/source) for matches.
-- Computes presence, volume, consistency, streaks, and momentum for matched activity over explicit windows.
-- Builds a compact context and lets the local LLM narrate only the derived signals.
-
-CLI:
-- `python manage.py llm_focus "your topic"` (defaults to last_90_days)
-- Optional `--period last_month|last_90_days|last_12_months`
-
-Privacy: only the query text is sent to the LLM for intent interpretation; activity data stays local and only summarized context is shared with the local LLM endpoint.
+1. Create the self-contained plugin folder and `plugin.json`.
+2. Register one `PluginSpec` from its `AppConfig`.
+3. Add routes, templates, static assets, and workspace-isolation tests inside
+   that folder.
+4. Confirm enable, disable, navigation, and direct-URL access behavior.

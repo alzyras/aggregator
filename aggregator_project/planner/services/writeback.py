@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 from connectors.models import ConnectorAccount
 from django.db import transaction
 from django.utils import timezone
@@ -17,6 +19,8 @@ from planner.models import PlannerItem, PlannerItemState, PlannerStatusIntent
 
 JOB_TYPE = "planner_status_writeback"
 JOB_NAME = "planner_status_writeback"
+DESCRIPTION_JOB_TYPE = "planner_description_writeback"
+DESCRIPTION_JOB_NAME = "planner_description_writeback"
 
 
 def queue_status_writeback(
@@ -109,6 +113,62 @@ def retry_failed_status_writeback(
     return queue_status_writeback(state=state, created_by=created_by)
 
 
+def queue_description_writeback(
+    *,
+    item: PlannerItem,
+    created_by=None,
+) -> Job | None:
+    account = item.connector_account
+    description = item.description or ""
+
+    if account is None:
+        _mark_description_unsupported(item, "This task is not linked to a connector account.")
+        return None
+    if not _account_can_write(account):
+        _mark_description_unsupported(item, "Connector account is not connected.")
+        return None
+
+    spec = get_provider_spec(account.source)
+    if not spec or spec.description_writer_factory is None:
+        _mark_description_unsupported(item, "This provider does not support planner description writeback.")
+        return None
+
+    idempotency_key = _description_idempotency_key(item, description)
+    existing_job = (
+        Job.objects
+        .filter(idempotency_key=idempotency_key, status__in=ACTIVE_JOB_STATUSES)
+        .order_by("queued_at")
+        .first()
+    )
+    if existing_job:
+        _mark_existing_description_job_pending(item, existing_job, description)
+        return existing_job
+
+    with transaction.atomic():
+        job = create_job(
+            workspace=item.workspace,
+            connector_account=account,
+            job_type=DESCRIPTION_JOB_TYPE,
+            job_name=DESCRIPTION_JOB_NAME,
+            input_params={
+                "planner_item_id": item.id,
+                "description": description,
+            },
+            created_by=created_by,
+            idempotency_key=idempotency_key,
+        )
+        _mark_existing_description_job_pending(item, job, description)
+    return job
+
+
+def retry_failed_description_writeback(
+    *,
+    item: PlannerItem,
+    created_by=None,
+) -> Job | None:
+    return queue_description_writeback(item=item, created_by=created_by)
+
+
 def _mark_existing_job_pending(state: PlannerItemState, job: Job) -> None:
     state.external_status_requested = state.planner_status
     state.writeback_status = PlannerItemState.WRITEBACK_STATUS_PENDING
@@ -120,6 +180,21 @@ def _mark_existing_job_pending(state: PlannerItemState, job: Job) -> None:
             "writeback_status",
             "last_writeback_job_id",
             "last_writeback_error",
+        ]
+    )
+
+
+def _mark_existing_description_job_pending(item: PlannerItem, job: Job, description: str) -> None:
+    item.description_external_requested = description
+    item.description_writeback_status = PlannerItem.DESCRIPTION_WRITEBACK_STATUS_PENDING
+    item.last_description_writeback_job_id = job.id
+    item.last_description_writeback_error = ""
+    item.save(
+        update_fields=[
+            "description_external_requested",
+            "description_writeback_status",
+            "last_description_writeback_job_id",
+            "last_description_writeback_error",
         ]
     )
 
@@ -186,6 +261,58 @@ def execute_status_writeback_job(job: Job) -> dict:
     return _apply_result(state, result, intent=intent)
 
 
+def execute_description_writeback_job(job: Job) -> dict:
+    item_id = job.input_params.get("planner_item_id")
+    requested_description = job.input_params.get("description")
+    if not item_id or requested_description is None:
+        raise ValueError("Planner description writeback job is missing required input params.")
+    requested_description = str(requested_description)
+
+    item = (
+        PlannerItem.objects
+        .select_related("connector_account")
+        .get(id=item_id)
+    )
+    account = item.connector_account
+    if item.workspace_id != job.workspace_id:
+        raise ValueError("Planner item does not belong to job workspace.")
+    if account is None:
+        return _mark_description_unsupported(item, "This task is not linked to a connector account.")
+    if account.id != job.connector_account_id:
+        raise ValueError("Planner item connector does not match job connector.")
+    if (item.description or "") != requested_description:
+        return {"status": "stale", "ignored": True}
+    if item.description_external_requested != requested_description:
+        return {"status": "stale", "ignored": True}
+    if not _account_can_write(account):
+        return _mark_description_unsupported(item, "Connector account is not connected.")
+
+    spec = get_provider_spec(account.source)
+    if not spec or spec.description_writer_factory is None:
+        return _mark_description_unsupported(item, "This provider does not support planner description writeback.")
+
+    now = timezone.now()
+    item.description_writeback_status = PlannerItem.DESCRIPTION_WRITEBACK_STATUS_PENDING
+    item.last_description_writeback_attempted_at = now
+    item.last_description_writeback_error = ""
+    item.save(
+        update_fields=[
+            "description_writeback_status",
+            "last_description_writeback_attempted_at",
+            "last_description_writeback_error",
+        ]
+    )
+
+    writer = spec.description_writer_factory(account)
+    result = writer.update_description(
+        source_entity_id=item.source_entity_id,
+        description=requested_description,
+        item=item,
+        source_entity_type=_latest_source_entity_type(item),
+    )
+    return _apply_description_result(item, result, requested_description=requested_description)
+
+
 def mark_status_writeback_job_failed(job: Job, message: str) -> None:
     state_id = job.input_params.get("planner_item_state_id")
     requested_status = job.input_params.get("planner_status")
@@ -240,6 +367,31 @@ def mark_status_writeback_job_failed(job: Job, message: str) -> None:
         )
 
 
+def mark_description_writeback_job_failed(job: Job, message: str) -> None:
+    item_id = job.input_params.get("planner_item_id")
+    requested_description = job.input_params.get("description")
+    if not item_id or requested_description is None:
+        return
+    item = PlannerItem.objects.filter(id=item_id).first()
+    if not item:
+        return
+    requested_description = str(requested_description)
+    if item.description_external_requested != requested_description:
+        return
+    if (item.description or "") != requested_description:
+        return
+    item.description_writeback_status = PlannerItem.DESCRIPTION_WRITEBACK_STATUS_FAILED
+    item.last_description_writeback_error = message
+    item.last_description_writeback_attempted_at = timezone.now()
+    item.save(
+        update_fields=[
+            "description_writeback_status",
+            "last_description_writeback_error",
+            "last_description_writeback_attempted_at",
+        ]
+    )
+
+
 def mark_status_writeback_job_retrying(job: Job, message: str) -> None:
     state_id = job.input_params.get("planner_item_state_id")
     requested_status = job.input_params.get("planner_status")
@@ -267,6 +419,31 @@ def mark_status_writeback_job_retrying(job: Job, message: str) -> None:
         intent.last_attempted_at = timezone.now()
         intent.last_error = ""
         intent.save(update_fields=["status", "attempts", "last_attempted_at", "last_error"])
+
+
+def mark_description_writeback_job_retrying(job: Job, message: str) -> None:
+    item_id = job.input_params.get("planner_item_id")
+    requested_description = job.input_params.get("description")
+    if not item_id or requested_description is None:
+        return
+    item = PlannerItem.objects.filter(id=item_id).first()
+    if not item:
+        return
+    requested_description = str(requested_description)
+    if item.description_external_requested != requested_description:
+        return
+    if (item.description or "") != requested_description:
+        return
+    item.description_writeback_status = PlannerItem.DESCRIPTION_WRITEBACK_STATUS_PENDING
+    item.last_description_writeback_error = ""
+    item.last_description_writeback_attempted_at = timezone.now()
+    item.save(
+        update_fields=[
+            "description_writeback_status",
+            "last_description_writeback_error",
+            "last_description_writeback_attempted_at",
+        ]
+    )
 
 
 def revert_state_to_source_status(state: PlannerItemState) -> None:
@@ -327,6 +504,19 @@ def writeback_payload(state: PlannerItemState, job: Job | None = None) -> dict:
         "writeback_status": state.writeback_status,
         "writeback_message": message,
         "job_id": str(job.id) if job else str(state.last_writeback_job_id or ""),
+    }
+
+
+def description_writeback_payload(item: PlannerItem, job: Job | None = None) -> dict:
+    message = item.last_description_writeback_error
+    if item.description_writeback_status == PlannerItem.DESCRIPTION_WRITEBACK_STATUS_PENDING and not message:
+        message = "Saving description to source..."
+    elif item.description_writeback_status == PlannerItem.DESCRIPTION_WRITEBACK_STATUS_SYNCED:
+        message = ""
+    return {
+        "description_writeback_status": item.description_writeback_status,
+        "description_writeback_message": message,
+        "description_job_id": str(job.id) if job else str(item.last_description_writeback_job_id or ""),
     }
 
 
@@ -395,6 +585,46 @@ def _apply_result(state: PlannerItemState, result, *, intent: PlannerStatusInten
     }
 
 
+def _apply_description_result(item: PlannerItem, result, *, requested_description: str) -> dict:
+    now = timezone.now()
+    update_item_fields: list[str] = []
+    if result.description is not None and item.description == requested_description:
+        if item.description != result.description:
+            item.description = result.description
+            update_item_fields.append("description")
+    if result.status in {STATUS_WRITEBACK_SUCCESS, STATUS_WRITEBACK_NOOP}:
+        item.description_writeback_status = PlannerItem.DESCRIPTION_WRITEBACK_STATUS_SYNCED
+        item.last_description_writeback_error = ""
+        item.last_description_writeback_succeeded_at = now
+        item.last_synced_at = now
+        update_item_fields.extend([
+            "description_writeback_status",
+            "last_description_writeback_error",
+            "last_description_writeback_succeeded_at",
+            "last_synced_at",
+        ])
+    elif result.status == STATUS_WRITEBACK_UNSUPPORTED:
+        item.description_writeback_status = PlannerItem.DESCRIPTION_WRITEBACK_STATUS_UNSUPPORTED
+        item.last_description_writeback_error = result.message
+        update_item_fields.extend(["description_writeback_status", "last_description_writeback_error"])
+    elif result.status == STATUS_WRITEBACK_FAILED:
+        item.description_writeback_status = PlannerItem.DESCRIPTION_WRITEBACK_STATUS_FAILED
+        item.last_description_writeback_error = result.message
+        update_item_fields.extend(["description_writeback_status", "last_description_writeback_error"])
+    else:
+        item.description_writeback_status = PlannerItem.DESCRIPTION_WRITEBACK_STATUS_FAILED
+        item.last_description_writeback_error = f"Unknown writeback result: {result.status}"
+        update_item_fields.extend(["description_writeback_status", "last_description_writeback_error"])
+
+    if update_item_fields:
+        item.save(update_fields=list(dict.fromkeys(update_item_fields + ["updated_at"])))
+    return {
+        "status": result.status,
+        "description": result.description,
+        "message": result.message,
+    }
+
+
 def _mark_unsupported(
     state: PlannerItemState,
     message: str,
@@ -416,6 +646,20 @@ def _mark_unsupported(
         intent.last_error = message
         intent.completed_at = timezone.now()
         intent.save(update_fields=["status", "last_error", "completed_at"])
+    return {"status": STATUS_WRITEBACK_UNSUPPORTED, "message": message}
+
+
+def _mark_description_unsupported(item: PlannerItem, message: str) -> dict:
+    item.description_external_requested = item.description or ""
+    item.description_writeback_status = PlannerItem.DESCRIPTION_WRITEBACK_STATUS_UNSUPPORTED
+    item.last_description_writeback_error = message
+    item.save(
+        update_fields=[
+            "description_external_requested",
+            "description_writeback_status",
+            "last_description_writeback_error",
+        ]
+    )
     return {"status": STATUS_WRITEBACK_UNSUPPORTED, "message": message}
 
 
@@ -460,6 +704,11 @@ def _intent_idempotency_key(state: PlannerItemState) -> str:
     return f"{JOB_TYPE}:{state.plan_id}:{state.item_id}:{state.planner_status}"
 
 
+def _description_idempotency_key(item: PlannerItem, description: str) -> str:
+    digest = hashlib.sha256(description.encode("utf-8")).hexdigest()
+    return f"{DESCRIPTION_JOB_TYPE}:{item.id}:{digest}"
+
+
 def _latest_source_entity_type(item: PlannerItem) -> str | None:
     return (
         Event.objects
@@ -498,7 +747,7 @@ def _planner_status_label(planner_status: str) -> str:
     labels = {
         PlannerItemState.PLANNER_STATUS_INBOX: "Inbox",
         PlannerItemState.PLANNER_STATUS_BACKLOG: "To do",
-        PlannerItemState.PLANNER_STATUS_DOING: "Doing",
+        PlannerItemState.PLANNER_STATUS_DOING: "In progress",
         PlannerItemState.PLANNER_STATUS_DONE: "Done",
     }
     return labels.get(planner_status, planner_status or "unknown")

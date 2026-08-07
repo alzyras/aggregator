@@ -1,0 +1,1 @@
+"""ClickUp task connector."""
