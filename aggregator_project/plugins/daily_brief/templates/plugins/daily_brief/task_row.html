@@ -1,0 +1,11 @@
+{% if task.source_url %}
+  <a class="daily-brief-task" href="{{ task.source_url }}" target="_blank" rel="noopener noreferrer">
+{% else %}
+  <a class="daily-brief-task" href="{% url 'planner_list' %}">
+{% endif %}
+    <span class="provider-dot source-{{ task.source }}" aria-hidden="true"></span>
+    <span class="daily-brief-task-main"><strong>{{ task.title }}</strong><small>{{ task.source_label }}{% if task.collection %} · {{ task.collection }}{% endif %}</small></span>
+    <span class="daily-brief-task-meta">
+      {% if time_label %}{{ time_label }}{% elif task.planned_start %}{{ task.planned_start|date:"H:i" }}{% elif task.estimated_minutes %}{{ task.estimated_minutes }} min{% else %}Inbox{% endif %}
+    </span>
+  </a>

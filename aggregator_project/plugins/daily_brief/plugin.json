@@ -1,0 +1,4 @@
+{
+  "id": "daily-brief",
+  "app_config": "plugins.daily_brief.apps.DailyBriefConfig"
+}

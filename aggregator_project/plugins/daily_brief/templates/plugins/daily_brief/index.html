@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'plugins/daily_brief.css' %}?v=20260811a" />
+{% endblock %}
+
+{% block content %}
+  <section
+    class="workspace-page daily-brief-page"
+    data-workspace-refresh
+    data-refresh-url="{% url 'refresh_now' %}"
+    data-refresh-state-url="{% url 'refresh_state' %}"
+    data-refresh-cache-version="{{ refresh_state.policy.cache_version }}"
+    data-refresh-autoload="true"
+  >
+    <header class="workspace-header daily-brief-header">
+      <div>
+        <p class="workspace-kicker">Plugin</p>
+        <h1>Daily Brief</h1>
+        <p class="daily-brief-date">{{ brief.today|date:"l, F j" }}</p>
+      </div>
+      <div class="inbox-header-actions">
+        <div class="sync-presence{% if refresh_state.stale_count or not refresh_state.has_connected_sources %} is-stale{% endif %}" data-refresh-presence>
+          <span class="sync-presence-dot" aria-hidden="true"></span>
+          {% if refresh_state.is_refreshing %}
+            <span>Refreshing {{ refresh_state.refreshing_count }} source{{ refresh_state.refreshing_count|pluralize }}</span>
+          {% elif refresh_state.failed_count %}
+            <span>{{ refresh_state.failed_count }} source{{ refresh_state.failed_count|pluralize }} needs attention</span>
+          {% elif refresh_state.all_checked_at %}
+            <span title="{{ refresh_state.all_checked_at|date:'Y-m-d H:i:s T' }}">Updated {{ refresh_state.all_checked_at|timesince }} ago</span>
+          {% elif refresh_state.has_connected_sources %}
+            <span>Awaiting first refresh</span>
+          {% else %}
+            <span>Connect a source to refresh</span>
+          {% endif %}
+        </div>
+        <button class="icon-text-button" type="button" data-refresh-now>
+          <i class="button-icon" data-lucide="refresh-cw" aria-hidden="true"></i>
+          <span>Refresh now</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="daily-brief-metrics" aria-label="Daily planning summary">
+      <div><span>In focus</span><strong>{{ brief.focus_count }}</strong><small>{% if brief.focus_minutes %}{{ brief.focus_minutes }} min{% else %}No estimate{% endif %}</small></div>
+      <div><span>Today</span><strong>{{ brief.today_count }}</strong><small>{% if brief.today_minutes %}{{ brief.today_minutes }} min planned{% else %}No estimates{% endif %}</small></div>
+      <div><span>To triage</span><strong>{{ brief.inbox_count }}</strong><small>new signals</small></div>
+      <div><span>Upcoming</span><strong>{{ brief.upcoming_count }}</strong><small>already placed</small></div>
+    </div>
+
+    {% if brief.has_tasks %}
+      <div class="daily-brief-layout">
+        <section class="daily-brief-primary" aria-labelledby="brief-focus-title">
+          <header class="daily-brief-section-header">
+            <div><p>Protect this</p><h2 id="brief-focus-title">In focus</h2></div>
+            <a href="{% url 'planner_list' %}">Open planner</a>
+          </header>
+          <div class="daily-brief-task-list">
+            {% for task in brief.focus %}
+              {% include "plugins/daily_brief/task_row.html" with task=task time_label="Now" %}
+            {% empty %}
+              <div class="daily-brief-empty">Move one task into In progress when you are ready to begin.</div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="daily-brief-primary" aria-labelledby="brief-today-title">
+          <header class="daily-brief-section-header">
+            <div><p>Give it a place</p><h2 id="brief-today-title">Today</h2></div>
+            <span>{{ brief.today_count }} task{{ brief.today_count|pluralize }}</span>
+          </header>
+          <div class="daily-brief-task-list">
+            {% for task in brief.today_tasks %}
+              {% include "plugins/daily_brief/task_row.html" with task=task %}
+            {% empty %}
+              <div class="daily-brief-empty">Your day is open. Schedule only what has a clear place.</div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="daily-brief-secondary" aria-labelledby="brief-triage-title">
+          <header class="daily-brief-section-header">
+            <div><p>New signals</p><h2 id="brief-triage-title">Triage</h2></div>
+            <span>{{ brief.inbox_count }} total</span>
+          </header>
+          <div class="daily-brief-task-list">
+            {% for task in brief.triage %}
+              {% include "plugins/daily_brief/task_row.html" with task=task %}
+            {% empty %}
+              <div class="daily-brief-empty">Nothing new is waiting in Inbox.</div>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="daily-brief-secondary" aria-labelledby="brief-upcoming-title">
+          <header class="daily-brief-section-header">
+            <div><p>Already planned</p><h2 id="brief-upcoming-title">Upcoming</h2></div>
+            <span>{{ brief.upcoming_count }} task{{ brief.upcoming_count|pluralize }}</span>
+          </header>
+          <div class="daily-brief-task-list">
+            {% for task in brief.upcoming %}
+              {% include "plugins/daily_brief/task_row.html" with task=task %}
+            {% empty %}
+              <div class="daily-brief-empty">Future work will appear here once it has a date.</div>
+            {% endfor %}
+          </div>
+        </section>
+      </div>
+    {% else %}
+      <section class="daily-brief-empty-state">
+        <i data-lucide="calendar-check-2" aria-hidden="true"></i>
+        <div><h2>A clear start</h2><p>Connect a source or add a personal task to build your daily brief.</p></div>
+        <a class="btn primary" href="{% url 'planner_list' %}">Open planner</a>
+      </section>
+    {% endif %}
+  </section>
+
+  <script>
+    (function () {
+      const refreshRoot = document.querySelector("[data-workspace-refresh]");
+      const refreshButton = refreshRoot?.querySelector("[data-refresh-now]");
+      refreshButton?.addEventListener("click", () => {
+        window.workspaceRefresh?.queueAndTrack(refreshRoot, refreshButton);
+      });
+    })();
+  </script>
+{% endblock %}
