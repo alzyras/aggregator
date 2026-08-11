@@ -8,12 +8,14 @@ from unittest.mock import Mock, patch
 from connectors.models import ConnectorAccount
 from cryptography.fernet import Fernet
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from events.models import Event
 from ingestion.models import Job
 from ingestion.providers import STATUS_WRITEBACK_SUCCESS, StatusWritebackResult
+from ingestion.services.cache import invalidate_workspace_cache
 from ingestion.services.jobs import run_job
 from planner.models import PlannerItem, PlannerItemState, PlannerPlan, PlannerStatusIntent
 from planner.services.reconcile import add_items_from_events, reconcile_from_event
@@ -438,6 +440,47 @@ class PlannerTests(TestCase):
         self.assertContains(response, "Workspace")
         self.assertContains(response, "New Project")
         self.assertNotContains(response, "Old Project")
+
+    def test_planner_provider_context_pills_are_cached_until_workspace_data_changes(self):
+        cache.clear()
+        plan = PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-context-cached",
+            title="Cached Context Task",
+            last_synced_at=timezone.now(),
+        )
+        PlannerItemState.objects.create(plan=plan, item=item)
+        latest_raw_by_key = {
+            (self.account.id, "asana", "task-context-cached"): {
+                "__asana_planner_context": {
+                    "workspace_name": "Workspace",
+                    "project_name": "Cached Project",
+                }
+            }
+        }
+
+        with patch(
+            "planner.views._latest_event_raw_by_item_key",
+            return_value=latest_raw_by_key,
+        ) as latest_raw:
+            first = self.client.get(reverse("planner_list"))
+            second = self.client.get(reverse("planner_list"))
+            invalidate_workspace_cache(self.workspace)
+            third = self.client.get(reverse("planner_list"))
+
+        self.assertContains(first, "Cached Project")
+        self.assertContains(second, "Cached Project")
+        self.assertContains(third, "Cached Project")
+        self.assertEqual(latest_raw.call_count, 2)
 
     def test_planner_inbox_includes_unplanned_synced_tasks_newest_first(self):
         todoist_account = ConnectorAccount.objects.create(

@@ -16,11 +16,17 @@ def get_workspace_refresh_policy(workspace) -> WorkspaceRefreshPolicy:
     return policy
 
 
-def workspace_cache_key(workspace, namespace: str, *parts: object) -> str:
+def workspace_cache_key(
+    workspace,
+    namespace: str,
+    *parts: object,
+    cache_version: int | None = None,
+) -> str:
     """Build process-independent keys that are invalidated with workspace data."""
-    policy = get_workspace_refresh_policy(workspace)
+    if cache_version is None:
+        cache_version = get_workspace_refresh_policy(workspace).cache_version
     suffix = ":".join(str(part) for part in parts) if parts else "all"
-    return f"aggregator:workspace:{workspace.id}:v{policy.cache_version}:{namespace}:{suffix}"
+    return f"aggregator:workspace:{workspace.id}:v{cache_version}:{namespace}:{suffix}"
 
 
 def cache_get(key: str, default=None):

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from uuid import uuid4
 
 from connectors.models import ConnectorAccount
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
@@ -19,6 +21,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 from events.models import Event
 from ingestion.providers import get_provider_spec
+from ingestion.services.cache import cache_get, cache_set, workspace_cache_key
 from ingestion.services.refresh import get_workspace_refresh_snapshot
 
 from planner.models import PlannerItem, PlannerItemState, PlannerPlan
@@ -39,6 +42,7 @@ from planner.services.writeback import (
 )
 
 PLANNER_EVENT_TYPES = ["task_created", "task_updated", "task_state", "task_completed"]
+PLANNER_PROVIDER_BADGE_CACHE_NAMESPACE = "planner-provider-badges-v1"
 PLANNER_STATUS_LABELS = {
     PlannerItemState.PLANNER_STATUS_INBOX: "Inbox",
     PlannerItemState.PLANNER_STATUS_BACKLOG: "To do",
@@ -99,9 +103,14 @@ def planner_list(request: HttpRequest) -> HttpResponse:
     if last_synced_at:
         stale_warning = (now - last_synced_at) > timedelta(hours=24)
 
-    tab_items = _planner_tab_items(request=request, plan=plan, states=list(states))
-    tab_items = _attach_provider_context_pills(request=request, tab_items=tab_items)
     refresh_state = get_workspace_refresh_snapshot(workspace=request.workspace)
+    tab_items = _planner_tab_items(request=request, plan=plan, states=list(states))
+    tab_items = _attach_provider_context_pills(
+        request=request,
+        plan=plan,
+        tab_items=tab_items,
+        cache_version=refresh_state["policy"].cache_version,
+    )
     planner_sections = _planner_sections(tab_items=tab_items, today=timezone.localdate())
     source_choices = _planner_source_choices(
         workspace=request.workspace,
@@ -924,30 +933,27 @@ def _row_from_item(item: PlannerItem) -> PlannerRow:
     )
 
 
-def _attach_provider_context_pills(*, request: HttpRequest, tab_items: list[dict]) -> list[dict]:
+def _attach_provider_context_pills(
+    *,
+    request: HttpRequest,
+    plan: PlannerPlan,
+    tab_items: list[dict],
+    cache_version: int,
+) -> list[dict]:
     rows = [row for tab in tab_items for row in tab["items"]]
-    latest_raw_by_key = _latest_event_raw_by_item_key(request=request, rows=rows)
+    pills_by_item_id = _provider_context_pills(
+        request=request,
+        plan=plan,
+        rows=rows,
+        cache_version=cache_version,
+    )
     enriched_rows: dict[int, PlannerRow] = {}
 
     for row in rows:
-        item = row.item
-        if not item.connector_account_id:
-            enriched_rows[id(row)] = row
-            continue
-        raw = latest_raw_by_key.get((item.connector_account_id, item.source, item.source_entity_id))
-        if not raw:
-            enriched_rows[id(row)] = row
-            continue
-        spec = get_provider_spec(item.source)
-        if not spec or spec.planner_badge_extractor is None:
-            enriched_rows[id(row)] = row
-            continue
-        pills = tuple(
-            pill
-            for pill in spec.planner_badge_extractor(item, raw)
-            if isinstance(pill, str) and pill.strip()
+        enriched_rows[id(row)] = replace(
+            row,
+            context_pills=pills_by_item_id[row.item.id],
         )
-        enriched_rows[id(row)] = replace(row, context_pills=pills)
 
     enriched_tabs = []
     for tab in tab_items:
@@ -956,6 +962,107 @@ def _attach_provider_context_pills(*, request: HttpRequest, tab_items: list[dict
             "items": [enriched_rows.get(id(row), row) for row in tab["items"]],
         })
     return enriched_tabs
+
+
+def _provider_context_pills(
+    *,
+    request: HttpRequest,
+    plan: PlannerPlan,
+    rows: list[PlannerRow],
+    cache_version: int,
+) -> dict[int, tuple[str, ...]]:
+    """Cache small derived provider labels, never the source event payloads."""
+    if not rows:
+        return {}
+
+    item_ids = sorted({row.item.id for row in rows})
+    item_ids_signature = hashlib.sha256(
+        ",".join(str(item_id) for item_id in item_ids).encode("ascii")
+    ).hexdigest()[:20]
+    cache_key = workspace_cache_key(
+        request.workspace,
+        PLANNER_PROVIDER_BADGE_CACHE_NAMESPACE,
+        plan.id,
+        item_ids_signature,
+        cache_version=cache_version,
+    )
+    cached_pills = _cached_provider_context_pills(
+        payload=cache_get(cache_key),
+        item_ids=item_ids,
+    )
+    if cached_pills is not None:
+        return cached_pills
+
+    pills_by_item_id = _build_provider_context_pills(request=request, rows=rows)
+    cache_set(
+        cache_key,
+        {
+            str(item_id): list(pills_by_item_id[item_id])
+            for item_id in item_ids
+        },
+        timeout=settings.CACHE_DEFAULT_TIMEOUT_SECONDS,
+    )
+    return pills_by_item_id
+
+
+def _cached_provider_context_pills(
+    *,
+    payload,
+    item_ids: list[int],
+) -> dict[int, tuple[str, ...]] | None:
+    if not isinstance(payload, dict):
+        return None
+
+    restored: dict[int, tuple[str, ...]] = {}
+    for item_id in item_ids:
+        pills = payload.get(str(item_id))
+        if not isinstance(pills, (list, tuple)):
+            return None
+        if any(not isinstance(pill, str) or not pill.strip() for pill in pills):
+            return None
+        restored[item_id] = tuple(pills)
+    return restored
+
+
+def _build_provider_context_pills(
+    *,
+    request: HttpRequest,
+    rows: list[PlannerRow],
+) -> dict[int, tuple[str, ...]]:
+    pills_by_item_id = {row.item.id: () for row in rows}
+    specs_by_source = {
+        source: get_provider_spec(source)
+        for source in {
+            row.item.source
+            for row in rows
+            if row.item.connector_account_id and row.item.source
+        }
+    }
+    supported_rows = [
+        row
+        for row in rows
+        if specs_by_source.get(row.item.source)
+        and specs_by_source[row.item.source].planner_badge_extractor is not None
+    ]
+    latest_raw_by_key = _latest_event_raw_by_item_key(
+        request=request,
+        rows=supported_rows,
+    )
+
+    for row in supported_rows:
+        item = row.item
+        raw = latest_raw_by_key.get(
+            (item.connector_account_id, item.source, item.source_entity_id)
+        )
+        if not raw:
+            continue
+        extractor = specs_by_source[item.source].planner_badge_extractor
+        pills_by_item_id[item.id] = tuple(
+            pill
+            for pill in extractor(item, raw)
+            if isinstance(pill, str) and pill.strip()
+        )
+    return pills_by_item_id
 
 
 def _latest_event_raw_by_item_key(*, request: HttpRequest, rows: list[PlannerRow]) -> dict[tuple[int, str, str], dict]:
