@@ -55,6 +55,11 @@
                 <td data-label="Instance" id="row-{{ row.account.id }}">{{ row.account.display_name }}</td>
                 <td data-label="Status">
                   <span class="status-badge {{ row.status_key }}">{{ row.status_label }}</span>
+                  {% if row.requires_reconnect %}
+                    <div class="connector-status-note">Credentials need reconnecting.</div>
+                  {% elif row.account.last_error and row.status_key == "error" %}
+                    <div class="connector-status-note">{{ row.account.last_error }}</div>
+                  {% endif %}
                 </td>
                 <td data-label="Last sync">
                   {% if row.account.last_sync_at %}
@@ -83,9 +88,10 @@
                       data-edit-name="{{ row.account.display_name }}"
                       data-edit-action="{% url 'update_connector_account' row.account.id %}"
                       data-edit-initial='{{ row.edit_initial_json|escapejs }}'
+                      data-edit-reconnect="{% if row.requires_reconnect %}true{% else %}false{% endif %}"
                       {% if not row.enabled %}disabled{% endif %}
                     >
-                      Edit
+                      {% if row.requires_reconnect %}Reconnect{% else %}Edit{% endif %}
                     </button>
                     <form method="post" action="{% url 'remove_connector_account' row.account.id %}">
                       {% csrf_token %}
@@ -119,6 +125,7 @@
       data-edit-source="{{ edit_account.source }}"
       data-edit-name="{{ edit_account.display_name }}"
       data-edit-action="{% url 'update_connector_account' edit_account.id %}"
+      data-edit-reconnect="{% if edit_account.requires_reconnect %}true{% else %}false{% endif %}"
     {% endif %}
   >
     <div class="modal-scrim" data-close-modal></div>
@@ -329,6 +336,7 @@
           const source = btn.dataset.editSource;
           const displayName = btn.dataset.editName;
           const action = btn.dataset.editAction;
+          const reconnect = btn.dataset.editReconnect === "true";
           const initialRaw = btn.dataset.editInitial || "";
           let initial = {};
           if (initialRaw) {
@@ -340,7 +348,11 @@
           }
           openModal();
           showForm(source, { displayName, action });
-          if (subtitle) subtitle.textContent = "Update instance details.";
+          if (subtitle) {
+            subtitle.textContent = reconnect
+              ? "Enter replacement credentials to reconnect this source."
+              : "Update instance details.";
+          }
 
           const form = Array.from(forms).find((item) => item.dataset.provider === source);
           if (!form) return;
@@ -382,7 +394,11 @@
           displayName: modal.dataset.editName,
           action: modal.dataset.editAction,
         });
-        if (subtitle) subtitle.textContent = "Update instance details.";
+        if (subtitle) {
+          subtitle.textContent = modal.dataset.editReconnect === "true"
+            ? "Enter replacement credentials to reconnect this source."
+            : "Update instance details.";
+        }
       }
     })();
   </script>

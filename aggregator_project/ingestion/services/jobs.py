@@ -7,6 +7,7 @@ import traceback
 import uuid
 
 from connectors.models import ConnectorAccount
+from connectors.encryption import EncryptionError
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import transaction
@@ -216,10 +217,13 @@ def _handle_job_exception(*, job: Job, attempt: JobAttempt, exc: Exception) -> N
     attempt.error_message = str(exc)
     retryable = _is_retryable_exception(exc)
     if job.job_type == "sync" and job.connector_account_id:
-        ConnectorAccount.objects.filter(id=job.connector_account_id).update(
-            last_sync_status=ConnectorAccount.SYNC_STATUS_FAILED,
-            last_sync_at=timezone.now(),
-        )
+        if isinstance(exc, EncryptionError):
+            _mark_connector_reconnect_required(job)
+        else:
+            ConnectorAccount.objects.filter(id=job.connector_account_id).update(
+                last_sync_status=ConnectorAccount.SYNC_STATUS_FAILED,
+                last_sync_at=timezone.now(),
+            )
 
     if retryable and job.attempt_count < _max_attempts(job):
         job.status = Job.STATUS_QUEUED
@@ -267,6 +271,19 @@ def _handle_job_exception(*, job: Job, attempt: JobAttempt, exc: Exception) -> N
             "status": job.status,
             "retryable": retryable,
         },
+    )
+
+
+def _mark_connector_reconnect_required(job: Job) -> None:
+    """Disable credentials that cannot be recovered with the current key."""
+    now = timezone.now()
+    ConnectorAccount.objects.filter(id=job.connector_account_id).update(
+        status=ConnectorAccount.STATUS_ERROR,
+        is_active=False,
+        last_error=ConnectorAccount.RECONNECT_REQUIRED_ERROR,
+        last_sync_status=ConnectorAccount.SYNC_STATUS_FAILED,
+        last_sync_at=now,
+        updated_at=now,
     )
 
 
@@ -356,7 +373,10 @@ def _default_max_attempts(job_type: str) -> int:
 
 
 def _is_retryable_exception(exc: Exception) -> bool:
-    return not isinstance(exc, (NonRetryableJobError, ValidationError, ValueError))
+    return not isinstance(
+        exc,
+        (EncryptionError, NonRetryableJobError, ValidationError, ValueError),
+    )
 
 
 def _stale_lock_cutoff():

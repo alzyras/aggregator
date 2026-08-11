@@ -919,6 +919,14 @@ a {
   color: #b91c1c;
 }
 
+.connector-status-note {
+  margin-top: 0.35rem;
+  max-width: 18rem;
+  color: #b91c1c;
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
 .status-badge.validating {
   background: rgba(59, 130, 246, 0.16);
   color: #1d4ed8;

@@ -22,6 +22,10 @@ class ConnectorAccount(TimestampedModel):
     STATUS_REVOKED = "revoked"
     SYNC_STATUS_SUCCESS = "success"
     SYNC_STATUS_FAILED = "failed"
+    RECONNECT_REQUIRED_ERROR = (
+        "Reconnect required: saved credentials can no longer be decrypted. "
+        "Replace credentials to resume syncing."
+    )
 
     AUTH_TYPE_CHOICES = [
         (AUTH_API_TOKEN, "API Token"),
@@ -93,6 +97,13 @@ class ConnectorAccount(TimestampedModel):
     def clear_tokens(self) -> None:
         self.encrypted_access_token = encrypt_value("")
         self.encrypted_refresh_token = None
+
+    @property
+    def requires_reconnect(self) -> bool:
+        return (
+            self.status == self.STATUS_ERROR
+            and self.last_error == self.RECONNECT_REQUIRED_ERROR
+        )
 
     def __str__(self) -> str:
         return f"{self.get_source_display()} ({self.display_name})"

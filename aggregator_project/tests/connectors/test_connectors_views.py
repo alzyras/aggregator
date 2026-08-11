@@ -189,6 +189,81 @@ class ConnectorViewsTests(TestCase):
         job = Job.objects.get()
         self.assertEqual(job.connector_account_id, account.id)
 
+    def test_plugins_view_marks_reconnect_required_account(self):
+        ConnectorAccount.objects.create(
+            workspace=self.workspace,
+            source="asana",
+            display_name="Asana",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"unreadable-token",
+            status=ConnectorAccount.STATUS_ERROR,
+            is_active=False,
+            last_error=ConnectorAccount.RECONNECT_REQUIRED_ERROR,
+        )
+
+        response = self.client.get(reverse("plugins_view"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["connector_rows"][0]["requires_reconnect"])
+        self.assertContains(response, "Reconnect")
+        self.assertContains(response, "Credentials need reconnecting.")
+
+    def test_edit_with_masked_unreadable_token_prompts_for_replacement(self):
+        account = ConnectorAccount.objects.create(
+            workspace=self.workspace,
+            source="asana",
+            display_name="Asana",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"unreadable-token",
+            status=ConnectorAccount.STATUS_ERROR,
+            is_active=False,
+            last_error=ConnectorAccount.RECONNECT_REQUIRED_ERROR,
+        )
+
+        response = self.client.post(
+            reverse("update_connector_account", args=[account.id]),
+            data={
+                "display_name": "Asana",
+                "access_token": "*********************",
+                "workspace_gids": "12345",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Saved credentials cannot be read.")
+
+    def test_reconnect_with_replacement_credentials_restores_account(self):
+        account = ConnectorAccount.objects.create(
+            workspace=self.workspace,
+            source="asana",
+            display_name="Asana",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"unreadable-token",
+            status=ConnectorAccount.STATUS_ERROR,
+            is_active=False,
+            last_error=ConnectorAccount.RECONNECT_REQUIRED_ERROR,
+        )
+
+        with patch("connectors.views.verify_credentials", return_value=(True, "ok")):
+            response = self.client.post(
+                reverse("update_connector_account", args=[account.id]),
+                data={
+                    "display_name": "Asana reconnected",
+                    "access_token": "new-access-token",
+                    "workspace_gids": "12345",
+                },
+            )
+
+        account.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(account.status, ConnectorAccount.STATUS_CONNECTED)
+        self.assertTrue(account.is_active)
+        self.assertIsNone(account.last_error)
+        self.assertEqual(account.get_access_token(), "new-access-token")
+        refresh_job = Job.objects.get(connector_account=account, job_type="sync")
+        self.assertTrue(refresh_job.input_params["full_sync"])
+        self.assertEqual(refresh_job.input_params["refresh_reason"], "reconnect")
+
 
 def _real_specs():
     from ingestion.providers import get_provider_specs

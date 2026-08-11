@@ -174,6 +174,7 @@ def _refresh_state_payload(snapshot: dict[str, object]) -> dict[str, object]:
         "connected_count": snapshot["connected_count"],
         "refreshing_count": snapshot["refreshing_count"],
         "failed_count": snapshot["failed_count"],
+        "reconnect_required_count": snapshot["reconnect_required_count"],
         "stale_count": snapshot["stale_count"],
         "is_refreshing": snapshot["is_refreshing"],
         "is_current": snapshot["is_current"],

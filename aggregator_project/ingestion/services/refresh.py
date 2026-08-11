@@ -47,6 +47,10 @@ def get_workspace_refresh_snapshot(*, workspace, now=None) -> dict[str, object]:
         )
         .only("id", "last_sync_at", "last_sync_status", "last_full_sync_at")
     )
+    reconnect_required_count = ConnectorAccount.objects.for_workspace(workspace).filter(
+        status=ConnectorAccount.STATUS_ERROR,
+        last_error=ConnectorAccount.RECONNECT_REQUIRED_ERROR,
+    ).count()
     account_ids = [account.id for account in accounts]
     active_sync_account_ids = set(
         Job.objects.for_workspace(workspace)
@@ -64,7 +68,7 @@ def get_workspace_refresh_snapshot(*, workspace, now=None) -> dict[str, object]:
         if account.last_sync_at
         and account.last_sync_status != ConnectorAccount.SYNC_STATUS_FAILED
     ]
-    failed_count = sum(
+    failed_count = reconnect_required_count + sum(
         account.last_sync_status == ConnectorAccount.SYNC_STATUS_FAILED
         for account in accounts
     )
@@ -96,9 +100,10 @@ def get_workspace_refresh_snapshot(*, workspace, now=None) -> dict[str, object]:
         "next_refresh_at": min(next_times) if next_times else None,
         "is_refreshing": bool(active_sync_account_ids),
         "refreshing_count": len(active_sync_account_ids),
-        "stale_count": len(stale_account_ids),
+        "stale_count": len(stale_account_ids) + reconnect_required_count,
         "failed_count": failed_count,
-        "is_current": bool(accounts) and not stale_account_ids,
+        "reconnect_required_count": reconnect_required_count,
+        "is_current": bool(accounts) and not stale_account_ids and not reconnect_required_count,
         "has_connected_sources": bool(accounts),
     }
 

@@ -10,7 +10,7 @@ from django.shortcuts import redirect, render
 from django.utils import timezone
 import json
 
-from connectors.encryption import encrypt_value
+from connectors.encryption import EncryptionError, encrypt_value
 from connectors.models import ConnectorAccount
 from connectors.services import sanitize_error
 from connectors.services.verify import verify_credentials
@@ -180,8 +180,22 @@ def update_connector_account(request, account_id: int):
             edit_account=account,
         )
 
+    requires_reconnect = account.requires_reconnect
     credentials = form.cleaned_data
-    credentials = _resolve_masked_credentials(account, spec.source, credentials)
+    try:
+        credentials = _resolve_masked_credentials(account, spec.source, credentials)
+    except EncryptionError:
+        form.add_error(
+            None,
+            "Saved credentials cannot be read. Enter replacement credentials to reconnect this source.",
+        )
+        return _render_plugins_view(
+            request,
+            overrides={spec.source: form},
+            modal_state="configure",
+            selected_source=spec.source,
+            edit_account=account,
+        )
     ok, message = spec.validate_credentials(credentials)
     if not ok:
         form.add_error(None, message)
@@ -230,7 +244,20 @@ def update_connector_account(request, account_id: int):
                 "updated_at",
             ]
         )
-        messages.success(request, f"Updated {spec.label} successfully.")
+        if requires_reconnect:
+            refresh = queue_workspace_refresh(
+                workspace=request.workspace,
+                created_by=request.user,
+                connector_account_id=account.id,
+                force_full=True,
+                reason="reconnect",
+            )
+            if refresh.jobs:
+                messages.success(request, f"Reconnected {spec.label}. Full refresh queued.")
+            else:
+                messages.success(request, f"Reconnected {spec.label} successfully.")
+        else:
+            messages.success(request, f"Updated {spec.label} successfully.")
         return redirect("plugins_view")
 
     account.status = ConnectorAccount.STATUS_ERROR
@@ -406,7 +433,9 @@ def _render_plugins_view(
         spec = spec_map.get(account.source)
         latest_job = latest_job_by_connector.get(account.id)
         status_key = account.status
-        if latest_job:
+        if account.requires_reconnect:
+            status_key = ConnectorAccount.STATUS_ERROR
+        elif latest_job:
             if latest_job.status == Job.STATUS_FAILED:
                 status_key = ConnectorAccount.STATUS_ERROR
             elif latest_job.status == Job.STATUS_RUNNING:
@@ -429,6 +458,7 @@ def _render_plugins_view(
                 "spec": spec,
                 "status_key": status_key,
                 "status_label": status_label,
+                "requires_reconnect": account.requires_reconnect,
                 "last_sync_status": last_sync_status,
                 "event_count": event_counts.get(account.id, 0),
                 "enabled": _connector_enabled(account.source),

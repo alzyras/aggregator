@@ -8,10 +8,12 @@
           <p class="workspace-kicker">Data freshness</p>
           <h1>Sync</h1>
         </div>
-        <div class="sync-presence{% if refresh_state.stale_count or not refresh_state.has_connected_sources %} is-stale{% endif %}">
+        <div class="sync-presence{% if refresh_state.stale_count or refresh_state.reconnect_required_count or not refresh_state.has_connected_sources %} is-stale{% endif %}">
           <span class="sync-presence-dot" aria-hidden="true"></span>
           {% if refresh_state.is_refreshing %}
             <span>Refreshing {{ refresh_state.refreshing_count }} source{{ refresh_state.refreshing_count|pluralize }}</span>
+          {% elif refresh_state.reconnect_required_count %}
+            <span>Reconnect {{ refresh_state.reconnect_required_count }} source{{ refresh_state.reconnect_required_count|pluralize }} in Connectors</span>
           {% elif refresh_state.failed_count %}
             <span>{{ refresh_state.failed_count }} source{{ refresh_state.failed_count|pluralize }} needs attention</span>
           {% elif refresh_state.all_checked_at %}

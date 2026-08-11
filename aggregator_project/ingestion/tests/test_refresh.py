@@ -132,6 +132,26 @@ class RefreshEngineTests(TestCase):
         self.assertIsNone(snapshot["all_checked_at"])
         self.assertFalse(snapshot["is_current"])
 
+    def test_snapshot_reports_reconnect_required_sources(self):
+        self.account.status = ConnectorAccount.STATUS_ERROR
+        self.account.is_active = False
+        self.account.last_error = ConnectorAccount.RECONNECT_REQUIRED_ERROR
+        self.account.save(update_fields=["status", "is_active", "last_error"])
+
+        snapshot = get_workspace_refresh_snapshot(workspace=self.workspace)
+        result = queue_workspace_refresh(
+            workspace=self.workspace,
+            created_by=self.user,
+        )
+
+        self.assertEqual(snapshot["connected_count"], 0)
+        self.assertEqual(snapshot["reconnect_required_count"], 1)
+        self.assertEqual(snapshot["failed_count"], 1)
+        self.assertEqual(snapshot["stale_count"], 1)
+        self.assertFalse(snapshot["is_current"])
+        self.assertFalse(snapshot["has_connected_sources"])
+        self.assertEqual(result.queued_count, 0)
+
     def test_incremental_sync_uses_cursor_with_overlap_and_advances_cursor(self):
         now = timezone.now()
         self.account.sync_cursor_at = now - timedelta(minutes=10)
@@ -186,6 +206,7 @@ class RefreshEngineTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["cache_version"], policy.cache_version)
         self.assertEqual(response.json()["connected_count"], 1)
+        self.assertEqual(response.json()["reconnect_required_count"], 0)
         self.assertFalse(response.json()["is_refreshing"])
         self.assertTrue(response.json()["has_connected_sources"])
         self.assertIn("no-store", response.headers["Cache-Control"])

@@ -34,6 +34,9 @@
     if (payload.is_refreshing || payload.refreshing_count) {
       return `Refreshing ${plural(Number(payload.refreshing_count || 0), "source")}`;
     }
+    if (payload.reconnect_required_count) {
+      return `Reconnect ${plural(Number(payload.reconnect_required_count), "source")} in Connectors`;
+    }
     if (payload.failed_count) {
       return `${plural(Number(payload.failed_count), "source")} needs attention`;
     }
@@ -45,7 +48,12 @@
   function updatePresence(root, payload) {
     const presence = root?.querySelector("[data-refresh-presence]");
     if (!presence) return;
-    const isStale = Boolean(payload.stale_count || payload.failed_count || !payload.has_connected_sources);
+    const isStale = Boolean(
+      payload.stale_count
+      || payload.failed_count
+      || payload.reconnect_required_count
+      || !payload.has_connected_sources,
+    );
     presence.classList.toggle("is-stale", isStale);
     presence.setAttribute("aria-live", "polite");
     if (payload.all_checked_at) presence.title = payload.all_checked_at;
@@ -85,7 +93,9 @@
       if (root.dataset.refreshAutoload === "true") reloadWhenSafe(root);
       return;
     }
-    if (payload.failed_count) {
+    if (payload.reconnect_required_count) {
+      notify("Reconnect the affected sources in Connectors to resume their refreshes.", "error");
+    } else if (payload.failed_count) {
       notify("Refresh finished with a source that needs attention.", "error");
     } else {
       notify("Sources are up to date.");
@@ -145,6 +155,8 @@
       } else if (payload.is_refreshing || payload.refreshing_count) {
         notify("Refresh is already in progress.");
         void pollRefresh(root, initialCacheVersion);
+      } else if (payload.reconnect_required_count) {
+        notify("Reconnect the affected sources in Connectors before refreshing.", "error");
       } else if (!payload.has_connected_sources) {
         notify("Connect a source before refreshing.", "error");
       } else {

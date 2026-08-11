@@ -9,6 +9,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from connectors.encryption import EncryptionError
 from connectors.models import ConnectorAccount
 from ingestion import views as ingestion_views
 from ingestion.models import Job, JobAttempt
@@ -115,6 +116,43 @@ class JobTests(TestCase):
         self.assertEqual(result.status, Job.STATUS_FAILED)
         self.assertIn("boom", result.error_message)
         self.assertTrue(result.error_traceback)
+
+    @override_settings(JOB_MAX_ATTEMPTS=3)
+    def test_encryption_failure_requires_reconnect_without_retry(self):
+        account = ConnectorAccount.objects.create(
+            workspace=self.workspace_a,
+            source="asana",
+            display_name="Asana",
+            auth_type=ConnectorAccount.AUTH_API_TOKEN,
+            encrypted_access_token=b"unreadable-token",
+            status=ConnectorAccount.STATUS_CONNECTED,
+            is_active=True,
+        )
+        job = Job.objects.create(
+            workspace=self.workspace_a,
+            connector_account=account,
+            job_type="sync",
+            job_name="sync_connector",
+            input_params={"source": "asana"},
+        )
+
+        with patch(
+            "ingestion.services.jobs.sync_connector_account",
+            side_effect=EncryptionError("Invalid encryption token or key."),
+        ):
+            result = job_service.run_job(job.id)
+
+        account.refresh_from_db()
+        self.assertEqual(result.status, Job.STATUS_FAILED)
+        self.assertEqual(result.attempt_count, 1)
+        self.assertEqual(account.status, ConnectorAccount.STATUS_ERROR)
+        self.assertFalse(account.is_active)
+        self.assertEqual(account.last_sync_status, ConnectorAccount.SYNC_STATUS_FAILED)
+        self.assertEqual(
+            account.last_error,
+            ConnectorAccount.RECONNECT_REQUIRED_ERROR,
+        )
+        self.assertEqual(result.attempts.get().status, JobAttempt.STATUS_FAILED)
 
     @override_settings(JOB_STALE_RUNNING_SECONDS=60)
     def test_recovers_stale_running_jobs_for_retry(self):
