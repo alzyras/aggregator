@@ -79,3 +79,12 @@ class SqlExplorerTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["columns"], ["title"])
         self.assertEqual(response.json()["rows"], [["Visible"]])
+
+    def test_enabled_plugin_renders_shared_freshness_controls(self):
+        self._enable()
+
+        response = self.client.get(reverse("sql_explorer:index"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "data-workspace-refresh")
+        self.assertContains(response, "Refresh now")

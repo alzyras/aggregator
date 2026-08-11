@@ -4,6 +4,7 @@ import json
 from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase
 from django.urls import reverse
 
@@ -16,6 +17,8 @@ from workspaces.models import Workspace, WorkspaceMember
 
 class DataChatTests(TestCase):
     def setUp(self) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
         self.user = get_user_model().objects.create_user(
             username="chat-user",
             password="password123",
@@ -60,6 +63,32 @@ class DataChatTests(TestCase):
         self.assertEqual(
             [task["title"] for task in snapshot["tasks"]], ["Visible task"]
         )
+
+    def test_snapshot_cache_refreshes_after_local_task_edit(self):
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            source="asana",
+            source_entity_id="cached-task",
+            title="Before",
+        )
+
+        first = build_workspace_snapshot(workspace=self.workspace, user=self.user)
+        item.title = "After"
+        item.save(update_fields=["title", "updated_at"])
+        second = build_workspace_snapshot(workspace=self.workspace, user=self.user)
+
+        self.assertEqual(first["tasks"][0]["title"], "Before")
+        self.assertEqual(second["tasks"][0]["title"], "After")
+
+    def test_enabled_plugin_renders_shared_freshness_controls(self):
+        self._enable()
+
+        response = self.client.get(reverse("data_chat:index"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "data-workspace-refresh")
+        self.assertContains(response, "Refresh now")
 
     @patch.dict("os.environ", {"OPENAI_API_KEY": ""}, clear=False)
     def test_ask_requires_server_api_key(self):

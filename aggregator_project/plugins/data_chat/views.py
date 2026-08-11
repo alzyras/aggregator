@@ -8,6 +8,7 @@ from django.shortcuts import render
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
+from ingestion.services.refresh import get_workspace_refresh_snapshot
 from plugin_system.registry import plugin_required
 from plugins.data_chat.client import (
     DataChatConfigurationError,
@@ -26,7 +27,12 @@ MAX_HISTORY_MESSAGES = 8
 @plugin_required("data-chat")
 @ensure_csrf_cookie
 def index(request: HttpRequest):
-    snapshot = build_workspace_snapshot(workspace=request.workspace, user=request.user)
+    refresh_state = get_workspace_refresh_snapshot(workspace=request.workspace)
+    snapshot = build_workspace_snapshot(
+        workspace=request.workspace,
+        user=request.user,
+        cache_version=refresh_state["policy"].cache_version,
+    )
     return render(
         request,
         "plugins/data_chat/index.html",
@@ -34,6 +40,7 @@ def index(request: HttpRequest):
             "chat_configured": chat_is_configured(),
             "chat_model": chat_model(),
             "snapshot": snapshot,
+            "refresh_state": refresh_state,
             "suggestions": [
                 "What should I focus on next?",
                 "Which tasks look stale or blocked?",

@@ -8,6 +8,7 @@ from django.shortcuts import render
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
+from ingestion.services.refresh import get_workspace_refresh_snapshot
 from plugin_system.registry import plugin_required
 from plugins.sql_explorer.query_engine import (
     QueryRejected,
@@ -41,6 +42,7 @@ TABLES = [
 @plugin_required("sql-explorer")
 @ensure_csrf_cookie
 def index(request: HttpRequest):
+    refresh_state = get_workspace_refresh_snapshot(workspace=request.workspace)
     return render(
         request,
         "plugins/sql_explorer/index.html",
@@ -48,6 +50,7 @@ def index(request: HttpRequest):
             "default_query": DEFAULT_QUERY,
             "tables": TABLES,
             "snapshot_counts": workspace_counts(request.workspace),
+            "refresh_state": refresh_state,
         },
     )
 

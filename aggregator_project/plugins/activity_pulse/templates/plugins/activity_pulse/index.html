@@ -6,13 +6,39 @@
 {% endblock %}
 
 {% block content %}
-  <section class="workspace-page activity-page">
+  <section
+    class="workspace-page activity-page"
+    data-workspace-refresh
+    data-refresh-url="{% url 'refresh_now' %}"
+    data-refresh-state-url="{% url 'refresh_state' %}"
+    data-refresh-cache-version="{{ refresh_state.policy.cache_version }}"
+    data-refresh-autoload="true"
+  >
     <header class="workspace-header">
       <div>
         <p class="workspace-kicker">Plugin</p>
         <h1>Activity Pulse</h1>
       </div>
-      <span class="workspace-count">Updated {{ activity.generated_at|date:'H:i' }}</span>
+      <div class="inbox-header-actions">
+        <div class="sync-presence{% if refresh_state.stale_count or not refresh_state.has_connected_sources %} is-stale{% endif %}" data-refresh-presence>
+          <span class="sync-presence-dot" aria-hidden="true"></span>
+          {% if refresh_state.is_refreshing %}
+            <span>Refreshing {{ refresh_state.refreshing_count }} source{{ refresh_state.refreshing_count|pluralize }}</span>
+          {% elif refresh_state.failed_count %}
+            <span>{{ refresh_state.failed_count }} source{{ refresh_state.failed_count|pluralize }} needs attention</span>
+          {% elif refresh_state.all_checked_at %}
+            <span title="{{ refresh_state.all_checked_at|date:'Y-m-d H:i:s T' }}">Updated {{ refresh_state.all_checked_at|timesince }} ago</span>
+          {% elif refresh_state.has_connected_sources %}
+            <span>Awaiting first refresh</span>
+          {% else %}
+            <span>Connect a source to refresh</span>
+          {% endif %}
+        </div>
+        <button class="icon-text-button" type="button" data-refresh-now>
+          <i class="button-icon" data-lucide="refresh-cw" aria-hidden="true"></i>
+          <span>Refresh now</span>
+        </button>
+      </div>
     </header>
 
     <div class="activity-kpis">
@@ -83,4 +109,14 @@
       </section>
     </div>
   </section>
+
+  <script>
+    (function () {
+      const refreshRoot = document.querySelector("[data-workspace-refresh]");
+      const refreshButton = refreshRoot?.querySelector("[data-refresh-now]");
+      refreshButton?.addEventListener("click", () => {
+        window.workspaceRefresh?.queueAndTrack(refreshRoot, refreshButton);
+      });
+    })();
+  </script>
 {% endblock %}

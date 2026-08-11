@@ -3,12 +3,16 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any
 
+from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
 
+from ingestion.services.cache import cache_get, cache_set, workspace_cache_key
 from planner.models import PlannerItem, PlannerItemState, PlannerPlan
+from planner.services.cache import planner_local_cache_token
 from workspaces.models import Workspace
 
+ACTIVITY_PULSE_CACHE_NAMESPACE = "activity-pulse-v1"
 STATUS_ORDER = ["inbox", "backlog", "doing", "done"]
 STATUS_LABELS = {
     "inbox": "Inbox",
@@ -19,17 +23,54 @@ STATUS_LABELS = {
 STALE_AFTER_DAYS = 14
 
 
-def build_activity_snapshot(*, workspace: Workspace, user) -> dict[str, Any]:
+def build_activity_snapshot(
+    *,
+    workspace: Workspace,
+    user,
+    cache_version: int | None = None,
+) -> dict[str, Any]:
+    plan = (
+        PlannerPlan.objects.filter(workspace=workspace, user=user)
+        .order_by("id")
+        .first()
+    )
+    local_token = planner_local_cache_token(
+        workspace=workspace,
+        user=user,
+        plan=plan,
+    )
+    cache_key = workspace_cache_key(
+        workspace,
+        ACTIVITY_PULSE_CACHE_NAMESPACE,
+        user.id,
+        plan.id if plan else "none",
+        local_token,
+        cache_version=cache_version,
+    )
+    cached = cache_get(cache_key)
+    if isinstance(cached, dict):
+        return cached
+
+    snapshot = _build_activity_snapshot(
+        workspace=workspace,
+        user=user,
+        plan=plan,
+    )
+    cache_set(cache_key, snapshot, timeout=settings.CACHE_DEFAULT_TIMEOUT_SECONDS)
+    return snapshot
+
+
+def _build_activity_snapshot(
+    *,
+    workspace: Workspace,
+    user,
+    plan: PlannerPlan | None,
+) -> dict[str, Any]:
     items = list(
         PlannerItem.objects.for_workspace(workspace)
         .filter(Q(user=user) | Q(user__isnull=True), is_active=True)
         .select_related("connector_account")
         .order_by("-source_created_at", "-created_at", "-id")
-    )
-    plan = (
-        PlannerPlan.objects.filter(workspace=workspace, user=user)
-        .order_by("id")
-        .first()
     )
     states = {}
     if plan and items:

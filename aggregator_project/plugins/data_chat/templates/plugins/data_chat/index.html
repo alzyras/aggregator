@@ -11,13 +11,38 @@
     data-chat-root
     data-chat-url="{% url 'data_chat:ask' %}"
     data-chat-configured="{{ chat_configured|yesno:'true,false' }}"
+    data-workspace-refresh
+    data-refresh-url="{% url 'refresh_now' %}"
+    data-refresh-state-url="{% url 'refresh_state' %}"
+    data-refresh-cache-version="{{ refresh_state.policy.cache_version }}"
+    data-refresh-autoload="true"
   >
     <header class="workspace-header data-chat-header">
       <div>
         <p class="workspace-kicker">Plugin</p>
         <h1>Data Chat</h1>
       </div>
-      <span class="data-chat-model">{{ chat_model }}</span>
+      <div class="inbox-header-actions">
+        <span class="data-chat-model">{{ chat_model }}</span>
+        <div class="sync-presence{% if refresh_state.stale_count or not refresh_state.has_connected_sources %} is-stale{% endif %}" data-refresh-presence>
+          <span class="sync-presence-dot" aria-hidden="true"></span>
+          {% if refresh_state.is_refreshing %}
+            <span>Refreshing {{ refresh_state.refreshing_count }} source{{ refresh_state.refreshing_count|pluralize }}</span>
+          {% elif refresh_state.failed_count %}
+            <span>{{ refresh_state.failed_count }} source{{ refresh_state.failed_count|pluralize }} needs attention</span>
+          {% elif refresh_state.all_checked_at %}
+            <span title="{{ refresh_state.all_checked_at|date:'Y-m-d H:i:s T' }}">Updated {{ refresh_state.all_checked_at|timesince }} ago</span>
+          {% elif refresh_state.has_connected_sources %}
+            <span>Awaiting first refresh</span>
+          {% else %}
+            <span>Connect a source to refresh</span>
+          {% endif %}
+        </div>
+        <button class="icon-text-button" type="button" data-refresh-now>
+          <i class="button-icon" data-lucide="refresh-cw" aria-hidden="true"></i>
+          <span>Refresh now</span>
+        </button>
+      </div>
     </header>
 
     <div class="data-chat-shell">
@@ -68,5 +93,14 @@
 {% endblock %}
 
 {% block extra_scripts %}
+  <script>
+    (function () {
+      const refreshRoot = document.querySelector("[data-workspace-refresh]");
+      const refreshButton = refreshRoot?.querySelector("[data-refresh-now]");
+      refreshButton?.addEventListener("click", () => {
+        window.workspaceRefresh?.queueAndTrack(refreshRoot, refreshButton);
+      });
+    })();
+  </script>
   <script src="{% static 'plugins/data_chat.js' %}?v=20260717"></script>
 {% endblock %}
