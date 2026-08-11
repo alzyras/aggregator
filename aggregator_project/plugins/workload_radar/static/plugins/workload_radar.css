@@ -1,0 +1,321 @@
+.workload-radar-page {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding-bottom: 36px;
+}
+
+.workload-radar-header {
+  margin-bottom: 22px;
+}
+
+.workload-radar-date {
+  margin: 5px 0 0;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+}
+
+.workload-radar-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin-bottom: 24px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--line);
+}
+
+.workload-radar-metrics > div {
+  display: grid;
+  gap: 3px;
+  min-height: 104px;
+  padding: 17px 18px;
+  background: var(--surface);
+}
+
+.workload-radar-metrics .is-warning {
+  background: #fff8e8;
+}
+
+.workload-radar-metrics span,
+.workload-radar-metrics small {
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+}
+
+.workload-radar-metrics strong {
+  color: var(--ink);
+  font-size: 1.65rem;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.workload-radar-week,
+.workload-radar-unplanned,
+.workload-radar-risk {
+  min-width: 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-strong);
+}
+
+.workload-radar-week {
+  border-top-color: #4d789e;
+}
+
+.workload-radar-section-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.workload-radar-section-header p {
+  margin: 0 0 3px;
+  color: var(--ink-faint);
+  font-size: 0.69rem;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.workload-radar-section-header h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.workload-radar-section-header > span,
+.workload-radar-section-header > a {
+  color: var(--ink-soft);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.workload-radar-section-header > a:hover {
+  color: var(--brand-dark);
+}
+
+.workload-radar-scroll {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.workload-radar-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(142px, 1fr));
+  gap: 8px;
+  min-width: 1010px;
+}
+
+.workload-radar-day {
+  min-height: 244px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.workload-radar-day.is-today {
+  border-color: #82a4c1;
+  background: #f5f9fc;
+}
+
+.workload-radar-day.is-over-capacity {
+  border-color: #e1aa67;
+  background: #fffaf1;
+}
+
+.workload-radar-day > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 0.71rem;
+}
+
+.workload-radar-day > header strong {
+  color: var(--ink);
+  font-size: 0.94rem;
+}
+
+.workload-radar-track {
+  height: 7px;
+  margin: 14px 0 9px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #e6ece7;
+}
+
+.workload-radar-track span {
+  display: block;
+  width: var(--load);
+  min-width: 2px;
+  height: 100%;
+  border-radius: inherit;
+  background: #4c7f70;
+}
+
+.is-over-capacity .workload-radar-track span {
+  background: #c37d2a;
+}
+
+.workload-radar-day-total {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.72rem;
+}
+
+.workload-radar-day-total strong {
+  color: var(--ink);
+}
+
+.workload-radar-day-total span,
+.workload-radar-day-meta {
+  color: var(--ink-soft);
+}
+
+.workload-radar-day-meta {
+  margin-top: 4px;
+  font-size: 0.67rem;
+}
+
+.workload-radar-day-tasks {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+}
+
+.workload-radar-task-list {
+  display: grid;
+  gap: 6px;
+}
+
+.workload-radar-task {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 49px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+}
+
+.workload-radar-day-tasks .workload-radar-task {
+  min-height: 40px;
+  padding: 6px 7px;
+  border-color: #e7ece8;
+}
+
+.workload-radar-task:hover {
+  border-color: #aabaae;
+  background: #f7f8f6;
+}
+
+.workload-radar-task-main {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.workload-radar-task-main strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.77rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workload-radar-task-main small,
+.workload-radar-task-meta {
+  color: var(--ink-soft);
+  font-size: 0.66rem;
+}
+
+.workload-radar-task-meta {
+  white-space: nowrap;
+}
+
+.workload-radar-day-empty,
+.workload-radar-more,
+.workload-radar-empty {
+  color: var(--ink-faint);
+  font-size: 0.71rem;
+}
+
+.workload-radar-day-empty {
+  padding: 4px 0;
+}
+
+.workload-radar-insight {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 13px 0 0;
+  color: var(--ink-soft);
+  font-size: 0.79rem;
+}
+
+.workload-radar-insight .lucide {
+  width: 15px;
+  height: 15px;
+  color: #3e779c;
+}
+
+.workload-radar-lower-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+  gap: 36px;
+  margin-top: 30px;
+}
+
+.workload-radar-risk-list {
+  display: grid;
+  gap: 6px;
+}
+
+.workload-radar-risk-list > div:not(.workload-radar-empty) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.workload-radar-risk-list strong {
+  color: var(--ink);
+  font-size: 0.79rem;
+}
+
+.workload-radar-risk-list span,
+.workload-radar-risk-list b {
+  color: var(--ink-soft);
+  font-size: 0.7rem;
+}
+
+.workload-radar-risk-list b {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  color: #a9661e;
+}
+
+.workload-radar-empty {
+  padding: 16px 0;
+}
+
+@media (max-width: 760px) {
+  .workload-radar-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workload-radar-lower-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+}

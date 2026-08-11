@@ -1,0 +1,4 @@
+{
+  "id": "workload-radar",
+  "app_config": "plugins.workload_radar.apps.WorkloadRadarConfig"
+}

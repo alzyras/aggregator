@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'plugins/workload_radar.css' %}?v=20260811a" />
+{% endblock %}
+
+{% block content %}
+  <section
+    class="workspace-page workload-radar-page"
+    data-workspace-refresh
+    data-refresh-url="{% url 'refresh_now' %}"
+    data-refresh-state-url="{% url 'refresh_state' %}"
+    data-refresh-cache-version="{{ refresh_state.policy.cache_version }}"
+    data-refresh-autoload="true"
+  >
+    <header class="workspace-header workload-radar-header">
+      <div>
+        <p class="workspace-kicker">Plugin</p>
+        <h1>Workload Radar</h1>
+        <p class="workload-radar-date">{{ radar.today|date:"M j" }} to {{ radar.period_end|date:"M j" }}</p>
+      </div>
+      <div class="inbox-header-actions">
+        <div class="sync-presence{% if refresh_state.stale_count or not refresh_state.has_connected_sources %} is-stale{% endif %}" data-refresh-presence>
+          <span class="sync-presence-dot" aria-hidden="true"></span>
+          {% if refresh_state.is_refreshing %}
+            <span>Refreshing {{ refresh_state.refreshing_count }} source{{ refresh_state.refreshing_count|pluralize }}</span>
+          {% elif refresh_state.failed_count %}
+            <span>{{ refresh_state.failed_count }} source{{ refresh_state.failed_count|pluralize }} needs attention</span>
+          {% elif refresh_state.all_checked_at %}
+            <span title="{{ refresh_state.all_checked_at|date:'Y-m-d H:i:s T' }}">Updated {{ refresh_state.all_checked_at|timesince }} ago</span>
+          {% elif refresh_state.has_connected_sources %}
+            <span>Awaiting first refresh</span>
+          {% else %}
+            <span>Connect a source to refresh</span>
+          {% endif %}
+        </div>
+        <button class="icon-text-button" type="button" data-refresh-now>
+          <i class="button-icon" data-lucide="refresh-cw" aria-hidden="true"></i>
+          <span>Refresh now</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="workload-radar-metrics" aria-label="Workload summary">
+      <div><span>Scheduled</span><strong>{{ radar.scheduled_count }}</strong><small>tasks this week</small></div>
+      <div><span>Focus time</span><strong>{{ radar.scheduled_minutes }}</strong><small>minutes estimated</small></div>
+      <div><span>Unplanned</span><strong>{{ radar.unplanned_count }}</strong><small>{% if radar.unplanned_minutes %}{{ radar.unplanned_minutes }} min estimated{% else %}needs a place{% endif %}</small></div>
+      <div class="{% if radar.overloaded_days %}is-warning{% endif %}"><span>Over capacity</span><strong>{{ radar.overloaded_days|length }}</strong><small>of 7 days</small></div>
+    </div>
+
+    <section class="workload-radar-week" aria-labelledby="radar-week-title">
+      <header class="workload-radar-section-header">
+        <div><p>Capacity is a guardrail</p><h2 id="radar-week-title">Next seven days</h2></div>
+        <span>{{ radar.capacity_minutes }} min daily capacity</span>
+      </header>
+      <div class="workload-radar-scroll">
+        <div class="workload-radar-days">
+          {% for day in radar.days %}
+            <article class="workload-radar-day{% if day.is_today %} is-today{% endif %}{% if day.is_over_capacity %} is-over-capacity{% endif %}">
+              <header><span>{{ day.label }}</span><strong>{{ day.date|date:"j" }}</strong></header>
+              <div class="workload-radar-track" aria-label="{{ day.full_label }}: {{ day.planned_minutes }} of {{ radar.capacity_minutes }} planned minutes"><span style="--load: {{ day.load_percent }}%"></span></div>
+              <div class="workload-radar-day-total"><strong>{{ day.planned_minutes }} min</strong><span>{% if day.is_over_capacity %}+{{ day.over_minutes }} over{% else %}{{ day.remaining_minutes }} open{% endif %}</span></div>
+              <div class="workload-radar-day-meta">{{ day.task_count }} task{{ day.task_count|pluralize }}{% if day.unestimated_count %} · {{ day.unestimated_count }} no estimate{% endif %}</div>
+              <div class="workload-radar-day-tasks">
+                {% for task in day.tasks %}
+                  {% include "plugins/workload_radar/task_row.html" with task=task %}
+                {% empty %}
+                  <span class="workload-radar-day-empty">Open</span>
+                {% endfor %}
+                {% if day.hidden_task_count %}<span class="workload-radar-more">+{{ day.hidden_task_count }} more</span>{% endif %}
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      </div>
+      <p class="workload-radar-insight"><i data-lucide="radar" aria-hidden="true"></i>{{ radar.insight }}</p>
+    </section>
+
+    <div class="workload-radar-lower-grid">
+      <section class="workload-radar-unplanned" aria-labelledby="radar-unplanned-title">
+        <header class="workload-radar-section-header">
+          <div><p>Decide deliberately</p><h2 id="radar-unplanned-title">Unplanned work</h2></div>
+          <a href="{% url 'planner_list' %}">Open planner</a>
+        </header>
+        <div class="workload-radar-task-list">
+          {% for task in radar.unplanned %}
+            {% include "plugins/workload_radar/task_row.html" with task=task %}
+          {% empty %}
+            <div class="workload-radar-empty">Every active task already has a place.</div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="workload-radar-risk" aria-labelledby="radar-risk-title">
+        <header class="workload-radar-section-header">
+          <div><p>Watch the edges</p><h2 id="radar-risk-title">Capacity risks</h2></div>
+          <span>{{ radar.overloaded_days|length }} overloaded</span>
+        </header>
+        <div class="workload-radar-risk-list">
+          {% for day in radar.overloaded_days %}
+            <div><strong>{{ day.full_label }}</strong><span>{{ day.planned_minutes }} min planned</span><b>+{{ day.over_minutes }} min</b></div>
+          {% empty %}
+            <div class="workload-radar-empty">No day is above your {{ radar.capacity_minutes }} minute planning capacity.</div>
+          {% endfor %}
+        </div>
+      </section>
+    </div>
+  </section>
+
+  <script>
+    (function () {
+      const refreshRoot = document.querySelector("[data-workspace-refresh]");
+      const refreshButton = refreshRoot?.querySelector("[data-refresh-now]");
+      refreshButton?.addEventListener("click", () => {
+        window.workspaceRefresh?.queueAndTrack(refreshRoot, refreshButton);
+      });
+    })();
+  </script>
+{% endblock %}

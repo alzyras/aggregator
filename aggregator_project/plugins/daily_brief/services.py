@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-import hashlib
 from datetime import date
 from typing import Any
 
 from django.conf import settings
-from django.db.models import Max, Q
+from django.db.models import Q
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from ingestion.services.cache import cache_get, cache_set, workspace_cache_key
 from planner.models import PlannerItem, PlannerItemState, PlannerPlan
+from planner.services.cache import planner_local_cache_token
 
 
 DAILY_BRIEF_CACHE_NAMESPACE = "daily-brief-v1"
@@ -32,7 +32,11 @@ def build_daily_brief(
         .order_by("id")
         .first()
     )
-    local_token = _planner_local_token(workspace=workspace, user=user, plan=plan)
+    local_token = planner_local_cache_token(
+        workspace=workspace,
+        user=user,
+        plan=plan,
+    )
     cache_key = workspace_cache_key(
         workspace,
         DAILY_BRIEF_CACHE_NAMESPACE,
@@ -126,27 +130,6 @@ def _build_daily_brief(*, workspace, user, plan: PlannerPlan | None, today: date
         "inbox_count": len(inbox_items),
         "has_tasks": bool(focus_states or today_states or upcoming_states or inbox_items),
     }
-
-
-def _planner_local_token(*, workspace, user, plan: PlannerPlan | None) -> str:
-    item_updates = (
-        PlannerItem.objects.for_workspace(workspace)
-        .filter(Q(user=user) | Q(user__isnull=True))
-        .aggregate(latest=Max("updated_at"))
-    )
-    state_latest = None
-    if plan:
-        state_latest = PlannerItemState.objects.filter(plan=plan).aggregate(
-            latest=Max("last_planned_at")
-        )["latest"]
-    payload = "|".join(
-        [
-            str(plan.id) if plan else "none",
-            item_updates["latest"].isoformat() if item_updates["latest"] else "",
-            state_latest.isoformat() if state_latest else "",
-        ]
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:20]
 
 
 def _state_task(state: PlannerItemState) -> dict[str, Any]:

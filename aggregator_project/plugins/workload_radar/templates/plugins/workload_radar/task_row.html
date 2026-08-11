@@ -1,0 +1,9 @@
+{% if task.source_url %}
+  <a class="workload-radar-task" href="{{ task.source_url }}" target="_blank" rel="noopener noreferrer">
+{% else %}
+  <a class="workload-radar-task" href="{% url 'planner_list' %}">
+{% endif %}
+    <span class="provider-dot source-{{ task.source }}" aria-hidden="true"></span>
+    <span class="workload-radar-task-main"><strong>{{ task.title }}</strong><small>{{ task.source_label }}{% if task.collection %} · {{ task.collection }}{% endif %}</small></span>
+    <span class="workload-radar-task-meta">{% if task.estimated_minutes %}{{ task.estimated_minutes }}m{% elif task.planner_status == "inbox" %}Inbox{% else %}No estimate{% endif %}</span>
+  </a>
