@@ -3,7 +3,14 @@
 {% block body_class %}rhythm-page{% endblock %}
 
 {% block content %}
-  <section class="rhythm-page-content" data-workspace-refresh data-refresh-url="{% url 'refresh_now' %}">
+  <section
+    class="rhythm-page-content"
+    data-workspace-refresh
+    data-refresh-url="{% url 'refresh_now' %}"
+    data-refresh-state-url="{% url 'refresh_state' %}"
+    data-refresh-cache-version="{{ refresh_state.policy.cache_version }}"
+    data-refresh-autoload="true"
+  >
     <header class="rhythm-header">
       <div class="rhythm-heading">
         <a class="rhythm-back-link" href="{% url 'planner_list' %}"><i data-lucide="arrow-left" aria-hidden="true"></i>Planner</a>
@@ -175,39 +182,8 @@
     (function () {
       const refreshRoot = document.querySelector("[data-workspace-refresh]");
       const refreshButton = refreshRoot?.querySelector("[data-refresh-now]");
-      const csrfToken = document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("csrftoken="))?.split("=")[1];
-      refreshButton?.addEventListener("click", async () => {
-        refreshButton.disabled = true;
-        try {
-          const response = await fetch(refreshRoot.dataset.refreshUrl, {
-            method: "POST",
-            headers: {"Accept": "application/json", "X-CSRFToken": decodeURIComponent(csrfToken || "")},
-          });
-          const payload = await response.json();
-          if (!response.ok) throw new Error(payload.error || "Unable to queue refresh.");
-          const label = refreshRoot.querySelector("[data-refresh-presence] span:last-child");
-          let message = "No refresh could be queued";
-          let tone = "error";
-          if (payload.queued) {
-            if (label) label.textContent = `Refreshing ${payload.queued} source${payload.queued === 1 ? "" : "s"}`;
-            message = "Refresh queued";
-            tone = "success";
-          } else if (payload.refreshing_count) {
-            if (label) label.textContent = `Refreshing ${payload.refreshing_count} source${payload.refreshing_count === 1 ? "" : "s"}`;
-            message = "Refresh is already in progress";
-            tone = "success";
-          } else if (!payload.has_connected_sources) {
-            message = "Connect a source before refreshing";
-          } else if (payload.is_current) {
-            message = "Your data is already up to date";
-            tone = "success";
-          }
-          window.dispatchEvent(new CustomEvent("app:toast", {detail: {message, tone}}));
-        } catch (error) {
-          window.dispatchEvent(new CustomEvent("app:toast", {detail: {message: error.message, tone: "error"}}));
-        } finally {
-          refreshButton.disabled = false;
-        }
+      refreshButton?.addEventListener("click", () => {
+        window.workspaceRefresh?.queueAndTrack(refreshRoot, refreshButton);
       });
 
       const dailyNode = document.getElementById("stats-completion-daily-series");

@@ -10,7 +10,8 @@ from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
-from django.views.decorators.http import require_POST
+from django.views.decorators.cache import never_cache
+from django.views.decorators.http import require_GET, require_POST
 
 from connectors.models import ConnectorAccount
 
@@ -152,17 +153,42 @@ def refresh_now(request):
             "queued": result.queued_count,
             "full_sync_count": result.full_sync_count,
             "incremental_sync_count": result.incremental_sync_count,
-            "refreshing_count": snapshot["refreshing_count"],
-            "failed_count": snapshot["failed_count"],
-            "is_current": snapshot["is_current"],
-            "has_connected_sources": snapshot["has_connected_sources"],
-            "latest_updated_at": (
-                snapshot["latest_updated_at"].isoformat()
-                if snapshot["latest_updated_at"]
-                else None
-            ),
+            **_refresh_state_payload(snapshot),
         }
     )
+
+
+@never_cache
+@login_required
+@require_GET
+def refresh_state(request):
+    """Expose shared refresh progress without queuing another sync."""
+    snapshot = get_workspace_refresh_snapshot(workspace=request.workspace)
+    return JsonResponse({"status": "ok", **_refresh_state_payload(snapshot)})
+
+
+def _refresh_state_payload(snapshot: dict[str, object]) -> dict[str, object]:
+    policy = snapshot["policy"]
+    return {
+        "cache_version": policy.cache_version,
+        "connected_count": snapshot["connected_count"],
+        "refreshing_count": snapshot["refreshing_count"],
+        "failed_count": snapshot["failed_count"],
+        "stale_count": snapshot["stale_count"],
+        "is_refreshing": snapshot["is_refreshing"],
+        "is_current": snapshot["is_current"],
+        "has_connected_sources": snapshot["has_connected_sources"],
+        "all_checked_at": (
+            snapshot["all_checked_at"].isoformat()
+            if snapshot["all_checked_at"]
+            else None
+        ),
+        "latest_updated_at": (
+            snapshot["latest_updated_at"].isoformat()
+            if snapshot["latest_updated_at"]
+            else None
+        ),
+    }
 
 
 def _can_manage_refresh(request) -> bool:

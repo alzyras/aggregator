@@ -7,9 +7,13 @@
   <section
     class="planner-app"
     data-planner-root
+    data-workspace-refresh
     data-batch-size="32"
     data-reorder-url="{% url 'planner_item_reorder' %}"
     data-refresh-url="{% url 'refresh_now' %}"
+    data-refresh-state-url="{% url 'refresh_state' %}"
+    data-refresh-cache-version="{{ refresh_state.policy.cache_version }}"
+    data-refresh-autoload="true"
     data-create-url="{% url 'planner_item_create' %}"
     data-status-url-template="{% url 'planner_item_planner_status' 0 %}"
     data-schedule-url-template="{% url 'planner_item_schedule' 0 %}"
@@ -372,5 +376,5 @@
     </dialog>
   </section>
 
-  <script src="{% static 'js/planner-inbox.js' %}?v=20260811c" defer></script>
+  <script src="{% static 'js/planner-inbox.js' %}?v=20260811d" defer></script>
 {% endblock %}

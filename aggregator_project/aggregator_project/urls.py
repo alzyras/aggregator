@@ -19,6 +19,7 @@ urlpatterns = [
     path("stats/", event_views.stats_view, name="stats_view"),
     path("sync/", ingestion_views.sync_view, name="sync_view"),
     path("sync/refresh/", ingestion_views.refresh_now, name="refresh_now"),
+    path("sync/refresh/state/", ingestion_views.refresh_state, name="refresh_state"),
     path("jobs/", ingestion_views.jobs_list, name="jobs_list"),
 ]
 

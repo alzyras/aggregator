@@ -177,6 +177,19 @@ class RefreshEngineTests(TestCase):
             .exists()
         )
 
+    def test_refresh_state_endpoint_reports_workspace_progress(self):
+        policy = WorkspaceRefreshPolicy.objects.create(workspace=self.workspace)
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("refresh_state"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["cache_version"], policy.cache_version)
+        self.assertEqual(response.json()["connected_count"], 1)
+        self.assertFalse(response.json()["is_refreshing"])
+        self.assertTrue(response.json()["has_connected_sources"])
+        self.assertIn("no-store", response.headers["Cache-Control"])
+
     def test_refresh_now_runs_incremental_sync_even_when_workspace_is_current(self):
         now = timezone.now()
         WorkspaceRefreshPolicy.objects.create(

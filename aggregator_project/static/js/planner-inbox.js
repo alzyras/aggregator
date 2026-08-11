@@ -499,6 +499,14 @@
     const minutes = row.dataset.estimatedMinutes ? `<span>${escapeHtml(row.dataset.estimatedMinutes)} min</span>` : "";
     const created = meta.querySelector(".task-created")?.textContent || "Created today";
     meta.innerHTML = `<span class="task-source"><span class="provider-dot source-${escapeHtml(row.dataset.source || "manual")}" aria-hidden="true"></span>${escapeHtml(row.dataset.sourceLabel || "Personal")}</span>${collection}${minutes}<span class="task-created">${escapeHtml(created)}</span>`;
+    row.dataset.search = [
+      row.dataset.title,
+      row.dataset.description,
+      row.dataset.source,
+      row.dataset.connector,
+      row.dataset.collection,
+      row.dataset.tags,
+    ].filter(Boolean).join(" ");
   }
 
   function openQuickAdd() {
@@ -659,34 +667,6 @@
     return root.querySelector("[data-refresh-sources]");
   }
 
-  async function refreshSources() {
-    const button = refreshButton();
-    if (!button) return;
-    button.disabled = true;
-    button.classList.add("is-loading");
-    try {
-      const payload = await postJson(root.dataset.refreshUrl);
-      const presence = root.querySelector("[data-refresh-presence]");
-      if (payload.queued) {
-        presence?.classList.remove("is-stale");
-        const label = presence?.querySelector("span:last-child");
-        if (label) label.textContent = `Refreshing ${payload.queued} source${payload.queued === 1 ? "" : "s"}`;
-        toast("Refresh queued");
-      } else if (payload.refreshing_count) {
-        toast("Refresh is already in progress");
-      } else if (!payload.has_connected_sources) {
-        toast("Connect a source before refreshing", "error");
-      } else {
-        toast("Your sources are already up to date");
-      }
-    } catch (error) {
-      showError(error.message);
-    } finally {
-      button.disabled = false;
-      button.classList.remove("is-loading");
-    }
-  }
-
   root.addEventListener("click", async (event) => {
     const openAdd = event.target.closest("[data-open-quick-add]");
     if (openAdd) {
@@ -736,7 +716,11 @@
       return;
     }
     if (event.target.closest("[data-refresh-sources]")) {
-      await refreshSources();
+      await window.workspaceRefresh?.queueAndTrack(root, refreshButton());
+      return;
+    }
+    if (event.target.closest("[data-focus-timeline]")) {
+      root.querySelector(".planner-timeline")?.scrollIntoView({behavior: "smooth", block: "start"});
       return;
     }
     const complete = event.target.closest("[data-complete-task]");
