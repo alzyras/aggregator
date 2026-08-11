@@ -248,6 +248,7 @@
                     </article>
                   {% endfor %}
                 </div>
+                <button class="load-more-button planner-load-more is-hidden" type="button" data-load-more-list="{{ section.key }}"></button>
                 <div class="planner-section-empty{% if section.items %} is-hidden{% endif %}" data-empty-section="{{ section.key }}">
                   {% if section.key == 'gather' %}
                     <span>New work from connected tools will arrive here.</span>
@@ -291,16 +292,19 @@
             <header><span class="kanban-dot"></span><h2>Gather</h2><span data-kanban-count="inbox">0</span></header>
             <p>Signals waiting for your call.</p>
             <div class="planner-list" data-status="inbox" data-list-key="kanban-gather"></div>
+            <button class="load-more-button planner-load-more is-hidden" type="button" data-load-more-list="kanban-gather"></button>
           </div>
           <div class="kanban-lane" data-kanban-status="backlog" data-drop-section="unscheduled">
             <header><span class="kanban-dot planned"></span><h2>Planned</h2><span data-kanban-count="planned">0</span></header>
             <p>Things you have chosen to hold.</p>
             <div class="planner-list" data-status="backlog" data-list-key="kanban-planned"></div>
+            <button class="load-more-button planner-load-more is-hidden" type="button" data-load-more-list="kanban-planned"></button>
           </div>
           <div class="kanban-lane" data-kanban-status="done" data-drop-section="done">
             <header><span class="kanban-dot done"></span><h2>Done</h2><span data-kanban-count="done">0</span></header>
             <p>Quiet proof of progress.</p>
             <div class="planner-list" data-status="done" data-list-key="kanban-done"></div>
+            <button class="load-more-button planner-load-more is-hidden" type="button" data-load-more-list="kanban-done"></button>
           </div>
         </section>
       </div>
@@ -376,5 +380,5 @@
     </dialog>
   </section>
 
-  <script src="{% static 'js/planner-inbox.js' %}?v=20260811d" defer></script>
+  <script src="{% static 'js/planner-inbox.js' %}?v=20260811e" defer></script>
 {% endblock %}

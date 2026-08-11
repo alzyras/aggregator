@@ -2649,7 +2649,8 @@ body.planner-page .messages {
   transform: scale(0.99);
 }
 
-.planner-row.is-filtered-out {
+.planner-row.is-filtered-out,
+.planner-row.is-deferred {
   display: none;
 }
 
@@ -2814,6 +2815,10 @@ body.planner-page .messages {
   color: #a0a69f;
   font-size: 0.71rem;
   font-style: italic;
+}
+
+.planner-load-more {
+  margin-top: 10px;
 }
 
 .planner-timeline {

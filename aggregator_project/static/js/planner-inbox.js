@@ -11,6 +11,8 @@
   const quickAddForm = root.querySelector("[data-quick-add-form]");
   const taskDrawer = root.querySelector("[data-task-drawer]");
   const timelineEvents = root.querySelector("[data-timeline-events]");
+  const batchSize = Math.max(Number(root.dataset.batchSize || 32), 1);
+  const visibleLimits = new Map();
   const statusLabels = {inbox: "Gather", backlog: "Planned", doing: "Now", done: "Done"};
   const listKeyStatus = {
     gather: "inbox",
@@ -83,7 +85,8 @@
   }
 
   function visibleRows() {
-    return rows().filter((row) => !row.classList.contains("is-filtered-out"));
+    return rows().filter((row) => !row.classList.contains("is-filtered-out")
+      && !row.classList.contains("is-deferred"));
   }
 
   function parseDate(value) {
@@ -135,15 +138,32 @@
     return root.querySelector(`.planner-list[data-list-key="${CSS.escape(key)}"]`);
   }
 
-  function placeRow(row, {prepend = false} = {}) {
+  function placeRow(row, {prepend = false, reveal = false} = {}) {
     const list = listForKey(listKeyForRow(row));
     if (!list) return;
     if (prepend) list.prepend(row);
     else list.appendChild(row);
+    if (reveal) revealRow(row);
   }
 
   function listRows(list) {
     return Array.from(list?.querySelectorAll(":scope > [data-task-row]") || []);
+  }
+
+  function displayListKeys() {
+    if (activeView === "kanban") {
+      return ["kanban-gather", "kanban-planned", "kanban-done"];
+    }
+    return ["gather", "now", "later", "upcoming", "unscheduled", "done"];
+  }
+
+  function revealRow(row) {
+    const key = listKeyForRow(row);
+    const index = listRows(listForKey(key))
+      .filter((candidate) => !candidate.classList.contains("is-filtered-out"))
+      .indexOf(row);
+    if (index < 0) return;
+    visibleLimits.set(key, Math.max(visibleLimits.get(key) || batchSize, index + 1));
   }
 
   function filtersActive() {
@@ -251,9 +271,43 @@
     });
   }
 
-  function refreshPlanner() {
+  function refreshVisibleRows({resetBatch = false} = {}) {
+    const activeListKeys = new Set(displayListKeys());
+    root.querySelectorAll("[data-load-more-list]").forEach((button) => {
+      if (!activeListKeys.has(button.dataset.loadMoreList)) {
+        button.classList.add("is-hidden");
+      }
+    });
+
+    activeListKeys.forEach((key) => {
+      const list = listForKey(key);
+      if (!list) return;
+      if (resetBatch || !visibleLimits.has(key)) visibleLimits.set(key, batchSize);
+      const limit = visibleLimits.get(key);
+      let matchingCount = 0;
+      listRows(list).forEach((row) => {
+        if (row.classList.contains("is-filtered-out")) {
+          row.classList.remove("is-deferred");
+          return;
+        }
+        row.classList.toggle("is-deferred", matchingCount >= limit);
+        matchingCount += 1;
+      });
+
+      const button = root.querySelector(
+        `[data-load-more-list="${CSS.escape(key)}"]`,
+      );
+      if (!button) return;
+      const remaining = Math.max(matchingCount - limit, 0);
+      button.classList.toggle("is-hidden", remaining === 0);
+      button.textContent = remaining ? `Show ${Math.min(batchSize, remaining)} more` : "";
+    });
+  }
+
+  function refreshPlanner({resetBatch = false} = {}) {
     rows().forEach((row) => row.classList.toggle("is-filtered-out", !rowMatches(row)));
     sortLists();
+    refreshVisibleRows({resetBatch});
     updateDraggability();
     updateCounts();
     updateEmptyStates();
@@ -261,7 +315,7 @@
     renderTimeline();
   }
 
-  function setView(view, {persist = true} = {}) {
+  function setView(view, {persist = true, resetBatch = false} = {}) {
     if (!["list", "kanban"].includes(view)) view = "list";
     activeView = view;
     root.querySelectorAll("[data-planner-view]").forEach((node) => {
@@ -274,7 +328,7 @@
     });
     rows().forEach((row) => placeRow(row));
     if (persist) window.sessionStorage.setItem("aggregator:planner-view", view);
-    refreshPlanner();
+    refreshPlanner({resetBatch});
   }
 
   function updateRowStatus(row, status, payload = {}) {
@@ -302,13 +356,13 @@
     row.dataset.busy = "true";
     row.setAttribute("aria-busy", "true");
     updateRowStatus(row, status);
-    placeRow(row, {prepend: status === "doing" || status === "done"});
+    placeRow(row, {prepend: status === "doing" || status === "done", reveal: true});
     refreshPlanner();
     clearError();
     try {
       const payload = await postJson(endpoint("statusUrlTemplate", row.dataset.itemId), {planner_status: status});
       updateRowStatus(row, payload.planner_status || status, payload);
-      placeRow(row, {prepend: status === "doing" || status === "done"});
+      placeRow(row, {prepend: status === "doing" || status === "done", reveal: true});
       if (announce) toast(`Moved to ${statusLabels[status] || status}`);
       return true;
     } catch (error) {
@@ -348,7 +402,7 @@
     const end = start ? new Date(start.getTime() + durationForRow(row) * 60_000) : null;
     row.dataset.plannedStart = start ? start.toISOString() : "";
     row.dataset.plannedEnd = end ? end.toISOString() : "";
-    placeRow(row);
+    placeRow(row, {reveal: true});
     refreshPlanner();
     try {
       const payload = await postJson(endpoint("scheduleUrlTemplate", row.dataset.itemId), {
@@ -358,13 +412,13 @@
       row.dataset.stateId = String(payload.state_id || row.dataset.stateId || "");
       row.dataset.plannedStart = payload.planned_start || "";
       row.dataset.plannedEnd = payload.planned_end || "";
-      placeRow(row);
+      placeRow(row, {reveal: true});
       if (announce) toast(start ? "Added to your day" : "Removed from your schedule");
       return true;
     } catch (error) {
       row.dataset.plannedStart = previousStart;
       row.dataset.plannedEnd = previousEnd;
-      placeRow(row);
+      placeRow(row, {reveal: true});
       showError(error.message);
       return false;
     } finally {
@@ -654,7 +708,7 @@
       activeCollection = "";
       if (sourceFilter) sourceFilter.value = "";
       if (searchInput) searchInput.value = "";
-      setView("list");
+      setView("list", {resetBatch: true});
       root.querySelector(".planner-main")?.scrollTo?.({top: 0, behavior: "smooth"});
       return;
     }
@@ -691,8 +745,15 @@
       if (sourceFilter) sourceFilter.value = "";
       if (sortControl) sortControl.value = "default";
       activeCollection = "";
-      refreshPlanner();
+      refreshPlanner({resetBatch: true});
       searchInput?.focus();
+      return;
+    }
+    const loadMore = event.target.closest("[data-load-more-list]");
+    if (loadMore) {
+      const key = loadMore.dataset.loadMoreList;
+      visibleLimits.set(key, (visibleLimits.get(key) || batchSize) + batchSize);
+      refreshPlanner();
       return;
     }
     const focusButton = event.target.closest("[data-sidebar-focus]");
@@ -705,14 +766,14 @@
     if (sourceButton) {
       if (sourceFilter) sourceFilter.value = sourceButton.dataset.sourceNav || "";
       activeCollection = "";
-      refreshPlanner();
+      refreshPlanner({resetBatch: true});
       return;
     }
     const collectionButton = event.target.closest("[data-collection-nav]");
     if (collectionButton) {
       activeCollection = activeCollection === collectionButton.dataset.collectionNav ? "" : collectionButton.dataset.collectionNav || "";
       root.querySelectorAll("[data-collection-nav]").forEach((button) => button.classList.toggle("is-active", button === collectionButton && Boolean(activeCollection)));
-      refreshPlanner();
+      refreshPlanner({resetBatch: true});
       return;
     }
     if (event.target.closest("[data-refresh-sources]")) {
@@ -760,7 +821,7 @@
         planner_status: "backlog",
       });
       const row = createTaskRow(payload.task);
-      placeRow(row, {prepend: true});
+      placeRow(row, {prepend: true, reveal: true});
       closeQuickAdd();
       quickAddForm.reset();
       refreshPlanner();
@@ -788,12 +849,12 @@
     if (event.target.closest("[data-save-task-drawer]")) await saveDrawer();
   });
 
-  searchInput?.addEventListener("input", refreshPlanner);
+  searchInput?.addEventListener("input", () => refreshPlanner({resetBatch: true}));
   sourceFilter?.addEventListener("change", () => {
     activeCollection = "";
-    refreshPlanner();
+    refreshPlanner({resetBatch: true});
   });
-  sortControl?.addEventListener("change", refreshPlanner);
+  sortControl?.addEventListener("change", () => refreshPlanner({resetBatch: true}));
 
   root.addEventListener("dragstart", (event) => {
     const row = event.target.closest("[data-task-row]");
@@ -871,7 +932,7 @@
       }
       if (searchInput === document.activeElement && searchInput.value) {
         searchInput.value = "";
-        refreshPlanner();
+        refreshPlanner({resetBatch: true});
       }
       return;
     }

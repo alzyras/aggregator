@@ -288,6 +288,12 @@ class PlannerTests(TestCase):
         self.assertNotContains(response, "planner-board")
         self.assertNotContains(response, "planner-column")
 
+    def test_planner_includes_progressive_load_controls_for_list_and_kanban(self):
+        response = self.client.get(reverse("planner_list"))
+
+        self.assertContains(response, 'data-load-more-list="gather"')
+        self.assertContains(response, 'data-load-more-list="kanban-gather"')
+
     def test_planner_rows_show_created_date_not_sync_timestamp(self):
         plan = PlannerPlan.objects.create(
             workspace=self.workspace,
