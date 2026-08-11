@@ -126,6 +126,11 @@
       if (status === "done") return "kanban-done";
       return "kanban-planned";
     }
+    return sectionKeyForRow(row);
+  }
+
+  function sectionKeyForRow(row) {
+    const status = row.dataset.status || "inbox";
     if (status === "inbox") return "gather";
     if (status === "doing") return "now";
     if (status === "done") return "done";
@@ -208,9 +213,9 @@
     });
   }
 
-  function updateDraggability() {
+  function updateDraggability(allRows) {
     const enabled = (sortControl?.value || "default") === "default" && !filtersActive();
-    rows().forEach((row) => {
+    allRows.forEach((row) => {
       row.draggable = enabled;
       row.classList.toggle("is-reorderable", enabled);
       const handle = row.querySelector("[data-drag-handle]");
@@ -218,48 +223,64 @@
     });
   }
 
-  function updateCounts() {
-    const all = rows();
-    const countFor = (predicate) => all.filter(predicate).length;
+  function updateCounts(allRows) {
+    const sectionCounts = {
+      gather: 0,
+      now: 0,
+      later: 0,
+      upcoming: 0,
+      unscheduled: 0,
+      done: 0,
+    };
+    const sourceCounts = new Map();
+    const collectionCounts = new Map();
+    let inboxCount = 0;
+    let plannedCount = 0;
+    let doneCount = 0;
+    let plannedMinutes = 0;
+
+    allRows.forEach((row) => {
+      const source = row.dataset.source || "";
+      const collection = row.dataset.collection || "";
+      const status = row.dataset.status || "inbox";
+      const sectionKey = sectionKeyForRow(row);
+      sectionCounts[sectionKey] += 1;
+      sourceCounts.set(source, (sourceCounts.get(source) || 0) + 1);
+      collectionCounts.set(collection, (collectionCounts.get(collection) || 0) + 1);
+
+      if (status === "inbox") inboxCount += 1;
+      if (["backlog", "doing"].includes(status)) {
+        plannedCount += 1;
+        plannedMinutes += Number(row.dataset.estimatedMinutes || 0);
+      }
+      if (status === "done") doneCount += 1;
+    });
+
     root.querySelectorAll("[data-section-count]").forEach((node) => {
       const key = node.dataset.sectionCount;
-      const count = all.filter((row) => listKeyForSection(row, key)).length;
-      node.textContent = String(count);
+      node.textContent = String(sectionCounts[key] || 0);
     });
-    root.querySelector("[data-sidebar-count='gather']")?.replaceChildren(document.createTextNode(String(countFor((row) => row.dataset.status === "inbox"))));
+    root.querySelector("[data-sidebar-count='gather']")?.replaceChildren(document.createTextNode(String(inboxCount)));
     root.querySelectorAll("[data-source-count]").forEach((node) => {
-      node.textContent = String(countFor((row) => row.dataset.source === node.dataset.sourceCount));
+      node.textContent = String(sourceCounts.get(node.dataset.sourceCount) || 0);
     });
     root.querySelectorAll("[data-collection-count]").forEach((node) => {
       const collection = node.dataset.collectionCount || "";
-      node.textContent = String(countFor((row) => (row.dataset.collection || "") === collection));
+      node.textContent = String(collectionCounts.get(collection) || 0);
     });
     const statuses = {
-      inbox: countFor((row) => row.dataset.status === "inbox"),
-      planned: countFor((row) => ["backlog", "doing"].includes(row.dataset.status)),
-      done: countFor((row) => row.dataset.status === "done"),
+      inbox: inboxCount,
+      planned: plannedCount,
+      done: doneCount,
     };
     Object.entries(statuses).forEach(([key, count]) => {
       const node = root.querySelector(`[data-kanban-count="${key}"]`);
       if (node) node.textContent = String(count);
     });
-    const plannedRows = all.filter((row) => ["backlog", "doing"].includes(row.dataset.status));
-    const plannedMinutes = plannedRows.reduce((total, row) => total + Number(row.dataset.estimatedMinutes || 0), 0);
     const taskSummary = root.querySelector("[data-planner-task-summary]");
-    if (taskSummary) taskSummary.textContent = `${plannedRows.length} task${plannedRows.length === 1 ? "" : "s"} in your plan`;
+    if (taskSummary) taskSummary.textContent = `${plannedCount} task${plannedCount === 1 ? "" : "s"} in your plan`;
     const timeSummary = root.querySelector("[data-planner-time-summary]");
     if (timeSummary) timeSummary.textContent = plannedMinutes ? `${plannedMinutes} min of focus planned` : "Keep the day spacious";
-  }
-
-  function listKeyForSection(row, key) {
-    const status = row.dataset.status;
-    if (key === "gather") return status === "inbox";
-    if (key === "now") return status === "doing";
-    if (key === "done") return status === "done";
-    if (status !== "backlog") return false;
-    if (key === "later") return isToday(row.dataset.plannedStart);
-    if (key === "upcoming") return isFuture(row.dataset.plannedStart);
-    return key === "unscheduled" && !isToday(row.dataset.plannedStart) && !isFuture(row.dataset.plannedStart);
   }
 
   function updateEmptyStates() {
@@ -305,14 +326,15 @@
   }
 
   function refreshPlanner({resetBatch = false} = {}) {
-    rows().forEach((row) => row.classList.toggle("is-filtered-out", !rowMatches(row)));
+    const allRows = rows();
+    allRows.forEach((row) => row.classList.toggle("is-filtered-out", !rowMatches(row)));
     sortLists();
     refreshVisibleRows({resetBatch});
-    updateDraggability();
-    updateCounts();
+    updateDraggability(allRows);
+    updateCounts(allRows);
     updateEmptyStates();
     clearFiltersButton?.classList.toggle("is-hidden", !filtersActive() && (sortControl?.value || "default") === "default");
-    renderTimeline();
+    renderTimeline(allRows);
   }
 
   function setView(view, {persist = true, resetBatch = false} = {}) {
@@ -683,10 +705,10 @@
     }
   }
 
-  function renderTimeline() {
+  function renderTimeline(allRows) {
     if (!timelineEvents) return;
     timelineEvents.replaceChildren();
-    const scheduled = rows().filter((row) => isToday(row.dataset.plannedStart) && row.dataset.status !== "done");
+    const scheduled = allRows.filter((row) => isToday(row.dataset.plannedStart) && row.dataset.status !== "done");
     scheduled.forEach((row) => {
       const start = parseDate(row.dataset.plannedStart);
       if (!start) return;
