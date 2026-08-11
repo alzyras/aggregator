@@ -485,8 +485,11 @@ def queue_sync_jobs(
     since: str | None = None,
     connector_account_id: int | str | None = None,
     full_sync: bool = False,
+    run_group_id: str | None = None,
+    refresh_reason: str = "manual",
+    priority: int = 0,
 ) -> list[Job]:
-    run_group_id = str(uuid.uuid4())
+    run_group_id = run_group_id or str(uuid.uuid4())
     accounts = ConnectorAccount.objects.for_workspace(workspace).filter(
         is_active=True,
         status=ConnectorAccount.STATUS_CONNECTED,
@@ -504,6 +507,7 @@ def queue_sync_jobs(
             "source": account.source,
             "full_sync": full_sync,
             "run_group_id": run_group_id,
+            "refresh_reason": refresh_reason,
         }
         if since:
             input_params["since"] = since
@@ -520,6 +524,7 @@ def queue_sync_jobs(
             job_name="sync_connector",
             input_params=input_params,
             created_by=created_by,
+            priority=priority,
             idempotency_key=idempotency_key,
         )
         jobs.append(job)

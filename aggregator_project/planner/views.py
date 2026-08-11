@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, replace
 from datetime import timedelta
+from uuid import uuid4
 
 from connectors.models import ConnectorAccount
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import Q
+from django.db.models.functions import Coalesce
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -17,6 +19,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 from events.models import Event
 from ingestion.providers import get_provider_spec
+from ingestion.services.refresh import get_workspace_refresh_snapshot
 
 from planner.models import PlannerItem, PlannerItemState, PlannerPlan
 from planner.services.reconcile import (
@@ -96,15 +99,17 @@ def planner_list(request: HttpRequest) -> HttpResponse:
     if last_synced_at:
         stale_warning = (now - last_synced_at) > timedelta(hours=24)
 
-    source_choices = (
-        ConnectorAccount.objects
-        .for_workspace(request.workspace)
-        .values_list("source", flat=True)
-        .distinct()
-    )
-
     tab_items = _planner_tab_items(request=request, plan=plan, states=list(states))
     tab_items = _attach_provider_context_pills(request=request, tab_items=tab_items)
+    refresh_state = get_workspace_refresh_snapshot(workspace=request.workspace)
+    planner_sections = _planner_sections(tab_items=tab_items, today=timezone.localdate())
+    source_choices = _planner_source_choices(
+        workspace=request.workspace,
+        tab_items=tab_items,
+    )
+    source_sidebar_items = _source_sidebar_items(tab_items=tab_items)
+    collection_sidebar_items = _collection_sidebar_items(tab_items=tab_items)
+    planner_summary = _planner_summary(planner_sections=planner_sections)
 
     context = {
         "plan": plan,
@@ -112,12 +117,18 @@ def planner_list(request: HttpRequest) -> HttpResponse:
         "now": now,
         "last_synced_at": last_synced_at,
         "stale_warning": stale_warning,
+        "refresh_state": refresh_state,
+        "planner_sections": planner_sections,
+        "source_sidebar_items": source_sidebar_items,
+        "collection_sidebar_items": collection_sidebar_items,
+        "planner_summary": planner_summary,
+        "timeline_hours": list(range(8, 19)),
         "status_choices": PlannerItemState.STATUS_CHOICES,
         "planner_status_choices": [
             (status, PLANNER_STATUS_LABELS.get(status, label.title()))
             for status, label in PlannerItemState.PLANNER_STATUS_CHOICES
         ],
-        "source_choices": [(source, source.replace("_", " ").title()) for source in source_choices],
+        "source_choices": source_choices,
     }
     return render(request, "planner/planner_list.html", context)
 
@@ -175,7 +186,11 @@ def update_planner_status(request: HttpRequest, item_id: str) -> JsonResponse:
     state.planner_status = status
     state.planned_status = planned_status_for_planner_status(status)
     state.last_planned_at = timezone.now()
-    state.save(update_fields=["planner_status", "planned_status", "last_planned_at"])
+    if status == PlannerItemState.PLANNER_STATUS_DONE:
+        state.completed_at = state.completed_at or timezone.now()
+    else:
+        state.completed_at = None
+    state.save(update_fields=["planner_status", "planned_status", "completed_at", "last_planned_at"])
     job = queue_status_writeback(state=state, created_by=request.user)
     return JsonResponse({
         "status": "ok",
@@ -268,12 +283,137 @@ def update_planned_schedule(request: HttpRequest, item_id: str) -> JsonResponse:
     planned_start = _parse_datetime(payload.get("planned_start"))
     planned_end = _parse_datetime(payload.get("planned_end"))
 
-    state = _get_state(request, item_id)
+    if planned_start and planned_end and planned_end <= planned_start:
+        return JsonResponse({"error": "Scheduled end must be after the start."}, status=400)
+
+    state = _get_or_create_state(
+        request,
+        item_id,
+        planner_status=PlannerItemState.PLANNER_STATUS_BACKLOG,
+    )
+    # Scheduling is an intentional planning action: an item should no longer
+    # remain in the quiet Gather inbox once it has a place in the day.
+    if state.planner_status == PlannerItemState.PLANNER_STATUS_INBOX:
+        state.planner_status = PlannerItemState.PLANNER_STATUS_BACKLOG
+        state.planned_status = planned_status_for_planner_status(state.planner_status)
     state.planned_start = planned_start
     state.planned_end = planned_end
     state.last_planned_at = timezone.now()
-    state.save(update_fields=["planned_start", "planned_end", "last_planned_at"])
-    return JsonResponse({"status": "ok"})
+    state.save(
+        update_fields=[
+            "planner_status",
+            "planned_status",
+            "planned_start",
+            "planned_end",
+            "last_planned_at",
+        ]
+    )
+    return JsonResponse({
+        "status": "ok",
+        "item_id": state.item_id,
+        "state_id": state.id,
+        "planned_start": state.planned_start.isoformat() if state.planned_start else None,
+        "planned_end": state.planned_end.isoformat() if state.planned_end else None,
+    })
+
+
+@login_required
+@require_POST
+def create_personal_task(request: HttpRequest) -> JsonResponse:
+    """Create a local task without requiring a connected provider."""
+    payload = _parse_json(request)
+    title = (payload.get("title") or "").strip()
+    if not title:
+        return JsonResponse({"error": "A task title is required."}, status=400)
+    if len(title) > 255:
+        return JsonResponse({"error": "Task titles must be 255 characters or fewer."}, status=400)
+
+    planner_status = payload.get("planner_status") or PlannerItemState.PLANNER_STATUS_BACKLOG
+    if planner_status not in dict(PlannerItemState.PLANNER_STATUS_CHOICES):
+        return JsonResponse({"error": "Invalid planner status."}, status=400)
+
+    description = payload.get("description") or ""
+    notes = payload.get("notes") or ""
+    collection = (payload.get("collection") or "").strip()
+    estimated_minutes, error = _validated_estimated_minutes(payload.get("estimated_minutes"))
+    if error:
+        return JsonResponse({"error": error}, status=400)
+    if not isinstance(description, str) or not isinstance(notes, str):
+        return JsonResponse({"error": "Description and notes must be text."}, status=400)
+    if len(collection) > 100:
+        return JsonResponse({"error": "Collection names must be 100 characters or fewer."}, status=400)
+
+    planned_start = _parse_datetime(payload.get("planned_start"))
+    planned_end = _parse_datetime(payload.get("planned_end"))
+    if planned_start and planned_end and planned_end <= planned_start:
+        return JsonResponse({"error": "Scheduled end must be after the start."}, status=400)
+
+    plan = _get_or_create_plan(request)
+    with transaction.atomic():
+        item = PlannerItem.objects.create(
+            workspace=request.workspace,
+            user=request.user,
+            source=PlannerItem.SOURCE_MANUAL,
+            source_entity_id=f"manual-{uuid4()}",
+            title=title,
+            description=description,
+            source_status="personal",
+        )
+        state = ensure_item_state(plan, item, planner_status=planner_status)
+        state.planned_status = planned_status_for_planner_status(planner_status)
+        state.notes = notes
+        state.collection = collection
+        state.estimated_minutes = estimated_minutes
+        state.planned_start = planned_start
+        state.planned_end = planned_end
+        if planner_status == PlannerItemState.PLANNER_STATUS_DONE:
+            state.completed_at = timezone.now()
+        state.save(
+            update_fields=[
+                "planned_status",
+                "notes",
+                "collection",
+                "estimated_minutes",
+                "planned_start",
+                "planned_end",
+                "completed_at",
+            ]
+        )
+
+    return JsonResponse({"status": "ok", "task": _task_payload(state)}, status=201)
+
+
+@login_required
+@require_POST
+def update_planner_details(request: HttpRequest, item_id: str) -> JsonResponse:
+    """Save personal planning metadata without sending it to a provider."""
+    payload = _parse_json(request)
+    state = _get_or_create_state(request, item_id)
+    updates: list[str] = []
+
+    if "notes" in payload:
+        notes = payload.get("notes")
+        if not isinstance(notes, str):
+            return JsonResponse({"error": "Notes must be text."}, status=400)
+        state.notes = notes
+        updates.append("notes")
+    if "collection" in payload:
+        collection = payload.get("collection")
+        if not isinstance(collection, str) or len(collection.strip()) > 100:
+            return JsonResponse({"error": "Collection names must be 100 characters or fewer."}, status=400)
+        state.collection = collection.strip()
+        updates.append("collection")
+    if "estimated_minutes" in payload:
+        estimated_minutes, error = _validated_estimated_minutes(payload.get("estimated_minutes"))
+        if error:
+            return JsonResponse({"error": error}, status=400)
+        state.estimated_minutes = estimated_minutes
+        updates.append("estimated_minutes")
+
+    if updates:
+        state.last_planned_at = timezone.now()
+        state.save(update_fields=[*updates, "last_planned_at"])
+    return JsonResponse({"status": "ok", "task": _task_payload(state)})
 
 
 @login_required
@@ -560,7 +700,8 @@ def _planner_tab_items(*, request: HttpRequest, plan: PlannerPlan, states: list[
         .exclude(id__in=states_by_item_id.keys())
         .select_related("connector_account")
         .prefetch_related("tag_assignments__tag")
-        .order_by("-source_created_at", "-created_at", "-id")
+        .annotate(inbox_created_sort=Coalesce("source_created_at", "created_at"))
+        .order_by("-inbox_created_sort", "-created_at", "-id")
     )
     for item in unplanned_items:
         source_key = _planner_item_source_key(item)
@@ -587,6 +728,170 @@ def _planner_tab_items(*, request: HttpRequest, plan: PlannerPlan, states: list[
             "items": rows,
         })
     return tab_items
+
+
+def _planner_sections(*, tab_items: list[dict], today) -> list[dict]:
+    """Map persisted planner states to the calm daily-planning sections."""
+    rows_by_status = {tab["value"]: tab["items"] for tab in tab_items}
+    backlog_rows = rows_by_status.get(PlannerItemState.PLANNER_STATUS_BACKLOG, [])
+
+    later_today = []
+    upcoming = []
+    unscheduled = []
+    for row in backlog_rows:
+        planned_start = row.state.planned_start if row.state else None
+        if not planned_start:
+            unscheduled.append(row)
+            continue
+        planned_day = timezone.localtime(planned_start).date() if timezone.is_aware(planned_start) else planned_start.date()
+        if planned_day == today:
+            later_today.append(row)
+        elif planned_day > today:
+            upcoming.append(row)
+        else:
+            unscheduled.append(row)
+
+    return [
+        {
+            "key": "gather",
+            "label": "Gather",
+            "description": "New signals from your connected tools",
+            "items": rows_by_status.get(PlannerItemState.PLANNER_STATUS_INBOX, []),
+            "planner_status": PlannerItemState.PLANNER_STATUS_INBOX,
+        },
+        {
+            "key": "now",
+            "label": "Now",
+            "description": "One thing at a time",
+            "items": rows_by_status.get(PlannerItemState.PLANNER_STATUS_DOING, []),
+            "planner_status": PlannerItemState.PLANNER_STATUS_DOING,
+        },
+        {
+            "key": "later",
+            "label": "Later today",
+            "description": "A gentle plan for the rest of today",
+            "items": later_today,
+            "planner_status": PlannerItemState.PLANNER_STATUS_BACKLOG,
+        },
+        {
+            "key": "upcoming",
+            "label": "Upcoming",
+            "description": "Already given a place",
+            "items": upcoming,
+            "planner_status": PlannerItemState.PLANNER_STATUS_BACKLOG,
+        },
+        {
+            "key": "unscheduled",
+            "label": "Unscheduled",
+            "description": "Worth deciding on when you are ready",
+            "items": unscheduled,
+            "planner_status": PlannerItemState.PLANNER_STATUS_BACKLOG,
+        },
+        {
+            "key": "done",
+            "label": "Done",
+            "description": "A little evidence of progress",
+            "items": rows_by_status.get(PlannerItemState.PLANNER_STATUS_DONE, []),
+            "planner_status": PlannerItemState.PLANNER_STATUS_DONE,
+        },
+    ]
+
+
+def _planner_source_choices(*, workspace, tab_items: list[dict]) -> list[tuple[str, str]]:
+    account_sources = set(
+        ConnectorAccount.objects
+        .for_workspace(workspace)
+        .values_list("source", flat=True)
+        .distinct()
+    )
+    item_sources = {row.item.source for tab in tab_items for row in tab["items"]}
+    labels = dict(PlannerItem.SOURCE_CHOICES)
+    return [
+        (source, labels.get(source, source.replace("_", " ").title()))
+        for source in sorted(account_sources | item_sources, key=lambda value: labels.get(value, value).lower())
+    ]
+
+
+def _source_sidebar_items(*, tab_items: list[dict]) -> list[dict]:
+    counts: dict[str, int] = {}
+    labels = dict(PlannerItem.SOURCE_CHOICES)
+    for tab in tab_items:
+        for row in tab["items"]:
+            counts[row.item.source] = counts.get(row.item.source, 0) + 1
+    return [
+        {
+            "source": source,
+            "label": labels.get(source, source.replace("_", " ").title()),
+            "count": count,
+        }
+        for source, count in sorted(counts.items(), key=lambda entry: (-entry[1], entry[0]))
+    ]
+
+
+def _collection_sidebar_items(*, tab_items: list[dict]) -> list[dict]:
+    counts = {"Work": 0, "Personal": 0}
+    for tab in tab_items:
+        for row in tab["items"]:
+            collection = (row.state.collection if row.state else "").strip()
+            if collection:
+                counts[collection] = counts.get(collection, 0) + 1
+    return [
+        {"label": label, "count": count}
+        for label, count in sorted(counts.items(), key=lambda entry: (entry[0] not in {"Work", "Personal"}, entry[0].lower()))
+    ]
+
+
+def _planner_summary(*, planner_sections: list[dict]) -> dict[str, int]:
+    relevant_sections = {"now", "later", "upcoming"}
+    focus_rows = [
+        row
+        for section in planner_sections
+        if section["key"] in relevant_sections
+        for row in section["items"]
+    ]
+    estimated_minutes = sum(
+        (row.state.estimated_minutes or 0)
+        for row in focus_rows
+        if row.state
+    )
+    return {
+        "task_count": len(focus_rows),
+        "estimated_minutes": estimated_minutes,
+        "gather_count": next((len(section["items"]) for section in planner_sections if section["key"] == "gather"), 0),
+    }
+
+
+def _task_payload(state: PlannerItemState) -> dict:
+    item = state.item
+    return {
+        "item_id": item.id,
+        "state_id": state.id,
+        "title": item.title,
+        "description": item.description or "",
+        "source": item.source,
+        "source_label": item.get_source_display(),
+        "source_url": item.source_url or "",
+        "planner_status": state.planner_status,
+        "planned_start": state.planned_start.isoformat() if state.planned_start else None,
+        "planned_end": state.planned_end.isoformat() if state.planned_end else None,
+        "estimated_minutes": state.estimated_minutes,
+        "collection": state.collection,
+        "notes": state.notes or "",
+        "writeback_status": state.writeback_status,
+        "created_at": item.created_at.isoformat(),
+    }
+
+
+def _validated_estimated_minutes(value) -> tuple[int | None, str | None]:
+    if value in (None, ""):
+        return None, None
+    try:
+        minutes = int(value)
+    except (TypeError, ValueError):
+        return None, "Duration must be a whole number of minutes."
+    if minutes < 1 or minutes > 24 * 60:
+        return None, "Duration must be between 1 minute and 24 hours."
+    return minutes, None
 
 
 def _row_from_state(state: PlannerItemState) -> PlannerRow:

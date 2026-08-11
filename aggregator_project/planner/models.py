@@ -15,6 +15,11 @@ class WorkspaceQuerySet(models.QuerySet):
 
 
 class PlannerItem(TimestampedModel):
+    SOURCE_MANUAL = "manual"
+    SOURCE_CHOICES = [
+        *SOURCE_CHOICES,
+        (SOURCE_MANUAL, "Personal"),
+    ]
     DESCRIPTION_WRITEBACK_STATUS_NONE = "none"
     DESCRIPTION_WRITEBACK_STATUS_PENDING = "pending"
     DESCRIPTION_WRITEBACK_STATUS_SYNCED = "synced"
@@ -160,6 +165,9 @@ class PlannerItemState(models.Model):
     planned_order = models.IntegerField(default=0)
     planned_start = models.DateTimeField(null=True, blank=True)
     planned_end = models.DateTimeField(null=True, blank=True)
+    estimated_minutes = models.PositiveIntegerField(null=True, blank=True)
+    collection = models.CharField(max_length=100, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
     pinned = models.BooleanField(default=False)
     notes = models.TextField(null=True, blank=True)
     last_planned_at = models.DateTimeField(default=timezone.now)

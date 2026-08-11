@@ -170,6 +170,13 @@ durable `task_enrichment` jobs.
 Jobs also use Postgres leases, so a stopped worker/container can be recovered
 by another worker after the lease expires.
 
+Each workspace controls its own automatic refresh rate from **Sync** (default:
+12 checks per day). The worker schedules lightweight incremental syncs after
+the first full import, with a configurable full refresh interval as a safety
+net. `SYNC_INCREMENTAL_LOOKBACK_MINUTES` defaults to 5 to cover updates made
+while a sync is running; `AUTO_REFRESH_SCHEDULER_TICK_SECONDS` defaults to 60
+and only controls how often the worker evaluates due workspaces.
+
 Local queue operations:
 
 ```bash

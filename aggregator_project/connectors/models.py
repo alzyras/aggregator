@@ -62,6 +62,9 @@ class ConnectorAccount(TimestampedModel):
         null=True,
         blank=True,
     )
+    sync_cursor_at = models.DateTimeField(null=True, blank=True)
+    last_incremental_sync_at = models.DateTimeField(null=True, blank=True)
+    last_full_sync_at = models.DateTimeField(null=True, blank=True)
 
     objects = WorkspaceQuerySet.as_manager()
 

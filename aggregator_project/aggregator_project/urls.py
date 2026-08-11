@@ -18,6 +18,7 @@ urlpatterns = [
     path("events/<uuid:pk>/", event_views.event_detail, name="event_detail"),
     path("stats/", event_views.stats_view, name="stats_view"),
     path("sync/", ingestion_views.sync_view, name="sync_view"),
+    path("sync/refresh/", ingestion_views.refresh_now, name="refresh_now"),
     path("jobs/", ingestion_views.jobs_list, name="jobs_list"),
 ]
 

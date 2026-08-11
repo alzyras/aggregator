@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 from django.core.exceptions import ValidationError
@@ -15,6 +16,31 @@ from workspaces.models import Workspace
 class WorkspaceQuerySet(models.QuerySet):
     def for_workspace(self, workspace: Workspace) -> "WorkspaceQuerySet":
         return self.filter(workspace=workspace)
+
+
+class WorkspaceRefreshPolicy(TimestampedModel):
+    """Workspace-owned policy for keeping connector-backed data current."""
+
+    workspace = models.OneToOneField(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="refresh_policy",
+    )
+    auto_refresh_enabled = models.BooleanField(default=True)
+    refreshes_per_day = models.PositiveSmallIntegerField(
+        default=12,
+        validators=[MinValueValidator(1), MaxValueValidator(96)],
+    )
+    full_refresh_interval_days = models.PositiveSmallIntegerField(
+        default=7,
+        validators=[MinValueValidator(1), MaxValueValidator(31)],
+    )
+    cache_version = models.PositiveBigIntegerField(default=1)
+
+    objects = WorkspaceQuerySet.as_manager()
+
+    def __str__(self) -> str:
+        return f"Refresh policy for {self.workspace}"
 
 
 class Job(models.Model):

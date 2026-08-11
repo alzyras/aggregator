@@ -6,15 +6,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Aggregator</title>
     <link
-      href="https://fonts.googleapis.com/css2?family=Onest:wght@300;400;500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Onest:wght@300;400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="{% static 'css/styles.css' %}?v=20260717" />
-    <link rel="stylesheet" href="{% static 'css/workspace.css' %}?v=20260717b" />
+    <link rel="stylesheet" href="{% static 'css/workspace.css' %}?v=20260811a" />
     <script src="https://unpkg.com/lucide@1.25.0/dist/umd/lucide.min.js" defer></script>
     {% block extra_head %}{% endblock %}
   </head>
-  <body>
+  <body class="{% block body_class %}{% endblock %}">
     <div class="page">
       <header class="nav-shell">
         <div class="nav-inner">

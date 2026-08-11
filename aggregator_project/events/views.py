@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from calendar import monthrange
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.http import QueryDict
 from django.core.paginator import Paginator
 from django.db.models import Count, Q
@@ -17,6 +18,9 @@ from connectors.models import ConnectorAccount
 from events.models import Event
 from ingestion.models import Job
 from ingestion.providers import get_provider_choices
+from ingestion.services.cache import workspace_cache_key
+from ingestion.services.refresh import get_workspace_refresh_snapshot
+from planner.models import PlannerItem, PlannerItemState, PlannerPlan
 
 LIFECYCLE_FILTER_ORDER = (
     "completed",
@@ -47,6 +51,7 @@ STATS_COMPLETION_WINDOW_DAYS = 30
 
 
 @login_required
+@ensure_csrf_cookie
 def event_list(request):
     workspace = request.workspace
     base_events = Event.objects.for_workspace(workspace)
@@ -248,6 +253,7 @@ def event_list(request):
         )
 
     context = {
+        "refresh_state": get_workspace_refresh_snapshot(workspace=workspace),
         "page_obj": page_obj,
         "source_choices": source_choices,
         "event_type_groups": [
@@ -291,20 +297,38 @@ def event_detail(request, pk):
 
 
 @login_required
+@ensure_csrf_cookie
 def stats_view(request):
     workspace = request.workspace
-    source_label_map = dict(get_provider_choices())
+    source_label_map = {
+        **dict(get_provider_choices()),
+        **dict(PlannerItem.SOURCE_CHOICES),
+    }
     base_events = Event.objects.for_workspace(workspace)
     base_connectors = ConnectorAccount.objects.for_workspace(workspace)
     base_sync_jobs = Job.objects.for_workspace(workspace).filter(
         job_type="sync",
         connector_account__isnull=False,
     )
+    user_plan = (
+        PlannerPlan.objects.for_workspace(workspace)
+        .filter(user=request.user)
+        .order_by("created_at")
+        .first()
+    )
+    planner_sources = set()
+    if user_plan:
+        planner_sources = set(
+            PlannerItemState.objects.filter(plan=user_plan, item__is_active=True)
+            .values_list("item__source", flat=True)
+            .distinct()
+        )
 
     available_sources = sorted(
         set(base_events.values_list("source", flat=True).distinct())
         | set(base_connectors.values_list("source", flat=True).distinct())
-        | set(base_sync_jobs.values_list("connector_account__source", flat=True).distinct()),
+        | set(base_sync_jobs.values_list("connector_account__source", flat=True).distinct())
+        | planner_sources,
         key=lambda value: source_label_map.get(value, value).lower(),
     )
     allowed_sources = set(available_sources)
@@ -316,9 +340,12 @@ def stats_view(request):
     if selected_source:
         filtered_events = filtered_events.filter(source=selected_source)
 
-    source_label_map = dict(get_provider_choices())
     bypass_cache = request.GET.get("nocache") == "1"
-    cache_key = f"stats:workspace:{workspace.id}:v4:source:{selected_source or 'all'}"
+    cache_key = workspace_cache_key(
+        workspace,
+        "stats",
+        selected_source or "all",
+    )
     context = None if bypass_cache else cache.get(cache_key)
     if context is None:
         context = _build_stats_context(
@@ -349,6 +376,12 @@ def stats_view(request):
         **context,
         "last_generated_at": timezone.now(),
         "cache_bypassed": bypass_cache,
+        "refresh_state": get_workspace_refresh_snapshot(workspace=workspace),
+        "rhythm": _build_rhythm_context(
+            plan=user_plan,
+            selected_source=selected_source,
+            source_label_map=source_label_map,
+        ),
         "selected_source": selected_source,
         "source_filter_pills": source_filter_pills,
     }
@@ -570,6 +603,221 @@ def _build_stats_context(
         "sync_source_rows": sync_source_rows,
         "stats_cache_timeout_seconds": STATS_CACHE_TIMEOUT_SECONDS,
     }
+
+
+def _build_rhythm_context(
+    *,
+    plan: PlannerPlan | None,
+    selected_source: str,
+    source_label_map: dict[str, str],
+) -> dict[str, object]:
+    """Build fresh, personal weekly metrics without affecting cached event statistics."""
+    today = timezone.localdate()
+    week_start = today - timedelta(days=today.weekday())
+    week_end = week_start + timedelta(days=6)
+    week_start_at = timezone.make_aware(datetime.combine(week_start, time.min))
+    week_end_at = timezone.make_aware(
+        datetime.combine(week_end + timedelta(days=1), time.min)
+    )
+    weekday_series = [
+        {
+            "date": day_value,
+            "date_iso": day_value.isoformat(),
+            "label": day_value.strftime("%a"),
+            "full_label": day_value.strftime("%A, %d %b"),
+            "planned_count": 0,
+            "completed_count": 0,
+            "planned_minutes": 0,
+            "is_today": day_value == today,
+        }
+        for day_value in (week_start + timedelta(days=offset) for offset in range(7))
+    ]
+    weekday_by_date = {row["date"]: row for row in weekday_series}
+    source_totals: dict[str, dict[str, object]] = {}
+
+    states = []
+    if plan:
+        states_query = (
+            PlannerItemState.objects.select_related("item")
+            .filter(plan=plan, item__is_active=True)
+            .filter(
+                Q(
+                    planned_start__gte=week_start_at,
+                    planned_start__lt=week_end_at,
+                )
+                | Q(
+                    completed_at__gte=week_start_at,
+                    completed_at__lt=week_end_at,
+                )
+            )
+            .order_by("id")
+        )
+        if selected_source:
+            states_query = states_query.filter(item__source=selected_source)
+        states = list(states_query)
+
+    planned_count = 0
+    completed_count = 0
+    planned_minutes = 0
+    for state in states:
+        planned_day = _stats_local_date(state.planned_start)
+        completed_day = _stats_local_date(state.completed_at)
+        planned_this_week = planned_day in weekday_by_date
+        completed_this_week = completed_day in weekday_by_date
+
+        if not planned_this_week and not completed_this_week:
+            continue
+
+        source = state.item.source
+        source_row = source_totals.setdefault(
+            source,
+            {
+                "source": source,
+                "source_label": source_label_map.get(
+                    source,
+                    source.replace("_", " ").title(),
+                ),
+                "task_count": 0,
+                "planned_count": 0,
+                "completed_count": 0,
+                "planned_minutes": 0,
+            },
+        )
+        source_row["task_count"] += 1
+
+        if planned_this_week:
+            planned_count += 1
+            planned_minutes += state.estimated_minutes or 0
+            weekday_by_date[planned_day]["planned_count"] += 1
+            weekday_by_date[planned_day]["planned_minutes"] += state.estimated_minutes or 0
+            source_row["planned_count"] += 1
+            source_row["planned_minutes"] += state.estimated_minutes or 0
+
+        if completed_this_week:
+            completed_count += 1
+            weekday_by_date[completed_day]["completed_count"] += 1
+            source_row["completed_count"] += 1
+
+    has_activity = bool(planned_count or completed_count)
+    is_first_week = bool(
+        plan is None
+        or (
+            plan.created_at
+            and _stats_local_date(plan.created_at) >= week_start
+        )
+    )
+    source_total_count = sum(row["task_count"] for row in source_totals.values())
+    source_breakdown = sorted(
+        (
+            {
+                **row,
+                "percent": round((row["task_count"] / source_total_count) * 100)
+                if source_total_count
+                else 0,
+            }
+            for row in source_totals.values()
+        ),
+        key=lambda row: (-row["task_count"], row["source_label"].lower()),
+    )
+    completion_rate = min(round((completed_count / planned_count) * 100), 100) if planned_count else 0
+    empty_state = _build_rhythm_empty_state(
+        has_activity=has_activity,
+        is_first_week=is_first_week,
+        selected_source=selected_source,
+        source_label_map=source_label_map,
+    )
+
+    return {
+        "week_start": week_start,
+        "week_end": week_end,
+        "week_label": f"{week_start.day} {week_start:%b} – {week_end.day} {week_end:%b}",
+        "completed_count": completed_count,
+        "planned_count": planned_count,
+        "planned_minutes": planned_minutes,
+        "completion_rate": completion_rate,
+        "weekday_series": weekday_series,
+        "source_breakdown": source_breakdown,
+        "insight": _build_rhythm_insight(
+            planned_count=planned_count,
+            completed_count=completed_count,
+            is_first_week=is_first_week,
+        ),
+        "has_activity": has_activity,
+        "is_empty": empty_state["is_empty"],
+        "is_first_week": empty_state["is_first_week"],
+        "empty_state": empty_state,
+    }
+
+
+def _stats_local_date(value) -> date | None:
+    if not value:
+        return None
+    if timezone.is_aware(value):
+        return timezone.localtime(value).date()
+    return value.date()
+
+
+def _build_rhythm_empty_state(
+    *,
+    has_activity: bool,
+    is_first_week: bool,
+    selected_source: str,
+    source_label_map: dict[str, str],
+) -> dict[str, object]:
+    if has_activity:
+        return {
+            "is_empty": False,
+            "is_first_week": False,
+            "title": "",
+            "message": "",
+        }
+
+    source_label = source_label_map.get(
+        selected_source,
+        selected_source.replace("_", " ").title(),
+    )
+    if selected_source:
+        title = f"No {source_label} tasks this week"
+        message = "Try another source, or give a task a place in your plan."
+    elif is_first_week:
+        title = "Your first week starts here"
+        message = "Plan one task to begin noticing a rhythm."
+    else:
+        title = "A quiet week is okay"
+        message = "Give a task a time this week to see your planning rhythm."
+    return {
+        "is_empty": True,
+        "is_first_week": is_first_week,
+        "title": title,
+        "message": message,
+    }
+
+
+def _build_rhythm_insight(
+    *,
+    planned_count: int,
+    completed_count: int,
+    is_first_week: bool,
+) -> str:
+    if not planned_count and not completed_count:
+        return (
+            "Your first week starts with one intentional task."
+            if is_first_week
+            else "A little space in the week can be useful."
+        )
+    if not planned_count:
+        return (
+            f"You completed {completed_count} task{'' if completed_count == 1 else 's'} "
+            "without scheduling time for them."
+        )
+    if not completed_count:
+        return (
+            f"You have {planned_count} planned task{'' if planned_count == 1 else 's'} "
+            "waiting for a first step."
+        )
+    if completed_count >= planned_count:
+        return "You have completed everything you planned this week."
+    return f"You have completed {completed_count} of {planned_count} planned tasks this week."
 
 
 def _build_completion_daily_series(

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 import copy
 import logging
 import os
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Max
 from django.utils import timezone
@@ -19,6 +20,7 @@ from ingestion.normalizers.utils import (
     serialize_raw,
 )
 from ingestion.providers import get_provider_spec
+from ingestion.services.cache import invalidate_workspace_cache
 from planner.services.reconcile import reconcile_from_event
 
 logger = logging.getLogger(__name__)
@@ -42,7 +44,7 @@ def sync_connector_account(
     connector_account: ConnectorAccount,
     since: datetime | None = None,
     full_sync: bool = False,
-) -> dict[str, int]:
+) -> dict[str, object]:
     if connector_account.workspace_id != workspace.id:
         raise ValueError("Connector account does not belong to workspace.")
     if not connector_account.is_active or connector_account.revoked_at:
@@ -52,8 +54,11 @@ def sync_connector_account(
     if not spec:
         raise ValueError(f"Unknown provider source: {connector_account.source}")
 
+    sync_started_at = timezone.now()
+    effective_full_sync = full_sync
     if since is None and not full_sync:
-        since = _latest_event_timestamp(connector_account)
+        since = _incremental_since(connector_account)
+        effective_full_sync = since is None
 
     client = spec.client_factory(connector_account)
     raw_items = client.fetch_since(since)
@@ -112,16 +117,44 @@ def sync_connector_account(
         if progress_enabled and raw_index % progress_every == 0:
             print(f"[sync] processed {raw_index} raw items")
 
-    connector_account.last_sync_at = timezone.now()
+    sync_finished_at = timezone.now()
+    connector_account.last_sync_at = sync_finished_at
     connector_account.last_sync_status = ConnectorAccount.SYNC_STATUS_SUCCESS
-    connector_account.save(update_fields=["last_sync_at", "last_sync_status"])
+    connector_account.sync_cursor_at = sync_started_at
+    update_fields = [
+        "last_sync_at",
+        "last_sync_status",
+        "sync_cursor_at",
+    ]
+    if effective_full_sync:
+        connector_account.last_full_sync_at = sync_finished_at
+        update_fields.append("last_full_sync_at")
+    else:
+        connector_account.last_incremental_sync_at = sync_finished_at
+        update_fields.append("last_incremental_sync_at")
+    connector_account.save(update_fields=update_fields)
+    if inserted:
+        invalidate_workspace_cache(workspace)
 
     return {
         "inserted": inserted,
         "skipped": skipped,
         "total": len(raw_items),
         "connector_account_id": str(connector_account.id),
+        "mode": "full" if effective_full_sync else "incremental",
+        "since": since.isoformat() if since else None,
     }
+
+
+def _incremental_since(connector_account: ConnectorAccount) -> datetime | None:
+    cursor = connector_account.sync_cursor_at or _latest_event_timestamp(connector_account)
+    if cursor is None:
+        return None
+    lookback_minutes = max(
+        int(getattr(settings, "SYNC_INCREMENTAL_LOOKBACK_MINUTES", 5)),
+        0,
+    )
+    return cursor - timedelta(minutes=lookback_minutes)
 
 
 def _normalized_at_or_before_since(normalized: dict, since: datetime) -> bool:

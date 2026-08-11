@@ -3,15 +3,54 @@
 {% block content %}
   <section class="glow">
     <div class="panel">
+      <div class="workspace-header">
+        <div>
+          <p class="workspace-kicker">Data freshness</p>
+          <h1>Sync</h1>
+        </div>
+        <div class="sync-presence{% if refresh_state.stale_count or not refresh_state.has_connected_sources %} is-stale{% endif %}">
+          <span class="sync-presence-dot" aria-hidden="true"></span>
+          {% if refresh_state.is_refreshing %}
+            <span>Refreshing {{ refresh_state.refreshing_count }} source{{ refresh_state.refreshing_count|pluralize }}</span>
+          {% elif refresh_state.failed_count %}
+            <span>{{ refresh_state.failed_count }} source{{ refresh_state.failed_count|pluralize }} needs attention</span>
+          {% elif refresh_state.all_checked_at %}
+            <span title="{{ refresh_state.all_checked_at|date:'Y-m-d H:i:s T' }}">Updated {{ refresh_state.all_checked_at|timesince }} ago</span>
+          {% elif refresh_state.has_connected_sources %}
+            <span>Awaiting first refresh</span>
+          {% else %}
+            <span>Connect a source to refresh</span>
+          {% endif %}
+        </div>
+      </div>
       <form method="post" class="sync-actions">
         {% csrf_token %}
-        <button type="submit" class="btn primary" data-loading-text="Queued…">Run Sync All</button>
+        <button type="submit" name="action" value="refresh" class="btn primary" data-loading-text="Queued…">Refresh now</button>
         {% if debug %}
-          <button type="submit" name="run_immediately" value="1" class="btn ghost">
-            Sync now (run immediately)
-          </button>
+          <button type="submit" name="run_immediately" value="1" class="btn ghost">Refresh now (run immediately)</button>
         {% endif %}
       </form>
+      {% if can_manage_refresh %}
+        <form method="post" class="refresh-policy-form">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="save_policy" />
+          <label class="field-group">
+            <span>Automatic refresh</span>
+            {{ refresh_form.auto_refresh_enabled }}
+          </label>
+          <label class="field-group">
+            <span>Refreshes per day</span>
+            {{ refresh_form.refreshes_per_day }}
+          </label>
+          <label class="field-group">
+            <span>Full refresh interval (days)</span>
+            {{ refresh_form.full_refresh_interval_days }}
+          </label>
+          <div class="field-group field-group-wide">
+            <button type="submit" class="btn ghost">Save refresh schedule</button>
+          </div>
+        </form>
+      {% endif %}
     </div>
   </section>
 

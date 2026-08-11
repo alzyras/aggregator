@@ -18,7 +18,7 @@
         <div class="planner-day-body">
           {% for state in states %}
             {% if state.planned_start and state.planned_start|date:"Y-m-d" == day|date:"Y-m-d" %}
-              <div class="planner-card" draggable="true" data-state-id="{{ state.id }}">
+              <div class="planner-card" draggable="true" data-item-id="{{ state.item_id }}">
                 <strong>{{ state.item.title }}</strong>
                 <div class="planner-meta">
                   <span class="badge">{{ state.item.get_source_display }}</span>
@@ -70,9 +70,9 @@
     day.addEventListener("drop", async () => {
       day.classList.remove("drag-over");
       if (!dragged) return;
-      const stateId = dragged.dataset.stateId;
+      const itemId = dragged.dataset.itemId;
       const date = day.parentElement.dataset.date;
-      await postJson(`/planner/item/${stateId}/schedule`, {
+      await postJson(`/planner/item/${itemId}/schedule`, {
         planned_start: `${date}T09:00:00+00:00`,
         planned_end: `${date}T10:00:00+00:00`,
       });

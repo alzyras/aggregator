@@ -17,7 +17,7 @@ from connectors.services.verify import verify_credentials
 from events.models import Event
 from ingestion.models import Job
 from ingestion.providers import get_provider_specs
-from ingestion.services.jobs import queue_sync_jobs
+from ingestion.services.refresh import queue_workspace_refresh
 
 
 STATUS_LABELS = {
@@ -121,7 +121,16 @@ def connect_provider(request, source: str):
                 "updated_at",
             ]
         )
-        messages.success(request, f"Connected {spec.label} successfully.")
+        initial_refresh = queue_workspace_refresh(
+            workspace=request.workspace,
+            created_by=request.user,
+            connector_account_id=account.id,
+            reason="connect",
+        )
+        if initial_refresh.jobs:
+            messages.success(request, f"Connected {spec.label}. Initial refresh queued.")
+        else:
+            messages.success(request, f"Connected {spec.label} successfully.")
         return redirect("plugins_view")
 
     account.status = ConnectorAccount.STATUS_ERROR
@@ -294,13 +303,14 @@ def sync_connector_account_view(request, account_id: int):
         return redirect("plugins_view")
 
     full_sync = request.POST.get("full_sync") in {"1", "true", "on"}
-    jobs = queue_sync_jobs(
+    result = queue_workspace_refresh(
         workspace=request.workspace,
         created_by=request.user,
         connector_account_id=account.id,
-        full_sync=full_sync,
+        force_full=full_sync,
+        reason="manual",
     )
-    if not jobs:
+    if not result.jobs:
         messages.warning(request, "Connector is not active yet.")
         return redirect("plugins_view")
     messages.success(request, "Sync job queued.")

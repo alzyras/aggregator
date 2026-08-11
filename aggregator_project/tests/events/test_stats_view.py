@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -10,6 +10,7 @@ from django.utils import timezone
 from connectors.models import ConnectorAccount
 from events.models import Event
 from ingestion.models import Job
+from planner.models import PlannerItem, PlannerItemState, PlannerPlan
 from workspaces.models import Workspace, WorkspaceMember
 
 
@@ -89,6 +90,45 @@ class StatsViewTests(TestCase):
             created_by=self.user,
         )
 
+    def _create_plan(self, *, workspace, user) -> PlannerPlan:
+        return PlannerPlan.objects.create(
+            workspace=workspace,
+            user=user,
+            name=f"{user.username} plan",
+            timezone="UTC",
+        )
+
+    def _create_planner_state(
+        self,
+        *,
+        plan: PlannerPlan,
+        workspace: Workspace,
+        user,
+        source: str,
+        source_entity_id: str,
+        planned_start=None,
+        completed_at=None,
+        estimated_minutes: int | None = None,
+    ) -> PlannerItemState:
+        item = PlannerItem.objects.create(
+            workspace=workspace,
+            user=user,
+            source=source,
+            source_entity_id=source_entity_id,
+            title=f"Task {source_entity_id}",
+        )
+        return PlannerItemState.objects.create(
+            plan=plan,
+            item=item,
+            planned_start=planned_start,
+            completed_at=completed_at,
+            estimated_minutes=estimated_minutes,
+        )
+
+    def _week_datetime(self, *, day_offset: int, hour: int = 9):
+        week_start = timezone.localdate() - timedelta(days=timezone.localdate().weekday())
+        return timezone.make_aware(datetime.combine(week_start + timedelta(days=day_offset), time(hour)))
+
     def test_stats_view_returns_required_context_keys(self):
         connector = self._create_connector(
             workspace=self.workspace,
@@ -112,10 +152,131 @@ class StatsViewTests(TestCase):
         self.assertIn("completion_daily_series", response.context)
         self.assertIn("completion_monthly_series", response.context)
         self.assertIn("completion_source_totals", response.context)
+        self.assertIn("refresh_state", response.context)
+        self.assertIn("rhythm", response.context)
         self.assertIn("selected_source", response.context)
         self.assertIn("sync_source_rows", response.context)
         self.assertEqual(len(response.context["completion_daily_series"]), 30)
         self.assertEqual(len(response.context["completion_monthly_series"]), 12)
+        self.assertEqual(len(response.context["rhythm"]["weekday_series"]), 7)
+        self.assertTrue(response.context["rhythm"]["is_empty"])
+
+    def test_rhythm_is_scoped_to_the_current_users_plan_and_workspace(self):
+        own_plan = self._create_plan(workspace=self.workspace, user=self.user)
+        self._create_planner_state(
+            plan=own_plan,
+            workspace=self.workspace,
+            user=self.user,
+            source="manual",
+            source_entity_id="own-weekly-task",
+            planned_start=self._week_datetime(day_offset=0),
+            completed_at=self._week_datetime(day_offset=1),
+            estimated_minutes=35,
+        )
+
+        other_user = self._create_user("other-rhythm-user")
+        WorkspaceMember.objects.create(
+            workspace=self.workspace,
+            user=other_user,
+            role=WorkspaceMember.ROLE_OWNER,
+        )
+        other_users_plan = self._create_plan(workspace=self.workspace, user=other_user)
+        self._create_planner_state(
+            plan=other_users_plan,
+            workspace=self.workspace,
+            user=other_user,
+            source="manual",
+            source_entity_id="other-users-task",
+            planned_start=self._week_datetime(day_offset=0),
+            completed_at=self._week_datetime(day_offset=0),
+            estimated_minutes=120,
+        )
+
+        other_workspace = Workspace.objects.create(name="Rhythm Other Workspace")
+        other_workspace_plan = self._create_plan(workspace=other_workspace, user=self.user)
+        self._create_planner_state(
+            plan=other_workspace_plan,
+            workspace=other_workspace,
+            user=self.user,
+            source="manual",
+            source_entity_id="other-workspace-task",
+            planned_start=self._week_datetime(day_offset=0),
+            completed_at=self._week_datetime(day_offset=0),
+            estimated_minutes=240,
+        )
+
+        response = self.client.get(reverse("stats_view"), data={"nocache": "1"})
+
+        self.assertEqual(response.status_code, 200)
+        rhythm = response.context["rhythm"]
+        self.assertEqual(rhythm["planned_count"], 1)
+        self.assertEqual(rhythm["completed_count"], 1)
+        self.assertEqual(rhythm["planned_minutes"], 35)
+        self.assertEqual(rhythm["completion_rate"], 100)
+        self.assertEqual(sum(day["planned_count"] for day in rhythm["weekday_series"]), 1)
+        self.assertEqual(sum(day["completed_count"] for day in rhythm["weekday_series"]), 1)
+        self.assertEqual(rhythm["source_breakdown"][0]["source"], "manual")
+        self.assertEqual(rhythm["source_breakdown"][0]["task_count"], 1)
+
+    def test_rhythm_source_filter_scopes_personal_metrics_including_manual_tasks(self):
+        asana = self._create_connector(
+            workspace=self.workspace,
+            source="asana",
+            display_name="Asana Main",
+        )
+        habitica = self._create_connector(
+            workspace=self.workspace,
+            source="habitica",
+            display_name="Habitica Main",
+        )
+        plan = self._create_plan(workspace=self.workspace, user=self.user)
+        self._create_planner_state(
+            plan=plan,
+            workspace=self.workspace,
+            user=self.user,
+            source=asana.source,
+            source_entity_id="asana-weekly-task",
+            planned_start=self._week_datetime(day_offset=0),
+            completed_at=self._week_datetime(day_offset=0),
+            estimated_minutes=25,
+        )
+        self._create_planner_state(
+            plan=plan,
+            workspace=self.workspace,
+            user=self.user,
+            source=habitica.source,
+            source_entity_id="habitica-weekly-task",
+            planned_start=self._week_datetime(day_offset=1),
+            completed_at=self._week_datetime(day_offset=1),
+            estimated_minutes=50,
+        )
+        self._create_planner_state(
+            plan=plan,
+            workspace=self.workspace,
+            user=self.user,
+            source="manual",
+            source_entity_id="manual-weekly-task",
+            planned_start=self._week_datetime(day_offset=2),
+            completed_at=self._week_datetime(day_offset=2),
+            estimated_minutes=40,
+        )
+
+        response = self.client.get(
+            reverse("stats_view"),
+            data={"source": "manual", "nocache": "1"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["selected_source"], "manual")
+        rhythm = response.context["rhythm"]
+        self.assertEqual(rhythm["planned_count"], 1)
+        self.assertEqual(rhythm["completed_count"], 1)
+        self.assertEqual(rhythm["planned_minutes"], 40)
+        self.assertEqual(rhythm["completion_rate"], 100)
+        self.assertEqual(
+            [{"source": row["source"], "planned_minutes": row["planned_minutes"]} for row in rhythm["source_breakdown"]],
+            [{"source": "manual", "planned_minutes": 40}],
+        )
 
     def test_stats_view_source_filter_scopes_chart_data(self):
         asana = self._create_connector(

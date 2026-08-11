@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from ingestion.models import Job
 from ingestion.services.jobs import recover_stale_jobs, run_job
+from ingestion.services.refresh import maybe_queue_due_workspace_refreshes
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ def run_worker_loop(poll_seconds: int = 5) -> None:
         close_old_connections()
         try:
             recover_stale_jobs()
+            maybe_queue_due_workspace_refreshes()
             now = timezone.now()
             job = (
                 Job.objects

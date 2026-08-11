@@ -7,15 +7,23 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from django.db.models import Count, Q
+from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 
 from connectors.models import ConnectorAccount
 
+from ingestion.forms import WorkspaceRefreshPolicyForm
 from ingestion.models import Job
 from ingestion.providers import get_provider_choices
-from ingestion.services.jobs import queue_sync_jobs, recover_stale_jobs, run_job
+from ingestion.services.jobs import recover_stale_jobs, run_job
+from ingestion.services.refresh import (
+    get_workspace_refresh_snapshot,
+    queue_workspace_refresh,
+)
 from planner.models import PlannerStatusIntent
+from workspaces.models import WorkspaceMember
 
 RUN_STATUS_PRECEDENCE = (
     Job.STATUS_FAILED,
@@ -37,51 +45,71 @@ BUBBLE_STATUS_ALLOWED = {
 
 @login_required
 def sync_view(request):
+    refresh_state = get_workspace_refresh_snapshot(workspace=request.workspace)
+    policy = refresh_state["policy"]
+    can_manage_refresh = _can_manage_refresh(request)
+    refresh_form = WorkspaceRefreshPolicyForm(instance=policy)
     if request.method == "POST":
-        jobs = queue_sync_jobs(
-            workspace=request.workspace,
-            created_by=request.user,
-        )
-        if not jobs:
-            messages.warning(
+        action = request.POST.get("action", "refresh")
+        if action == "save_policy":
+            if not can_manage_refresh:
+                messages.error(request, "Only workspace owners and admins can change refresh settings.")
+                return redirect("sync_view")
+            refresh_form = WorkspaceRefreshPolicyForm(request.POST, instance=policy)
+            if refresh_form.is_valid():
+                refresh_form.save()
+                messages.success(request, "Refresh schedule saved.")
+                return redirect("sync_view")
+            refresh_state = get_workspace_refresh_snapshot(workspace=request.workspace)
+        else:
+            result = queue_workspace_refresh(
+                workspace=request.workspace,
+                created_by=request.user,
+                reason="manual",
+            )
+            jobs = list(result.jobs)
+            if not jobs:
+                messages.warning(
+                    request,
+                    "No active connector accounts need a refresh right now.",
+                )
+                return redirect("sync_view")
+
+            connector_labels = [_connector_label(job) for job in jobs]
+            connector_summary = ", ".join(connector_labels)
+
+            if settings.DEBUG and request.POST.get("run_immediately"):
+                results = []
+                for job in jobs:
+                    job_result = run_job(job.id)
+                    results.append((job_result, _connector_label(job_result)))
+                status_parts = [
+                    f"{label} — {job_result.status}" for job_result, label in results
+                ]
+                if any(job_result.status == Job.STATUS_FAILED for job_result, _label in results):
+                    messages.warning(
+                        request,
+                        "Sync completed with errors: " + "; ".join(status_parts),
+                    )
+                else:
+                    messages.success(
+                        request,
+                        "Sync completed: " + "; ".join(status_parts),
+                    )
+                return redirect("jobs_list")
+            messages.success(
                 request,
-                "No active connector accounts to sync. Add a connector and try again.",
+                f"Queued {len(jobs)} refresh jobs: {connector_summary}.",
             )
             return redirect("sync_view")
 
-        connector_labels = [_connector_label(job) for job in jobs]
-        connector_summary = ", ".join(connector_labels)
-
-        if settings.DEBUG and request.POST.get("run_immediately"):
-            results = []
-            for job in jobs:
-                result = run_job(job.id)
-                results.append((result, _connector_label(result)))
-            status_parts = [
-                f"{label} — {result.status}" for result, label in results
-            ]
-            if any(result.status == Job.STATUS_FAILED for result, _label in results):
-                messages.warning(
-                    request,
-                    "Sync completed with errors: " + "; ".join(status_parts),
-                )
-            else:
-                messages.success(
-                    request,
-                    "Sync completed: " + "; ".join(status_parts),
-                )
-            return redirect("jobs_list")
-        messages.success(
-            request,
-            f"Queued {len(jobs)} sync jobs: {connector_summary}.",
-        )
-        return redirect("sync_view")
+        if refresh_form.errors:
+            messages.error(request, "Check the refresh settings and try again.")
 
     status_filter = (request.GET.get("status") or "").strip()
     allowed_statuses = {value for value, _label in Job.STATUS_CHOICES}
     if status_filter not in allowed_statuses:
         status_filter = ""
-
     sync_jobs = list(
         Job.objects.for_workspace(request.workspace)
         .filter(job_type="sync")
@@ -93,15 +121,56 @@ def sync_view(request):
         sync_jobs=sync_jobs,
         status_filter=status_filter,
     )
+    return render(
+        request,
+        "sync.html",
+        {
+            "debug": settings.DEBUG,
+            "source_choices": get_provider_choices(),
+            "status_filter": status_filter,
+            "status_choices": Job.STATUS_CHOICES,
+            "refresh_state": refresh_state,
+            "refresh_form": refresh_form,
+            "can_manage_refresh": can_manage_refresh,
+            **dashboard,
+        },
+    )
 
-    context = {
-        "debug": settings.DEBUG,
-        "source_choices": get_provider_choices(),
-        "status_filter": status_filter,
-        "status_choices": Job.STATUS_CHOICES,
-        **dashboard,
-    }
-    return render(request, "sync.html", context)
+
+@login_required
+@require_POST
+def refresh_now(request):
+    result = queue_workspace_refresh(
+        workspace=request.workspace,
+        created_by=request.user,
+        reason="manual",
+    )
+    snapshot = get_workspace_refresh_snapshot(workspace=request.workspace)
+    return JsonResponse(
+        {
+            "status": "ok",
+            "queued": result.queued_count,
+            "full_sync_count": result.full_sync_count,
+            "incremental_sync_count": result.incremental_sync_count,
+            "refreshing_count": snapshot["refreshing_count"],
+            "failed_count": snapshot["failed_count"],
+            "is_current": snapshot["is_current"],
+            "has_connected_sources": snapshot["has_connected_sources"],
+            "latest_updated_at": (
+                snapshot["latest_updated_at"].isoformat()
+                if snapshot["latest_updated_at"]
+                else None
+            ),
+        }
+    )
+
+
+def _can_manage_refresh(request) -> bool:
+    return WorkspaceMember.objects.filter(
+        workspace=request.workspace,
+        user=request.user,
+        role__in=[WorkspaceMember.ROLE_OWNER, WorkspaceMember.ROLE_ADMIN],
+    ).exists()
 
 
 @login_required

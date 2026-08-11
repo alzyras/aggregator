@@ -7,8 +7,10 @@ from planner import views
 urlpatterns = [
     path("", views.planner_list, name="planner_list"),
     path("calendar/", views.planner_calendar, name="planner_calendar"),
+    path("item/create", views.create_personal_task, name="planner_item_create"),
     path("item/<int:item_id>/status", views.update_planned_status, name="planner_item_status"),
     path("item/<int:item_id>/planner-status", views.update_planner_status, name="planner_item_planner_status"),
+    path("item/<int:item_id>/details", views.update_planner_details, name="planner_item_details"),
     path("item/<int:item_id>/description", views.update_description, name="planner_item_description"),
     path("item/<int:item_id>/writeback/retry", views.retry_status_writeback, name="planner_item_writeback_retry"),
     path(

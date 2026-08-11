@@ -520,6 +520,36 @@ class PlannerTests(TestCase):
         inbox = next(tab for tab in response.context["tab_items"] if tab["value"] == PlannerItemState.PLANNER_STATUS_INBOX)
         self.assertEqual([row.item.id for row in inbox["items"][:2]], [source_newer.id, local_newer.id])
 
+    def test_planner_inbox_uses_local_created_at_when_source_timestamp_missing(self):
+        source_older = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=None,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-source-older",
+            title="Source Older",
+            source_created_at=timezone.now() - timedelta(days=2),
+            last_synced_at=timezone.now(),
+        )
+        imported_newer = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=None,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-imported-newer",
+            title="Imported Newer",
+            last_synced_at=timezone.now(),
+        )
+        PlannerItem.objects.filter(id=imported_newer.id).update(created_at=timezone.now())
+
+        response = self.client.get(reverse("planner_list"))
+
+        inbox = next(tab for tab in response.context["tab_items"] if tab["value"] == PlannerItemState.PLANNER_STATUS_INBOX)
+        self.assertEqual(
+            [row.item.id for row in inbox["items"][:2]],
+            [imported_newer.id, source_older.id],
+        )
+
     def test_planner_inbox_excludes_items_assigned_to_status_tabs(self):
         plan = PlannerPlan.objects.create(
             workspace=self.workspace,
@@ -1488,6 +1518,110 @@ class PlannerTests(TestCase):
         response = self.client.post(reverse("planner_add_from_sources"))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(PlannerItem.objects.count(), 1)
+
+    def test_create_personal_task_creates_local_item_and_planning_state(self):
+        response = self.client.post(
+            reverse("planner_item_create"),
+            data=json.dumps(
+                {
+                    "title": "Book dentist",
+                    "collection": "Personal",
+                    "notes": "Call after lunch",
+                    "estimated_minutes": 30,
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()["task"]
+        item = PlannerItem.objects.get(id=payload["item_id"])
+        state = PlannerItemState.objects.get(id=payload["state_id"])
+        self.assertEqual(item.workspace, self.workspace)
+        self.assertEqual(item.user, self.user)
+        self.assertEqual(item.source, PlannerItem.SOURCE_MANUAL)
+        self.assertIsNone(item.connector_account)
+        self.assertTrue(item.source_entity_id.startswith("manual-"))
+        self.assertEqual(item.title, "Book dentist")
+        self.assertEqual(state.planner_status, PlannerItemState.PLANNER_STATUS_BACKLOG)
+        self.assertEqual(state.planned_status, PlannerItemState.STATUS_PLANNED)
+        self.assertEqual(state.collection, "Personal")
+        self.assertEqual(state.notes, "Call after lunch")
+        self.assertEqual(state.estimated_minutes, 30)
+
+    def test_create_personal_task_rejects_blank_title(self):
+        response = self.client.post(
+            reverse("planner_item_create"),
+            data=json.dumps({"title": "   "}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(PlannerItem.objects.filter(source=PlannerItem.SOURCE_MANUAL).exists())
+
+    def test_schedule_endpoint_creates_and_promotes_an_unplanned_item(self):
+        PlannerPlan.objects.create(
+            workspace=self.workspace,
+            user=self.user,
+            name="My Plan",
+            timezone="UTC",
+        )
+        item = PlannerItem.objects.create(
+            workspace=self.workspace,
+            user=None,
+            connector_account=self.account,
+            source="asana",
+            source_entity_id="task-schedule-unplanned",
+            title="Schedule me",
+            last_synced_at=timezone.now(),
+        )
+        start = timezone.now() + timedelta(hours=1)
+        end = start + timedelta(minutes=30)
+
+        response = self.client.post(
+            reverse("planner_item_schedule", args=[item.id]),
+            data=json.dumps(
+                {
+                    "planned_start": start.isoformat(),
+                    "planned_end": end.isoformat(),
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        state = PlannerItemState.objects.get(item=item)
+        self.assertEqual(state.planner_status, PlannerItemState.PLANNER_STATUS_BACKLOG)
+        self.assertEqual(state.planned_status, PlannerItemState.STATUS_PLANNED)
+        self.assertEqual(state.planned_start, start)
+        self.assertEqual(state.planned_end, end)
+
+    def test_marking_personal_task_done_tracks_a_completion_timestamp(self):
+        response = self.client.post(
+            reverse("planner_item_create"),
+            data=json.dumps({"title": "Finish reflection"}),
+            content_type="application/json",
+        )
+        item_id = response.json()["task"]["item_id"]
+
+        done_response = self.client.post(
+            reverse("planner_item_planner_status", args=[item_id]),
+            data=json.dumps({"planner_status": PlannerItemState.PLANNER_STATUS_DONE}),
+            content_type="application/json",
+        )
+        self.assertEqual(done_response.status_code, 200)
+        state = PlannerItemState.objects.get(item_id=item_id)
+        self.assertEqual(state.planned_status, PlannerItemState.STATUS_DONE)
+        self.assertIsNotNone(state.completed_at)
+
+        reopened_response = self.client.post(
+            reverse("planner_item_planner_status", args=[item_id]),
+            data=json.dumps({"planner_status": PlannerItemState.PLANNER_STATUS_BACKLOG}),
+            content_type="application/json",
+        )
+        self.assertEqual(reopened_response.status_code, 200)
+        state.refresh_from_db()
+        self.assertIsNone(state.completed_at)
 
     def _create_user(self, username: str):
         user_model = get_user_model()
