@@ -36,6 +36,21 @@ class RuntimeConfigTests(TestCase):
         self.assertIn("Runtime config validation passed", out.getvalue())
 
     @override_settings(DEBUG=False, SECRET_KEY="production-secret")
+    def test_shared_cache_url_avoids_process_local_cache_warning(self):
+        env = {
+            "APP_ROLE": "worker",
+            "ENCRYPTION_KEY": "key",
+            "DB_DEPLOYMENT_MODE": "external",
+            "PGHOST": "db.example.com",
+            "CACHE_URL": "redis://redis:6379/1",
+        }
+        out = StringIO()
+        with patch.dict("os.environ", env, clear=True):
+            call_command("validate_runtime_config", stdout=out)
+
+        self.assertNotIn("process-local cache", out.getvalue())
+
+    @override_settings(DEBUG=False, SECRET_KEY="production-secret")
     def test_strict_mode_rejects_default_database_credentials_warning(self):
         env = {
             "APP_ROLE": "web",

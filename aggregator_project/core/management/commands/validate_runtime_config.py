@@ -20,6 +20,7 @@ class Command(BaseCommand):
         pg_host = os.getenv("PGHOST") or os.getenv("POSTGRES_HOST") or ""
         pg_user = os.getenv("PGUSER", "")
         pg_password = os.getenv("PGPASSWORD", "")
+        cache_url = os.getenv("CACHE_URL", "").strip()
         db_mode = os.getenv("DB_DEPLOYMENT_MODE", "").lower()
         ssl_redirect = (os.getenv("DJANGO_SECURE_SSL_REDIRECT", "1").lower() in {"1", "true", "yes", "on"})
         trust_proxy_ssl = (
@@ -45,6 +46,10 @@ class Command(BaseCommand):
             warnings.append("DB_DEPLOYMENT_MODE is not set; use 'built_in' or 'external' to document the DB choice.")
         if not settings.DEBUG and pg_user == "postgres" and pg_password == "postgres":
             warnings.append("Production deploy is using the default postgres/postgres database credentials.")
+        if not settings.DEBUG and not cache_url:
+            warnings.append(
+                "CACHE_URL is not configured; derived data will use a process-local cache."
+            )
         if not settings.DEBUG and not ssl_redirect:
             warnings.append("DJANGO_SECURE_SSL_REDIRECT is disabled while DJANGO_DEBUG=false.")
         if ssl_redirect and not trust_proxy_ssl:

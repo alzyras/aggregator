@@ -47,11 +47,12 @@ cp .env.example .env
 
 ## Docker / Portainer
 
-The production compose stack contains four services:
+The production compose stack contains five services:
 
 - `web`: Django + Gunicorn
 - `worker`: background job runner (`run_worker`)
 - `postgres`: PostgreSQL (default; override with external DB via `PGHOST`)
+- `redis`: shared, disposable cache for versioned derived read models
 - `cloudflared`: Cloudflare Tunnel connector when a tunnel token is configured
 
 Start locally with Docker Compose:
@@ -73,6 +74,7 @@ Portainer stack deployment:
 - `WEB_PORT` (host port, example `8000`)
 - `APP_PORT` (container app port, default `8000`)
 - `ENABLED_CONNECTORS` (optional comma-separated provider allowlist)
+- `CACHE_URL` (optional external Redis URL; defaults to the stack's `redis` service)
 4. Expose port `8000` from the `web` service.
 
 Optional startup flags:
@@ -176,6 +178,11 @@ the first full import, with a configurable full refresh interval as a safety
 net. `SYNC_INCREMENTAL_LOOKBACK_MINUTES` defaults to 5 to cover updates made
 while a sync is running; `AUTO_REFRESH_SCHEDULER_TICK_SECONDS` defaults to 60
 and only controls how often the worker evaluates due workspaces.
+
+The cache is shared by the web and worker containers in Docker. Cache keys carry
+the workspace cache version, which the worker advances after imported data
+changes. This makes old derived views unreachable immediately without making a
+cache restart or transient Redis outage block the planner or event views.
 
 Local queue operations:
 

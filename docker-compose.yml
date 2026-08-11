@@ -15,11 +15,22 @@ services:
       retries: 10
       start_period: 10s
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
   web:
     build:
       context: .
     depends_on:
       - postgres
+      - redis
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-insecure-secret-key}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-false}
@@ -34,6 +45,9 @@ services:
       DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS: ${DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS:-0}
       DJANGO_SECURE_HSTS_PRELOAD: ${DJANGO_SECURE_HSTS_PRELOAD:-0}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      CACHE_URL: ${CACHE_URL:-redis://redis:6379/1}
+      CACHE_DEFAULT_TIMEOUT_SECONDS: ${CACHE_DEFAULT_TIMEOUT_SECONDS:-300}
+      CACHE_KEY_PREFIX: ${CACHE_KEY_PREFIX:-aggregator}
       PGHOST: ${PGHOST:-postgres}
       PGPORT: ${PGPORT:-5432}
       PGUSER: ${PGUSER:-postgres}
@@ -84,6 +98,7 @@ services:
       context: .
     depends_on:
       - postgres
+      - redis
     environment:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-insecure-secret-key}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-false}
@@ -98,6 +113,9 @@ services:
       DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS: ${DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS:-0}
       DJANGO_SECURE_HSTS_PRELOAD: ${DJANGO_SECURE_HSTS_PRELOAD:-0}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      CACHE_URL: ${CACHE_URL:-redis://redis:6379/1}
+      CACHE_DEFAULT_TIMEOUT_SECONDS: ${CACHE_DEFAULT_TIMEOUT_SECONDS:-300}
+      CACHE_KEY_PREFIX: ${CACHE_KEY_PREFIX:-aggregator}
       PGHOST: ${PGHOST:-postgres}
       PGPORT: ${PGPORT:-5432}
       PGUSER: ${PGUSER:-postgres}

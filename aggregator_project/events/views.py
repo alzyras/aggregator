@@ -4,7 +4,6 @@ from calendar import monthrange
 from datetime import date, datetime, time, timedelta
 
 from django.contrib.auth.decorators import login_required
-from django.core.cache import cache
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.http import QueryDict
 from django.core.paginator import Paginator
@@ -18,7 +17,7 @@ from connectors.models import ConnectorAccount
 from events.models import Event
 from ingestion.models import Job
 from ingestion.providers import get_provider_choices
-from ingestion.services.cache import workspace_cache_key
+from ingestion.services.cache import cache_get, cache_set, workspace_cache_key
 from ingestion.services.refresh import get_workspace_refresh_snapshot
 from planner.models import PlannerItem, PlannerItemState, PlannerPlan
 
@@ -346,7 +345,7 @@ def stats_view(request):
         "stats",
         selected_source or "all",
     )
-    context = None if bypass_cache else cache.get(cache_key)
+    context = None if bypass_cache else cache_get(cache_key)
     if context is None:
         context = _build_stats_context(
             workspace=workspace,
@@ -354,7 +353,7 @@ def stats_view(request):
             selected_source=selected_source,
         )
         if not bypass_cache:
-            cache.set(cache_key, context, STATS_CACHE_TIMEOUT_SECONDS)
+            cache_set(cache_key, context, STATS_CACHE_TIMEOUT_SECONDS)
 
     source_filter_pills = [
         {

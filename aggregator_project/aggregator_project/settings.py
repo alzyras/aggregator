@@ -120,6 +120,33 @@ DATABASES = {
     }
 }
 
+CACHE_URL = (_env("CACHE_URL", "") or "").strip()
+CACHE_DEFAULT_TIMEOUT_SECONDS = max(
+    int(_env("CACHE_DEFAULT_TIMEOUT_SECONDS", "300") or "300"),
+    1,
+)
+CACHE_KEY_PREFIX = (_env("CACHE_KEY_PREFIX", "aggregator") or "aggregator").strip()
+
+if CACHE_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": CACHE_URL,
+            "TIMEOUT": CACHE_DEFAULT_TIMEOUT_SECONDS,
+            "KEY_PREFIX": CACHE_KEY_PREFIX,
+        }
+    }
+else:
+    # Local development stays zero-config; production Compose supplies Redis.
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "aggregator-local",
+            "TIMEOUT": CACHE_DEFAULT_TIMEOUT_SECONDS,
+            "KEY_PREFIX": CACHE_KEY_PREFIX,
+        }
+    }
+
 
 AUTH_PASSWORD_VALIDATORS = [
     {
